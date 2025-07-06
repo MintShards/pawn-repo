@@ -9,6 +9,7 @@ from app.models.user_model import User
 from app.models.customer_model import Customer
 from app.models.item_model import Item
 from app.models.transaction_model import Transaction
+from app.services.user_service import UserService
 from beanie import init_beanie
 from motor.motor_asyncio import AsyncIOMotorClient
 from app.api.api_v1.router import router
@@ -65,6 +66,16 @@ async def lifespan(app: FastAPI):
         )
         
         logger.info("Beanie ODM initialized successfully")
+        
+        # Check for first-time setup
+        setup_check = await UserService.check_first_time_setup()
+        if setup_check.is_first_time_setup:
+            logger.warning("⚠️  FIRST TIME SETUP REQUIRED")
+            logger.warning("⚠️  No users found in database")
+            logger.warning("⚠️  Access /docs and use POST /api/v1/auth/setup/admin to create first admin")
+        else:
+            logger.info(f"System has {setup_check.total_users} users, admin exists: {setup_check.admin_exists}")
+        
         logger.info(f"Application started successfully on {settings.PROJECT_NAME}")
         
     except Exception as e:
@@ -87,8 +98,29 @@ app = FastAPI(
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
     lifespan=lifespan,
     debug=settings.DEBUG,
-    description="Pawn Repo - Pawnshop Management System API",
-    version="1.0.0"
+    description="""
+    **Pawn Repo - Pawnshop Management System API**
+    
+    ## Authentication System
+    
+    This system uses a **PIN-based authentication** with 2-digit user IDs:
+    
+    ### For First Time Setup:
+    1. Check if setup is needed: `GET /api/v1/auth/setup/check`
+    2. Create first admin: `POST /api/v1/auth/setup/admin`
+    
+    ### For Regular Login:
+    1. Login with user number (10-99) and PIN: `POST /api/v1/auth/login`
+    2. Use the returned JWT token for authenticated requests
+    
+    ### User Management (Admin Only):
+    - Create users: `POST /api/v1/users/create`
+    - Users set their own PIN: `POST /api/v1/auth/pin/set/{user_number}`
+    - Reset PINs: `POST /api/v1/users/number/{user_number}/pin/reset`
+    
+    **Note**: Email and password authentication has been removed in favor of this PIN system.
+    """,
+    version="2.0.0"
 )
 
 # CORS configuration
@@ -125,11 +157,17 @@ async def health_check():
         else:
             db_status = "disconnected"
         
+        # Check first time setup status
+        setup_check = await UserService.check_first_time_setup()
+        
         return {
             "status": "healthy",
             "database": db_status,
             "application": settings.PROJECT_NAME,
-            "version": "1.0.0"
+            "version": "2.0.0",
+            "authentication": "PIN-based",
+            "first_time_setup_needed": setup_check.is_first_time_setup,
+            "total_users": setup_check.total_users
         }
     except Exception as e:
         logger.error(f"Health check failed: {str(e)}")
@@ -137,12 +175,36 @@ async def health_check():
 
 @app.get("/")
 async def root():
-    return {
-        "message": f"Welcome to {settings.PROJECT_NAME}",
-        "version": "1.0.0",
-        "docs": "/docs",
-        "health": "/health"
-    }
+    """Root endpoint with system information"""
+    try:
+        setup_check = await UserService.check_first_time_setup()
+        
+        response = {
+            "message": f"Welcome to {settings.PROJECT_NAME}",
+            "version": "2.0.0",
+            "authentication": "PIN-based (2-digit user ID + 4-10 digit PIN)",
+            "docs": "/docs",
+            "health": "/health"
+        }
+        
+        if setup_check.is_first_time_setup:
+            response["setup_required"] = True
+            response["setup_endpoint"] = "/api/v1/auth/setup/admin"
+            response["message"] += " - First time setup required"
+        else:
+            response["setup_required"] = False
+            response["login_endpoint"] = "/api/v1/auth/login"
+            response["total_users"] = setup_check.total_users
+        
+        return response
+    except Exception as e:
+        logger.error(f"Root endpoint error: {str(e)}")
+        return {
+            "message": f"Welcome to {settings.PROJECT_NAME}",
+            "version": "2.0.0",
+            "status": "Database connection issue",
+            "docs": "/docs"
+        }
 
 # Include API router
 app.include_router(router, prefix=settings.API_V1_STR)

@@ -1,77 +1,332 @@
 # backend/app/services/user_service.py
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from uuid import UUID
-from app.schemas.user_schema import UserAuth, UserUpdate
-from app.models.user_model import User
-from app.core.security import get_password, verify_password
+from datetime import datetime
+from app.schemas.user_schema import (
+    UserCreateByAdmin, UserSetPin, UserUpdatePin, UserUpdate, 
+    AdminCreateRequest, FirstTimeSetupCheck
+)
+from app.models.user_model import User, UserRole
+from app.core.security import get_password_hash, verify_password
+from beanie.operators import And
 import logging
 
 logger = logging.getLogger(__name__)
 
 class UserService:
-    @staticmethod
-    async def create_user(user: UserAuth):
-        user_in = User(
-            username=user.username,
-            email=user.email,
-            hashed_password=get_password(user.password),
-        )
-        await user_in.save()
-        return user_in
     
     @staticmethod
-    async def authenticate(email: str, password: str) -> Optional[User]:
-        user = await UserService.get_user_by_email(email=email)
-        if not user:
-            return None
-        if not verify_password(password=password, hashed_password=user.hashed_password):
+    async def check_first_time_setup() -> FirstTimeSetupCheck:
+        """Check if this is the first time setup (no users exist)"""
+        total_users = await User.find().count()
+        admin_exists = await User.find_one(User.role == UserRole.ADMIN) is not None
+        
+        return FirstTimeSetupCheck(
+            is_first_time_setup=total_users == 0,
+            total_users=total_users,
+            admin_exists=admin_exists
+        )
+    
+    @staticmethod
+    async def create_first_admin(admin_data: AdminCreateRequest) -> User:
+        """Create the first admin user during initial setup"""
+        # Verify this is actually first time setup
+        setup_check = await UserService.check_first_time_setup()
+        if not setup_check.is_first_time_setup:
+            raise ValueError("System already has users. Use regular admin user creation.")
+        
+        # Check if user number is available
+        existing_user = await User.find_one(User.user_number == admin_data.user_number)
+        if existing_user:
+            raise ValueError(f"User number {admin_data.user_number} is already taken")
+        
+        # Create admin user
+        hashed_pin = get_password_hash(admin_data.pin)
+        
+        user = User(
+            user_number=admin_data.user_number,
+            first_name=admin_data.first_name,
+            last_name=admin_data.last_name,
+            role=UserRole.ADMIN,
+            hashed_pin=hashed_pin,
+            pin_set=True,
+            is_active=True
+        )
+        
+        await user.save()
+        logger.info(f"Created first admin user #{user.user_number}")
+        return user
+    
+    @staticmethod
+    async def create_user_by_admin(user_data: UserCreateByAdmin, created_by: UUID) -> User:
+        """Create a new user (admin only)"""
+        # Verify the creator is an admin
+        admin = await User.find_one(User.user_id == created_by)
+        if not admin or not admin.is_admin:
+            raise ValueError("Only administrators can create new users")
+        
+        # Check if user number is available
+        existing_user = await User.find_one(User.user_number == user_data.user_number)
+        if existing_user:
+            raise ValueError(f"User number {user_data.user_number} is already taken")
+        
+        # Create user without PIN (they'll set it later)
+        user = User(
+            user_number=user_data.user_number,
+            first_name=user_data.first_name,
+            last_name=user_data.last_name,
+            role=user_data.role,
+            created_by=created_by,
+            pin_set=False,
+            is_active=True
+        )
+        
+        await user.save()
+        logger.info(f"Admin #{admin.user_number} created user #{user.user_number}")
+        return user
+    
+    @staticmethod
+    async def authenticate_user(user_number: int, pin: str) -> Optional[User]:
+        """Authenticate user with user number and PIN"""
+        user = await User.find_one(
+            And(
+                User.user_number == user_number,
+                User.is_active == True,
+                User.pin_set == True
+            )
+        )
+        
+        if not user or not user.hashed_pin:
             return None
         
-        return user
-
-    @staticmethod
-    async def get_user_by_email(email: str) -> Optional[User]:
-        user = await User.find_one(User.email == email)
+        if not verify_password(pin, user.hashed_pin):
+            return None
+        
+        # Update last login
+        user.update_last_login()
+        await user.save()
+        
         return user
     
     @staticmethod
-    async def get_user_by_id(id: UUID) -> Optional[User]:
-        user = await User.find_one(User.user_id == id)
+    async def set_user_pin(user_number: int, pin_data: UserSetPin) -> User:
+        """Set PIN for a user who doesn't have one yet"""
+        user = await User.find_one(
+            And(
+                User.user_number == user_number,
+                User.is_active == True
+            )
+        )
+        
+        if not user:
+            raise ValueError("User not found or inactive")
+        
+        if user.pin_set:
+            raise ValueError("User already has a PIN set. Use update PIN instead.")
+        
+        # Hash and save PIN
+        hashed_pin = get_password_hash(pin_data.pin)
+        user.hashed_pin = hashed_pin
+        user.pin_set = True
+        user.updated_at = datetime.utcnow()
+        
+        await user.save()
+        logger.info(f"User #{user.user_number} set their PIN")
         return user
-
+    
     @staticmethod
-    async def get_user_by_username(username: str) -> Optional[User]:
-        user = await User.find_one(User.username == username)
+    async def update_user_pin(user_id: UUID, pin_data: UserUpdatePin) -> User:
+        """Update PIN for an existing user"""
+        user = await User.find_one(User.user_id == user_id)
+        if not user:
+            raise ValueError("User not found")
+        
+        if not user.pin_set or not user.hashed_pin:
+            raise ValueError("User doesn't have a PIN set")
+        
+        # Verify current PIN
+        if not verify_password(pin_data.current_pin, user.hashed_pin):
+            raise ValueError("Current PIN is incorrect")
+        
+        # Update to new PIN
+        new_hashed_pin = get_password_hash(pin_data.new_pin)
+        user.hashed_pin = new_hashed_pin
+        user.updated_at = datetime.utcnow()
+        
+        await user.save()
+        logger.info(f"User #{user.user_number} updated their PIN")
         return user
-
+    
     @staticmethod
-    async def get_all_users(skip: int = 0, limit: int = 100) -> List[User]:
-        return await User.find().skip(skip).limit(limit).to_list()
-
+    async def get_user_by_id(user_id) -> Optional[User]:
+        """Get user by UUID - accepts both string and UUID types"""
+        # Handle both string and UUID types, and strip quotes if present
+        if isinstance(user_id, str):
+            # Strip surrounding quotes if present
+            user_id = user_id.strip('"\'')
+            try:
+                from uuid import UUID
+                user_id = UUID(user_id)
+            except ValueError:
+                return None
+        elif not hasattr(user_id, 'hex'):  # Not a UUID object
+            try:
+                from uuid import UUID
+                user_id = UUID(str(user_id))
+            except (ValueError, TypeError):
+                return None
+        
+        return await User.find_one(User.user_id == user_id)
+    
     @staticmethod
-    async def update_user(user_id: UUID, user_data: UserUpdate) -> Optional[User]:
+    async def get_user_by_number(user_number: int) -> Optional[User]:
+        """Get user by user number"""
+        return await User.find_one(User.user_number == user_number)
+    
+    @staticmethod
+    async def get_all_users(skip: int = 0, limit: int = 100, active_only: bool = False) -> List[User]:
+        """Get all users with optional filtering"""
+        query = User.find()
+        
+        if active_only:
+            query = query.find(User.is_active == True)
+        
+        return await query.skip(skip).limit(limit).to_list()
+    
+    @staticmethod
+    async def update_user(user_id: UUID, user_data: UserUpdate, updated_by: UUID) -> Optional[User]:
+        """Update user details (admin only for role changes)"""
         user = await UserService.get_user_by_id(user_id)
         if not user:
             return None
         
+        admin = await User.find_one(User.user_id == updated_by)
+        if not admin:
+            raise ValueError("Invalid admin user")
+        
         update_data = user_data.dict(exclude_unset=True)
+        
+        # Only admins can change roles or active status
+        if ('role' in update_data or 'is_active' in update_data) and not admin.is_admin:
+            raise ValueError("Only administrators can change user roles or status")
+        
         if update_data:
+            update_data["updated_at"] = datetime.utcnow()
             await user.update({"$set": update_data})
             return await UserService.get_user_by_id(user_id)
         return user
-
+    
     @staticmethod
-    async def delete_user(user_id: UUID) -> bool:
+    async def delete_user(user_id: UUID, deleted_by: UUID) -> bool:
+        """Soft delete user (admin only)"""
+        admin = await User.find_one(User.user_id == deleted_by)
+        if not admin or not admin.is_admin:
+            raise ValueError("Only administrators can delete users")
+        
         user = await UserService.get_user_by_id(user_id)
-        if user:
-            await user.delete()
-            return True
-        return False
-
+        if not user:
+            return False
+        
+        # Prevent deleting the last admin
+        if user.is_admin:
+            admin_count = await User.find(User.role == UserRole.ADMIN).count()
+            if admin_count <= 1:
+                raise ValueError("Cannot delete the last administrator")
+        
+        # Soft delete by deactivating
+        user.is_active = False
+        user.updated_at = datetime.utcnow()
+        await user.save()
+        
+        logger.info(f"Admin #{admin.user_number} deactivated user #{user.user_number}")
+        return True
+    
     @staticmethod
-    async def disable_user(user_id: UUID) -> Optional[User]:
-        return await UserService.update_user(user_id, UserUpdate(disabled=True))
-
+    async def reset_user_pin(user_number: int, reset_by: UUID) -> User:
+        """Reset user PIN (admin only) - user will need to set new PIN"""
+        admin = await User.find_one(User.user_id == reset_by)
+        if not admin or not admin.is_admin:
+            raise ValueError("Only administrators can reset PINs")
+        
+        user = await User.find_one(User.user_number == user_number)
+        if not user:
+            raise ValueError("User not found")
+        
+        # Reset PIN
+        user.hashed_pin = None
+        user.pin_set = False
+        user.updated_at = datetime.utcnow()
+        
+        await user.save()
+        logger.info(f"Admin #{admin.user_number} reset PIN for user #{user.user_number}")
+        return user
+    
     @staticmethod
-    async def enable_user(user_id: UUID) -> Optional[User]:
-        return await UserService.update_user(user_id, UserUpdate(disabled=False))
+    async def check_user_number_available(user_number: int) -> bool:
+        """Check if a user number is available"""
+        existing_user = await User.find_one(User.user_number == user_number)
+        return existing_user is None
+    
+    @staticmethod
+    async def get_next_available_user_number() -> Optional[int]:
+        """Get the next available user number (10-99)"""
+        used_numbers = await User.find().distinct("user_number")
+        used_set = set(used_numbers)
+        
+        for num in range(10, 100):
+            if num not in used_set:
+                return num
+        
+        return None  # All numbers are taken
+    
+    @staticmethod
+    def validate_pin_strength(pin: str) -> dict:
+        """Validate PIN strength and provide feedback"""
+        feedback = []
+        suggestions = []
+        score = 1
+        
+        # Length check
+        if len(pin) < 6:
+            feedback.append("PIN is short")
+            suggestions.append("Use at least 6 digits for better security")
+        else:
+            score += 1
+        
+        # Check for common patterns
+        if pin in ['1234', '0000', '1111', '2222', '3333', '4444', '5555', '6666', '7777', '8888', '9999']:
+            feedback.append("PIN uses common pattern")
+            suggestions.append("Avoid sequential or repeated digits")
+        else:
+            score += 1
+        
+        # Check for ascending/descending sequences
+        is_ascending = all(int(pin[i]) == int(pin[i-1]) + 1 for i in range(1, len(pin)))
+        is_descending = all(int(pin[i]) == int(pin[i-1]) - 1 for i in range(1, len(pin)))
+        
+        if is_ascending or is_descending:
+            feedback.append("PIN uses sequential pattern")
+            suggestions.append("Mix up the digit order")
+        else:
+            score += 1
+        
+        # Check for repeated digits
+        unique_digits = len(set(pin))
+        if unique_digits < len(pin) // 2:
+            feedback.append("PIN has too many repeated digits")
+            suggestions.append("Use more varied digits")
+        else:
+            score += 1
+        
+        # Length bonus
+        if len(pin) >= 8:
+            score += 1
+        
+        is_strong = score >= 4 and len(feedback) == 0
+        
+        return {
+            "is_strong": is_strong,
+            "score": min(score, 5),
+            "feedback": feedback,
+            "suggestions": suggestions
+        }
