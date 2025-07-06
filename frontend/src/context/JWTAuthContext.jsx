@@ -1,82 +1,84 @@
-import { createContext, useEffect, useReducer, useRef } from 'react';
-import axiosInstance from '../services/axios';
+// JWTAuthContext.jsx - Updated for PIN Authentication System
+import { createContext, useEffect, useReducer } from 'react';
 import { setSession, resetSession } from '../utils/sessions';
 import validateToken from '../utils/jwt';
+import axios from 'axios';
+
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api/v1';
 
 const initialState = {
     isAuthenticated: false,
     isInitialized: false,
     user: null,
+    token: null
+};
+
+const reducer = (state, action) => {
+    switch (action.type) {
+        case 'INITIAL': {
+            const { isAuthenticated, user } = action.payload;
+            return {
+                ...state,
+                isAuthenticated,
+                isInitialized: true,
+                user
+            };
+        }
+        case 'LOGIN': {
+            const { user, token } = action.payload;
+            return {
+                ...state,
+                isAuthenticated: true,
+                user,
+                token
+            };
+        }
+        case 'LOGOUT': {
+            return {
+                ...state,
+                isAuthenticated: false,
+                user: null,
+                token: null
+            };
+        }
+        default:
+            return state;
+    }
 };
 
 export const AuthContext = createContext({
     ...initialState,
     login: () => Promise.resolve(),
-    logout: () => Promise.resolve(),
+    logout: () => {},
+    checkFirstTimeSetup: () => Promise.resolve(),
+    createFirstAdmin: () => Promise.resolve()
 });
 
-const handlers = {
-    INITIALIZE: (state, action) => {
-        const { isAuthenticated, user } = action.payload;
-        return {
-            ...state,
-            isAuthenticated,
-            isInitialized: true,
-            user
-        };
-    },
-    LOGIN: (state, action) => {
-        const { user } = action.payload;
-        return {
-            ...state,
-            isAuthenticated: true,
-            user
-        };
-    },
-    LOGOUT: (state) => {
-        return {
-            ...state,
-            isAuthenticated: false,
-            user: null
-        };
-    }
-};
-
-const reducer = (state, action) => 
-    handlers[action.type] ? handlers[action.type](state, action) : state;
-
-export const AuthProvider = (props) => {
-    const { children } = props;
+export const AuthProvider = ({ children }) => {
     const [state, dispatch] = useReducer(reducer, initialState);
-    const isInitialized = useRef(false);
 
     useEffect(() => {
-        // Prevent multiple initialization calls
-        if (isInitialized.current) {
-            return;
-        }
-        
-        const initialize = async () => {
+        const init = async () => {
             try {
                 const accessToken = localStorage.getItem('accessToken');
+                
                 if (accessToken && validateToken(accessToken)) {
                     setSession(accessToken);
-                    const response = await axiosInstance.get('/user/me');
-                    const { data: user } = response.data;
+                    
+                    // Test the token and get user info
+                    const response = await axios.post(`${API_BASE}/auth/test-token`);
+                    const user = response.data;
+                    
                     dispatch({
-                        type: 'INITIALIZE',
+                        type: 'INITIAL',
                         payload: {
                             isAuthenticated: true,
                             user
                         }
                     });
                 } else {
-                    // Clear invalid token if it exists
-                    if (accessToken) {
-                        resetSession();
-                    }
                     dispatch({
-                        type: 'INITIALIZE',
+                        type: 'INITIAL',
                         payload: {
                             isAuthenticated: false,
                             user: null
@@ -85,9 +87,9 @@ export const AuthProvider = (props) => {
                 }
             } catch (error) {
                 console.error('Auth initialization error:', error);
-                resetSession(); // Clear potentially invalid session
+                resetSession();
                 dispatch({
-                    type: 'INITIALIZE',
+                    type: 'INITIAL',
                     payload: {
                         isAuthenticated: false,
                         user: null
@@ -96,39 +98,117 @@ export const AuthProvider = (props) => {
             }
         };
 
-        initialize();
-        isInitialized.current = true;
+        init();
     }, []);
 
-    const getTokens = async (email, password) => {
-        const formData = new FormData();
-        formData.append('username', email);
-        formData.append('password', password);
+    // Check if first time setup is needed
+    const checkFirstTimeSetup = async () => {
         try {
-            const response = await axiosInstance.post('/auth/login', formData);
-            setSession(response.data.accessToken, response.data.refreshToken);  
+            const response = await axios.get(`${API_BASE}/auth/setup/check`);
+            return response.data;
         } catch (error) {
+            console.error('Error checking setup status:', error);
+            throw new Error('Failed to check system setup status');
+        }
+    };
+
+    // Create first admin user
+    const createFirstAdmin = async (adminData) => {
+        try {
+            const response = await axios.post(`${API_BASE}/auth/setup/admin`, adminData);
+            return response.data;
+        } catch (error) {
+            console.error('Error creating first admin:', error);
+            const errorMessage = error.response?.data?.detail || 'Failed to create admin user';
+            throw new Error(errorMessage);
+        }
+    };
+
+    // Login with user number and PIN
+    const login = async (userNumber, pin) => {
+        try {
+            const loginData = {
+                user_number: parseInt(userNumber),
+                pin: pin
+            };
+
+            const response = await axios.post(`${API_BASE}/auth/login`, loginData);
+            const { access_token, refresh_token, user } = response.data;
+
+            setSession(access_token, refresh_token);
+            
+            dispatch({
+                type: 'LOGIN',
+                payload: {
+                    user,
+                    token: access_token
+                }
+            });
+
+            return { user, token: access_token };
+        } catch (error) {
+            console.error('Login error:', error);
+            const errorMessage = error.response?.data?.detail || 'Invalid user number or PIN';
+            throw new Error(errorMessage);
+        }
+    };
+
+    // Logout
+    const logout = () => {
+        resetSession();
+        dispatch({ type: 'LOGOUT' });
+    };
+
+    // Refresh token
+    const refreshToken = async () => {
+        try {
+            const refreshToken = localStorage.getItem('refreshToken');
+            if (!refreshToken) {
+                throw new Error('No refresh token available');
+            }
+
+            const response = await axios.post(`${API_BASE}/auth/refresh`, {
+                refresh_token: refreshToken
+            });
+
+            const { access_token, refresh_token: newRefreshToken } = response.data;
+            setSession(access_token, newRefreshToken);
+
+            return access_token;
+        } catch (error) {
+            console.error('Token refresh error:', error);
+            logout();
             throw error;
         }
     };
 
-    const login = async (email, password) => {
+    // Update user PIN
+    const updateUserPin = async (currentPin, newPin) => {
         try {
-            await getTokens(email, password);
-            const response = await axiosInstance.get('/user/me');
-            const { data: user } = response.data;
-            dispatch({
-                type: 'LOGIN',
-                payload: { user }
+            const response = await axios.post(`${API_BASE}/users/me/pin/update`, {
+                current_pin: currentPin,
+                new_pin: newPin,
+                confirm_new_pin: newPin
             });
+            return response.data;
         } catch (error) {
-            return Promise.reject(error);
+            console.error('PIN update error:', error);
+            const errorMessage = error.response?.data?.detail || 'Failed to update PIN';
+            throw new Error(errorMessage);
         }
     };
 
-    const logout = async () => {
-        resetSession();
-        dispatch({ type: 'LOGOUT' });
+    // Check PIN strength
+    const checkPinStrength = async (pin) => {
+        try {
+            const response = await axios.post(`${API_BASE}/auth/pin/check-strength`, {
+                pin: pin
+            });
+            return response.data;
+        } catch (error) {
+            console.error('PIN strength check error:', error);
+            return { is_strong: false, score: 1, feedback: ['Unable to check PIN strength'], suggestions: [] };
+        }
     };
 
     return (
@@ -137,6 +217,11 @@ export const AuthProvider = (props) => {
                 ...state,
                 login,
                 logout,
+                refreshToken,
+                checkFirstTimeSetup,
+                createFirstAdmin,
+                updateUserPin,
+                checkPinStrength
             }}
         >
             {children}
@@ -144,4 +229,4 @@ export const AuthProvider = (props) => {
     );
 };
 
-export default AuthProvider;
+export const AuthConsumer = AuthContext.Consumer;
