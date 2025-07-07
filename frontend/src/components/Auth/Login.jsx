@@ -160,15 +160,14 @@ export const Login = () => {
                                 max={99}
                                 {...register('user_number', {
                                     required: 'User number is required',
-                                    min: {
-                                        value: 10,
-                                        message: 'User number must be between 10 and 99'
-                                    },
-                                    max: {
-                                        value: 99,
-                                        message: 'User number must be between 10 and 99'
-                                    },
-                                    valueAsNumber: true
+                                    validate: {
+                                        isNumber: value => {
+                                            const num = parseInt(value);
+                                            if (isNaN(num)) return 'Please enter a valid number';
+                                            if (num < 10 || num > 99) return 'User number must be between 10 and 99';
+                                            return true;
+                                        }
+                                    }
                                 })}
                             />
                             <FormErrorMessage>
