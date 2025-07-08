@@ -22,7 +22,6 @@ import {
     MenuItem,
     MenuDivider,
     Badge,
-    Tooltip,
     useToast
 } from '@chakra-ui/react';
 import {
@@ -36,13 +35,9 @@ import {
     FiLogOut,
     FiUser,
     FiLock,
-    FiSun,
-    FiMoon,
-    FiFileText
 } from 'react-icons/fi';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { useColorMode } from '@chakra-ui/react';
 import ThemeToggler from '../Theme/ThemeToggler';
 
 const Layout = () => {

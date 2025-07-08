@@ -2,9 +2,8 @@
 import { createContext, useEffect, useReducer } from 'react';
 import { setSession, resetSession } from '../utils/sessions';
 import validateToken from '../utils/jwt';
-import axios from 'axios';
+import axiosInstance from '../services/axios';
 
-const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api/v1';
 
 const initialState = {
     isAuthenticated: false,
@@ -66,7 +65,7 @@ export const AuthProvider = ({ children }) => {
                     setSession(accessToken);
                     
                     // Test the token and get user info
-                    const response = await axios.post(`${API_BASE}/auth/test-token`);
+                    const response = await axiosInstance.post('/auth/test-token');
                     const user = response.data;
                     
                     dispatch({
@@ -104,7 +103,7 @@ export const AuthProvider = ({ children }) => {
     // Check if first time setup is needed
     const checkFirstTimeSetup = async () => {
         try {
-            const response = await axios.get(`${API_BASE}/auth/setup/check`);
+            const response = await axiosInstance.get('/auth/setup/check');
             return response.data;
         } catch (error) {
             console.error('Error checking setup status:', error);
@@ -115,7 +114,7 @@ export const AuthProvider = ({ children }) => {
     // Create first admin user
     const createFirstAdmin = async (adminData) => {
         try {
-            const response = await axios.post(`${API_BASE}/auth/setup/admin`, adminData);
+            const response = await axiosInstance.post('/auth/setup/admin', adminData);
             return response.data;
         } catch (error) {
             console.error('Error creating first admin:', error);
@@ -132,7 +131,7 @@ export const AuthProvider = ({ children }) => {
                 pin: pin
             };
 
-            const response = await axios.post(`${API_BASE}/auth/login`, loginData);
+            const response = await axiosInstance.post('/auth/login', loginData);
             const { access_token, refresh_token, user } = response.data;
 
             setSession(access_token, refresh_token);
@@ -167,7 +166,7 @@ export const AuthProvider = ({ children }) => {
                 throw new Error('No refresh token available');
             }
 
-            const response = await axios.post(`${API_BASE}/auth/refresh`, {
+            const response = await axiosInstance.post('/auth/refresh', {
                 refresh_token: refreshToken
             });
 
@@ -185,7 +184,7 @@ export const AuthProvider = ({ children }) => {
     // Update user PIN
     const updateUserPin = async (currentPin, newPin) => {
         try {
-            const response = await axios.post(`${API_BASE}/users/me/pin/update`, {
+            const response = await axiosInstance.post('/users/me/pin/update', {
                 current_pin: currentPin,
                 new_pin: newPin,
                 confirm_new_pin: newPin
@@ -201,7 +200,7 @@ export const AuthProvider = ({ children }) => {
     // Check PIN strength
     const checkPinStrength = async (pin) => {
         try {
-            const response = await axios.post(`${API_BASE}/auth/pin/check-strength`, {
+            const response = await axiosInstance.post('/auth/pin/check-strength', {
                 pin: pin
             });
             return response.data;

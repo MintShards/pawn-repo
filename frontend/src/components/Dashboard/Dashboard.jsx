@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
     Box,
     Grid,
@@ -16,13 +16,6 @@ import {
     HStack,
     Button,
     Badge,
-    Table,
-    Thead,
-    Tbody,
-    Tr,
-    Th,
-    Td,
-    TableContainer,
     useColorModeValue,
     Alert,
     AlertIcon,
@@ -34,9 +27,6 @@ import {
     Flex,
     Spacer,
     Select,
-    Input,
-    InputGroup,
-    InputLeftElement
 } from '@chakra-ui/react';
 import { 
     FiDollarSign, 
@@ -44,12 +34,6 @@ import {
     FiPackage, 
     FiTrendingUp, 
     FiRefreshCw,
-    FiSearch,
-    FiAlertTriangle,
-    FiClock,
-    FiEye,
-    FiEdit,
-    FiPrinter
 } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 import axiosInstance from '../../services/axios';
@@ -78,7 +62,7 @@ const Dashboard = () => {
     const statBg = useColorModeValue('gray.50', 'gray.700');
     
     // Fetch dashboard data
-    const fetchDashboardData = async (showToast = false) => {
+    const fetchDashboardData = useCallback(async (showToast = false) => {
         try {
             setRefreshing(true);
             
@@ -119,11 +103,11 @@ const Dashboard = () => {
             setLoading(false);
             setRefreshing(false);
         }
-    };
+    }, [selectedDateRange, toast]);
     
     useEffect(() => {
         fetchDashboardData();
-    }, [selectedDateRange]);
+    }, [selectedDateRange, fetchDashboardData]);
     
     // Handle refresh
     const handleRefresh = () => {

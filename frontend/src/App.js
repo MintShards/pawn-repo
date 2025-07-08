@@ -72,6 +72,7 @@ const App = () => {
                 <Route path="customers/:customerId" element={<div>Customer Details (Coming Soon)</div>} />
                 <Route path="customers/:customerId/edit" element={<CustomerForm />} />
                 
+                
                 {/* Transaction Management */}
                 <Route path="transactions" element={<TransactionList />} />
                 <Route path="transactions/new" element={<NewPawnLoan />} />

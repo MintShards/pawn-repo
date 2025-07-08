@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
     Box,
     Button,
@@ -19,7 +19,6 @@ import {
     Alert,
     AlertIcon,
     Flex,
-    Spacer,
     IconButton,
     Tooltip,
     NumberInput,
@@ -47,7 +46,7 @@ import {
     InputGroup,
     InputLeftElement
 } from '@chakra-ui/react';
-import { FiArrowLeft, FiSave, FiUser, FiPackage, FiDollarSign, FiSearch, FiEye, FiPlus } from 'react-icons/fi';
+import { FiArrowLeft, FiSave, FiUser, FiPackage, FiDollarSign, FiSearch, FiPlus } from 'react-icons/fi';
 import { useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
 import axiosInstance from '../../services/axios';
@@ -57,7 +56,7 @@ const NewPawnLoan = () => {
     const toast = useToast();
     const { isOpen, onOpen, onClose } = useDisclosure();
     
-    const { register, handleSubmit, formState: { errors, isSubmitting }, setValue, watch } = useForm();
+    const { register, handleSubmit, formState: { errors, isSubmitting }, setValue } = useForm();
     const [selectedCustomer, setSelectedCustomer] = useState(null);
     const [customers, setCustomers] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
@@ -69,7 +68,7 @@ const NewPawnLoan = () => {
     const textColor = useColorModeValue('gray.600', 'gray.300');
     
     // Search customers
-    const searchCustomers = async (query) => {
+    const searchCustomers = useCallback(async (query) => {
         if (!query || query.length < 2) {
             setCustomers([]);
             return;
@@ -91,7 +90,7 @@ const NewPawnLoan = () => {
         } finally {
             setCustomerLoading(false);
         }
-    };
+    }, [toast]);
     
     // Search effect
     useEffect(() => {
@@ -100,7 +99,7 @@ const NewPawnLoan = () => {
         }, 300);
         
         return () => clearTimeout(delayedSearch);
-    }, [searchTerm]);
+    }, [searchTerm, searchCustomers]);
     
     // Handle customer selection
     const handleCustomerSelect = (customer) => {
@@ -127,15 +126,13 @@ const NewPawnLoan = () => {
                 customer_id: selectedCustomer.customer_id,
                 item: {
                     description: data.item_description,
-                    serial_number: data.serial_number || null,
-                    storage_location: data.storage_location || null,
                     notes: data.item_notes || null
                 },
                 loan_amount: parseFloat(data.loan_amount),
                 notes: data.transaction_notes || null
             };
             
-            const response = await axiosInstance.post('/transactions/pawn', pawnData);
+            await axiosInstance.post('/transactions/pawn', pawnData);
             
             toast({
                 title: 'Pawn Loan Created',
@@ -263,29 +260,11 @@ const NewPawnLoan = () => {
                                     </FormErrorMessage>
                                 </FormControl>
                                 
-                                <HStack spacing={4} w="100%">
-                                    <FormControl>
-                                        <FormLabel>Serial Number</FormLabel>
-                                        <Input
-                                            {...register('serial_number')}
-                                            placeholder="Serial number (if applicable)"
-                                        />
-                                    </FormControl>
-                                    
-                                    <FormControl>
-                                        <FormLabel>Storage Location</FormLabel>
-                                        <Input
-                                            {...register('storage_location')}
-                                            placeholder="Storage location (e.g., Shelf A-1)"
-                                        />
-                                    </FormControl>
-                                </HStack>
-                                
                                 <FormControl>
-                                    <FormLabel>Item Notes</FormLabel>
+                                    <FormLabel>Item Notes (Optional)</FormLabel>
                                     <Textarea
                                         {...register('item_notes')}
-                                        placeholder="Internal notes about the item condition, appraisal, etc."
+                                        placeholder="Additional notes about the item condition or value"
                                         rows={2}
                                     />
                                 </FormControl>
@@ -337,10 +316,10 @@ const NewPawnLoan = () => {
                                 </Alert>
                                 
                                 <FormControl>
-                                    <FormLabel>Transaction Notes</FormLabel>
+                                    <FormLabel>Transaction Notes (Optional)</FormLabel>
                                     <Textarea
                                         {...register('transaction_notes')}
-                                        placeholder="Any additional notes about this transaction"
+                                        placeholder="Any additional notes about this loan"
                                         rows={2}
                                     />
                                 </FormControl>

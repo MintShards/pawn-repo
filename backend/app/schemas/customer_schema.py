@@ -47,4 +47,4 @@ class CustomerSearch(BaseModel):
     query: Optional[str] = None
     phone: Optional[str] = None
     status: Optional[CustomerStatus] = None
-    is_active: Optional[bool] = True
+    is_active: Optional[bool] = None

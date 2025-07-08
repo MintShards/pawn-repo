@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
     Box,
     Button,
@@ -52,13 +52,7 @@ import {
     FiEye,
     FiDollarSign,
     FiRefreshCw,
-    FiCalendar,
-    FiUser,
-    FiPackage,
     FiPrinter,
-    FiCheckCircle,
-    FiXCircle,
-    FiClock
 } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 import axiosInstance from '../../services/axios';
@@ -90,7 +84,7 @@ const TransactionList = () => {
     const textColor = useColorModeValue('gray.600', 'gray.300');
     
     // Fetch transactions
-    const fetchTransactions = async () => {
+    const fetchTransactions = useCallback(async () => {
         try {
             setLoading(true);
             const response = await axiosInstance.get('/dashboard/recent-transactions?limit=50');
@@ -107,7 +101,7 @@ const TransactionList = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [toast]);
     
     // Fetch payment scenarios
     const fetchPaymentScenarios = async (loanId) => {
@@ -123,7 +117,7 @@ const TransactionList = () => {
     // Initial load
     useEffect(() => {
         fetchTransactions();
-    }, []);
+    }, [fetchTransactions]);
     
     // Filter transactions
     const filteredTransactions = transactions.filter(transaction => {
@@ -187,7 +181,7 @@ const TransactionList = () => {
         
         try {
             setPaymentLoading(true);
-            const response = await axiosInstance.post('/transactions/payment', {
+            await axiosInstance.post('/transactions/payment', {
                 loan_id: selectedTransaction.loan_id,
                 amount: parseFloat(paymentAmount),
                 notes: paymentNote || null

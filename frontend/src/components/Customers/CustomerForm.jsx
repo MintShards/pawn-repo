@@ -7,7 +7,6 @@ import {
     Text,
     Input,
     Textarea,
-    Select,
     FormControl,
     FormLabel,
     FormErrorMessage,
@@ -17,14 +16,11 @@ import {
     Heading,
     useColorModeValue,
     useToast,
-    Alert,
-    AlertIcon,
     Flex,
-    Spacer,
     IconButton,
     Tooltip
 } from '@chakra-ui/react';
-import { FiArrowLeft, FiSave, FiUser, FiPhone, FiMail, FiMapPin } from 'react-icons/fi';
+import { FiArrowLeft, FiSave, FiUser } from 'react-icons/fi';
 import { useForm } from 'react-hook-form';
 import { useNavigate, useParams } from 'react-router-dom';
 import axiosInstance from '../../services/axios';
@@ -35,9 +31,9 @@ const CustomerForm = () => {
     const isEdit = Boolean(customerId);
     const toast = useToast();
     
-    const { register, handleSubmit, formState: { errors, isSubmitting }, reset, watch } = useForm();
+    const { register, handleSubmit, formState: { errors, isSubmitting }, reset, setValue } = useForm();
     const [loading, setLoading] = useState(false);
-    const [customer, setCustomer] = useState(null);
+    const [phoneInput, setPhoneInput] = useState('');
     
     // Color mode values
     const cardBg = useColorModeValue('white', 'gray.800');
@@ -52,7 +48,6 @@ const CustomerForm = () => {
                     setLoading(true);
                     const response = await axiosInstance.get(`/customers/${customerId}`);
                     const customerData = response.data;
-                    setCustomer(customerData);
                     
                     // Reset form with customer data
                     reset({
@@ -60,14 +55,9 @@ const CustomerForm = () => {
                         last_name: customerData.last_name || '',
                         phone: customerData.phone || '',
                         email: customerData.email || '',
-                        address: customerData.address || '',
-                        city: customerData.city || '',
-                        state: customerData.state || '',
-                        zip_code: customerData.zip_code || '',
-                        id_type: customerData.id_type || '',
-                        id_number: customerData.id_number || '',
                         notes: customerData.notes || ''
                     });
+                    setPhoneInput(customerData.phone || '');
                 } catch (error) {
                     console.error('Error fetching customer:', error);
                     toast({
@@ -90,17 +80,11 @@ const CustomerForm = () => {
     // Handle form submission
     const onSubmit = async (data) => {
         try {
-            // Format phone number (remove any non-digits)
+            // Clean the form data
             const formattedData = {
                 ...data,
-                phone: data.phone.replace(/\D/g, ''),
+                phone: data.phone.replace(/\D/g, ''), // Remove any non-digits
                 email: data.email || null, // Allow empty email
-                address: data.address || null,
-                city: data.city || null,
-                state: data.state || null,
-                zip_code: data.zip_code || null,
-                id_type: data.id_type || null,
-                id_number: data.id_number || null,
                 notes: data.notes || null
             };
             
@@ -139,16 +123,6 @@ const CustomerForm = () => {
         }
     };
     
-    // Format phone number for display
-    const formatPhoneInput = (value) => {
-        if (!value) return '';
-        const phoneNumber = value.replace(/\D/g, '');
-        if (phoneNumber.length <= 3) return phoneNumber;
-        if (phoneNumber.length <= 6) return `(${phoneNumber.slice(0, 3)}) ${phoneNumber.slice(3)}`;
-        return `(${phoneNumber.slice(0, 3)}) ${phoneNumber.slice(3, 6)}-${phoneNumber.slice(6, 10)}`;
-    };
-    
-    const phoneValue = watch('phone');
     
     if (loading) {
         return (
@@ -175,7 +149,7 @@ const CustomerForm = () => {
                             {isEdit ? 'Edit Customer' : 'New Customer'}
                         </Heading>
                         <Text color={textColor}>
-                            {isEdit ? 'Update customer information' : 'Add a new customer to the system'}
+                            {isEdit ? 'Update customer information' : 'Add a new customer with essential details'}
                         </Text>
                     </VStack>
                 </HStack>
@@ -188,7 +162,7 @@ const CustomerForm = () => {
                         <CardHeader>
                             <HStack>
                                 <FiUser />
-                                <Heading size="md">Personal Information</Heading>
+                                <Heading size="md">Customer Information</Heading>
                             </HStack>
                         </CardHeader>
                         <CardBody>
@@ -231,21 +205,19 @@ const CustomerForm = () => {
                                     <FormControl isInvalid={errors.phone} isRequired>
                                         <FormLabel>Phone Number</FormLabel>
                                         <Input
-                                            {...register('phone', {
-                                                required: 'Phone number is required',
-                                                pattern: {
-                                                    value: /^\d{10}$/,
-                                                    message: 'Please enter a valid 10-digit phone number'
-                                                }
-                                            })}
-                                            placeholder="(555) 123-4567"
-                                            value={formatPhoneInput(phoneValue)}
+                                            value={phoneInput}
                                             onChange={(e) => {
-                                                const formatted = formatPhoneInput(e.target.value);
-                                                register('phone').onChange({
-                                                    target: { value: formatted }
-                                                });
+                                                setPhoneInput(e.target.value);
+                                                setValue('phone', e.target.value);
                                             }}
+                                            placeholder="5551234567"
+                                            autoComplete="tel"
+                                        />
+                                        <Input
+                                            {...register('phone', {
+                                                required: 'Phone number is required'
+                                            })}
+                                            style={{ display: 'none' }}
                                         />
                                         <FormErrorMessage>
                                             {errors.phone && errors.phone.message}
@@ -272,69 +244,6 @@ const CustomerForm = () => {
                         </CardBody>
                     </Card>
                     
-                    {/* Address Information */}
-                    <Card bg={cardBg} border="1px" borderColor={borderColor}>
-                        <CardHeader>
-                            <HStack>
-                                <FiMapPin />
-                                <Heading size="md">Address Information</Heading>
-                            </HStack>
-                        </CardHeader>
-                        <CardBody>
-                            <VStack spacing={4}>
-                                <FormControl>
-                                    <FormLabel>Street Address</FormLabel>
-                                    <Input {...register('address')} />
-                                </FormControl>
-                                
-                                <HStack spacing={4} w="100%">
-                                    <FormControl>
-                                        <FormLabel>City</FormLabel>
-                                        <Input {...register('city')} />
-                                    </FormControl>
-                                    
-                                    <FormControl>
-                                        <FormLabel>State</FormLabel>
-                                        <Input {...register('state')} />
-                                    </FormControl>
-                                    
-                                    <FormControl>
-                                        <FormLabel>ZIP Code</FormLabel>
-                                        <Input {...register('zip_code')} />
-                                    </FormControl>
-                                </HStack>
-                            </VStack>
-                        </CardBody>
-                    </Card>
-                    
-                    {/* ID Information */}
-                    <Card bg={cardBg} border="1px" borderColor={borderColor}>
-                        <CardHeader>
-                            <Heading size="md">ID Information</Heading>
-                        </CardHeader>
-                        <CardBody>
-                            <VStack spacing={4}>
-                                <HStack spacing={4} w="100%">
-                                    <FormControl>
-                                        <FormLabel>ID Type</FormLabel>
-                                        <Select {...register('id_type')}>
-                                            <option value="">Select ID Type</option>
-                                            <option value="drivers_license">Driver's License</option>
-                                            <option value="state_id">State ID</option>
-                                            <option value="passport">Passport</option>
-                                            <option value="military_id">Military ID</option>
-                                            <option value="other">Other</option>
-                                        </Select>
-                                    </FormControl>
-                                    
-                                    <FormControl>
-                                        <FormLabel>ID Number</FormLabel>
-                                        <Input {...register('id_number')} />
-                                    </FormControl>
-                                </HStack>
-                            </VStack>
-                        </CardBody>
-                    </Card>
                     
                     {/* Notes */}
                     <Card bg={cardBg} border="1px" borderColor={borderColor}>
@@ -343,11 +252,11 @@ const CustomerForm = () => {
                         </CardHeader>
                         <CardBody>
                             <FormControl>
-                                <FormLabel>Internal Notes</FormLabel>
+                                <FormLabel>Internal Notes (Optional)</FormLabel>
                                 <Textarea
                                     {...register('notes')}
-                                    placeholder="Internal notes about the customer (not visible to customer)"
-                                    rows={3}
+                                    placeholder="Any additional notes about the customer"
+                                    rows={2}
                                 />
                             </FormControl>
                         </CardBody>

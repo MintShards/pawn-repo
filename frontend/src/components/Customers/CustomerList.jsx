@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
     Box,
     Button,
@@ -20,10 +20,7 @@ import {
     IconButton,
     Tooltip,
     useColorModeValue,
-    Alert,
-    AlertIcon,
     Skeleton,
-    SkeletonText,
     Card,
     CardBody,
     Flex,
@@ -37,9 +34,6 @@ import {
     ModalBody,
     ModalCloseButton,
     useDisclosure,
-    FormControl,
-    FormLabel,
-    Textarea
 } from '@chakra-ui/react';
 import {
     FiSearch,
@@ -80,22 +74,24 @@ const CustomerList = () => {
     const textColor = useColorModeValue('gray.600', 'gray.300');
     
     // Fetch customers
-    const fetchCustomers = async (page = 1) => {
+    const fetchCustomers = useCallback(async (page = 1) => {
         try {
             setLoading(true);
+            const skip = (page - 1) * pagination.limit;
             const params = new URLSearchParams({
-                page: page.toString(),
+                skip: skip.toString(),
                 limit: pagination.limit.toString(),
-                ...(searchTerm && { search: searchTerm }),
+                ...(searchTerm && { query: searchTerm }),
                 ...(statusFilter !== 'all' && { status: statusFilter })
             });
             
             const response = await axiosInstance.get(`/customers?${params}`);
-            setCustomers(response.data.customers || []);
+            // Backend returns direct array, not paginated object
+            setCustomers(response.data || []);
             setPagination(prev => ({
                 ...prev,
                 page,
-                total: response.data.total || 0
+                total: response.data.length || 0
             }));
         } catch (error) {
             console.error('Error fetching customers:', error);
@@ -109,7 +105,7 @@ const CustomerList = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [pagination.limit, searchTerm, statusFilter, toast]);
     
     // Search effect
     useEffect(() => {
@@ -118,12 +114,12 @@ const CustomerList = () => {
         }, 300);
         
         return () => clearTimeout(delayedSearch);
-    }, [searchTerm, statusFilter]);
+    }, [searchTerm, statusFilter, fetchCustomers]);
     
     // Initial load
     useEffect(() => {
         fetchCustomers();
-    }, []);
+    }, [fetchCustomers]);
     
     // Get status badge color
     const getStatusColor = (status) => {
@@ -291,7 +287,7 @@ const CustomerList = () => {
                                             <Td>
                                                 <VStack align="start" spacing={0}>
                                                     <Text fontWeight="medium">
-                                                        {customer.full_name}
+                                                        {`${customer.first_name} ${customer.last_name}`}
                                                     </Text>
                                                     <Text fontSize="sm" color={textColor}>
                                                         ID: {customer.customer_id?.slice(-8)}

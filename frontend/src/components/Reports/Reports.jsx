@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
     Box,
     Button,
@@ -40,12 +40,6 @@ import {
 import {
     FiDownload,
     FiRefreshCw,
-    FiBarChart2,
-    FiDollarSign,
-    FiUsers,
-    FiPackage,
-    FiCalendar,
-    FiTrendingUp,
     FiFileText
 } from 'react-icons/fi';
 import axiosInstance from '../../services/axios';
@@ -75,7 +69,7 @@ const Reports = () => {
     const statBg = useColorModeValue('gray.50', 'gray.700');
     
     // Fetch reports
-    const fetchReports = async () => {
+    const fetchReports = useCallback(async () => {
         try {
             setLoading(true);
             
@@ -135,7 +129,7 @@ const Reports = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [dateRange, reports, toast]);
     
     // Download report
     const downloadReport = async (type, format = 'csv') => {
@@ -203,7 +197,7 @@ const Reports = () => {
     // Initial load
     useEffect(() => {
         fetchReports();
-    }, [dateRange]);
+    }, [dateRange, fetchReports]);
     
     // Format currency
     const formatCurrency = (amount) => {

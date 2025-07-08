@@ -6,21 +6,17 @@ from app.models.item_model import ItemStatus
 
 class ItemBase(BaseModel):
     description: str = Field(..., min_length=1, max_length=500, description="What is this item?")
-    serial_number: Optional[str] = Field(None, max_length=100, description="Serial number if available")
     loan_amount: float = Field(..., gt=0, description="Amount loaned for this item")
-    storage_location: Optional[str] = Field(None, max_length=100, description="Where is this item stored?")
-    internal_notes: Optional[str] = Field(None, max_length=1000, description="Internal notes - not visible to customer")
+    notes: Optional[str] = Field(None, max_length=1000, description="Notes about the item")
 
 class ItemCreate(ItemBase):
     customer_id: UUID = Field(..., description="Customer who owns this item")
 
 class ItemUpdate(BaseModel):
     description: Optional[str] = Field(None, min_length=1, max_length=500)
-    serial_number: Optional[str] = Field(None, max_length=100)
     loan_amount: Optional[float] = Field(None, gt=0)
-    storage_location: Optional[str] = Field(None, max_length=100, description="Where is this item stored?")
     status: Optional[ItemStatus] = None
-    internal_notes: Optional[str] = Field(None, max_length=1000)
+    notes: Optional[str] = Field(None, max_length=1000)
 
 class ItemOut(ItemBase):
     item_id: UUID
@@ -38,13 +34,10 @@ class ItemSearch(BaseModel):
     description: Optional[str] = None
     status: Optional[ItemStatus] = None
     customer_id: Optional[UUID] = None
-    serial_number: Optional[str] = None
-    storage_location: Optional[str] = None  # NOW INCLUDED
 
-# For customer receipts - excludes internal notes
+# For customer receipts
 class ItemReceipt(BaseModel):
     description: str
-    serial_number: Optional[str]
     loan_amount: float
     
     class Config:

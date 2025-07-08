@@ -15,18 +15,16 @@ class Item(Document):
     
     # Basic item information - SIMPLIFIED FOR V1
     description: str = Field(..., min_length=1, max_length=500, description="What is this item?")
-    serial_number: Optional[str] = Field(None, max_length=100, description="Serial number if available")
     
     # Financial details
     loan_amount: float = Field(..., gt=0, description="Amount loaned for this item")
-    storage_location: Optional[str] = Field(None, max_length=100, description="Where is this item stored?")
     
     # Status and ownership
     status: ItemStatus = Field(default=ItemStatus.ACTIVE)
     customer_id: UUID = Field(..., description="Owner of the item")
     
-    # Internal notes (NOT shown on customer receipts)
-    internal_notes: Optional[str] = Field(None, max_length=1000, description="Internal notes - not visible to customer")
+    # Notes about the item
+    notes: Optional[str] = Field(None, max_length=1000, description="Notes about the item")
     
     # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow)
