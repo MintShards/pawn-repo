@@ -40,6 +40,12 @@ const reducer = (state, action) => {
                 token: null
             };
         }
+        case 'REFRESH_USER': {
+            return {
+                ...state,
+                user: action.payload.user
+            };
+        }
         default:
             return state;
     }
@@ -49,6 +55,7 @@ export const AuthContext = createContext({
     ...initialState,
     login: () => Promise.resolve(),
     logout: () => {},
+    refreshUser: () => Promise.resolve(),
     checkFirstTimeSetup: () => Promise.resolve(),
     createFirstAdmin: () => Promise.resolve()
 });
@@ -64,8 +71,8 @@ export const AuthProvider = ({ children }) => {
                 if (accessToken && validateToken(accessToken)) {
                     setSession(accessToken);
                     
-                    // Test the token and get user info
-                    const response = await axiosInstance.post('/auth/test-token');
+                    // Get fresh user info from database
+                    const response = await axiosInstance.get('/users/me');
                     const user = response.data;
                     
                     dispatch({
@@ -132,9 +139,13 @@ export const AuthProvider = ({ children }) => {
             };
 
             const response = await axiosInstance.post('/auth/login', loginData);
-            const { access_token, refresh_token, user } = response.data;
+            const { access_token, refresh_token } = response.data;
 
             setSession(access_token, refresh_token);
+            
+            // Get fresh user data from database
+            const userResponse = await axiosInstance.get('/users/me');
+            const user = userResponse.data;
             
             dispatch({
                 type: 'LOGIN',
@@ -149,6 +160,24 @@ export const AuthProvider = ({ children }) => {
             console.error('Login error:', error);
             const errorMessage = error.response?.data?.detail || 'Invalid user number or PIN';
             throw new Error(errorMessage);
+        }
+    };
+
+    // Refresh user data
+    const refreshUser = async () => {
+        try {
+            const response = await axiosInstance.get('/users/me');
+            const user = response.data;
+            
+            dispatch({
+                type: 'REFRESH_USER',
+                payload: { user }
+            });
+            
+            return user;
+        } catch (error) {
+            console.error('Error refreshing user data:', error);
+            throw error;
         }
     };
 
@@ -216,6 +245,7 @@ export const AuthProvider = ({ children }) => {
                 ...state,
                 login,
                 logout,
+                refreshUser,
                 refreshToken,
                 checkFirstTimeSetup,
                 createFirstAdmin,

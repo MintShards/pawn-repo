@@ -47,12 +47,12 @@ async def get_current_user_info(current_user: User = Depends(get_current_user)):
 async def get_all_users(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
-    active_only: bool = Query(False, description="Show only active users"),
+    is_active: Optional[bool] = Query(None, description="Filter by active status: true=active only, false=inactive only, null=all"),
     current_user: User = Depends(get_current_admin)
 ):
     """Get all users (admin only)"""
     try:
-        users = await UserService.get_all_users(skip=skip, limit=limit, active_only=active_only)
+        users = await UserService.get_all_users(skip=skip, limit=limit, is_active_filter=is_active)
         return [UserSummary.from_orm(user) for user in users]
     except Exception as e:
         logger.error(f"Error fetching users: {str(e)}")
@@ -167,6 +167,33 @@ async def update_user(
             detail="Failed to update user"
         )
 
+@user_router.patch("/{user_number}", summary="Update user by number", response_model=UserOut)
+async def update_user_by_number(
+    user_number: int,
+    user_data: UserUpdate,
+    current_user: User = Depends(get_current_admin)
+):
+    """Update user by user_number (admin only)"""
+    try:
+        user = await UserService.update_user_by_number(user_number, user_data, current_user.user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        return user
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error updating user #{user_number}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update user"
+        )
+
 # ========== PIN MANAGEMENT ==========
 
 @user_router.post("/me/pin/update", summary="Update own PIN", response_model=UserOut)
@@ -190,12 +217,13 @@ async def update_own_pin(
             detail="Failed to update PIN"
         )
 
-@user_router.post("/number/{user_number}/pin/reset", summary="Reset user PIN", response_model=UserOut)
+@user_router.post("/number/{user_number}/pin/reset", summary="Reset user PIN with new PIN", response_model=UserOut)
 async def reset_user_pin(
     user_number: int,
+    pin_data: UserSetPin,
     current_user: User = Depends(get_current_admin)
 ):
-    """Reset a user's PIN - they will need to set a new one (admin only)"""
+    """Reset a user's PIN with a new PIN assigned by admin"""
     if not (10 <= user_number <= 99):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -203,7 +231,7 @@ async def reset_user_pin(
         )
     
     try:
-        user = await UserService.reset_user_pin(user_number, current_user.user_id)
+        user = await UserService.reset_user_pin_with_new(user_number, pin_data, current_user.user_id)
         return user
     except ValueError as e:
         raise HTTPException(
@@ -219,43 +247,7 @@ async def reset_user_pin(
 
 # ========== USER MANAGEMENT (ADMIN ONLY) ==========
 
-@user_router.delete("/{user_id}", summary="Deactivate user")
-async def deactivate_user(
-    user_id: str,
-    current_user: User = Depends(get_current_admin)
-):
-    """Deactivate a user (soft delete - admin only)"""
-    # Strip quotes and validate UUID format
-    clean_user_id = user_id.strip('"\'')
-    
-    try:
-        from uuid import UUID
-        uuid_obj = UUID(clean_user_id)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid UUID format"
-        )
-    
-    try:
-        success = await UserService.delete_user(uuid_obj, current_user.user_id)
-        if not success:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found"
-            )
-        return {"message": "User deactivated successfully"}
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
-    except Exception as e:
-        logger.error(f"Error deactivating user {clean_user_id}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to deactivate user"
-        )
+# Note: Users are never deleted, only deactivated via status toggle for audit compliance
 
 @user_router.get("/debug/all", summary="Debug: Get all users with full details")
 async def debug_get_all_users(current_user: User = Depends(get_current_admin)):
@@ -309,7 +301,7 @@ async def get_user_stats(current_user: User = Depends(get_current_admin)):
 async def get_users_needing_pin_setup(current_user: User = Depends(get_current_admin)):
     """Get list of users who need to set up their PIN (admin only)"""
     try:
-        all_users = await UserService.get_all_users(active_only=True)
+        all_users = await UserService.get_all_users(is_active_filter=True)
         pending_users = [user for user in all_users if not user.pin_set]
         return [UserSummary.from_orm(user) for user in pending_users]
     except Exception as e:

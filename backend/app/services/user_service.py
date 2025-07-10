@@ -60,30 +60,50 @@ class UserService:
     @staticmethod
     async def create_user_by_admin(user_data: UserCreateByAdmin, created_by: UUID) -> User:
         """Create a new user (admin only)"""
-        # Verify the creator is an admin
-        admin = await User.find_one(User.user_id == created_by)
-        if not admin or not admin.is_admin:
-            raise ValueError("Only administrators can create new users")
-        
-        # Check if user number is available
-        existing_user = await User.find_one(User.user_number == user_data.user_number)
-        if existing_user:
-            raise ValueError(f"User number {user_data.user_number} is already taken")
-        
-        # Create user without PIN (they'll set it later)
-        user = User(
-            user_number=user_data.user_number,
-            first_name=user_data.first_name,
-            last_name=user_data.last_name,
-            role=user_data.role,
-            created_by=created_by,
-            pin_set=False,
-            is_active=True
-        )
-        
-        await user.save()
-        logger.info(f"Admin #{admin.user_number} created user #{user.user_number}")
-        return user
+        try:
+            # Verify the creator is an admin
+            admin = await User.find_one(User.user_id == created_by)
+            if not admin or not admin.is_admin:
+                raise ValueError("Only administrators can create new users")
+            
+            # Get next available user number
+            next_user_number = await UserService.get_next_available_user_number()
+            if next_user_number is None:
+                raise ValueError("All user numbers (10-99) are taken")
+            
+            # Determine role from is_admin flag
+            role = UserRole.ADMIN if user_data.is_admin else UserRole.STAFF
+            
+            # Clean and validate data
+            phone = user_data.phone if user_data.phone and user_data.phone.strip() else None
+            email = user_data.email if user_data.email and user_data.email.strip() else None
+            
+            # Hash the PIN provided by admin
+            hashed_pin = get_password_hash(user_data.pin)
+            
+            # Create user with PIN already set
+            user = User(
+                user_number=next_user_number,
+                first_name=user_data.first_name.strip(),
+                last_name=user_data.last_name.strip(),
+                phone=phone,
+                email=email,
+                role=role,
+                created_by=created_by,
+                hashed_pin=hashed_pin,
+                pin_set=True,
+                is_active=True
+            )
+            
+            await user.save()
+            logger.info(f"Admin #{admin.user_number} created user #{user.user_number} ({user.full_name})")
+            return user
+            
+        except Exception as e:
+            logger.error(f"Error creating user: {str(e)}")
+            logger.error(f"User data: {user_data}")
+            logger.error(f"Created by: {created_by}")
+            raise
     
     @staticmethod
     async def authenticate_user(user_number: int, pin: str) -> Optional[User]:
@@ -184,12 +204,12 @@ class UserService:
         return await User.find_one(User.user_number == user_number)
     
     @staticmethod
-    async def get_all_users(skip: int = 0, limit: int = 100, active_only: bool = False) -> List[User]:
+    async def get_all_users(skip: int = 0, limit: int = 100, is_active_filter: Optional[bool] = None) -> List[User]:
         """Get all users with optional filtering"""
         query = User.find()
         
-        if active_only:
-            query = query.find(User.is_active == True)
+        if is_active_filter is not None:
+            query = query.find(User.is_active == is_active_filter)
         
         return await query.skip(skip).limit(limit).to_list()
     
@@ -217,29 +237,42 @@ class UserService:
         return user
     
     @staticmethod
-    async def delete_user(user_id: UUID, deleted_by: UUID) -> bool:
-        """Soft delete user (admin only)"""
-        admin = await User.find_one(User.user_id == deleted_by)
-        if not admin or not admin.is_admin:
-            raise ValueError("Only administrators can delete users")
-        
-        user = await UserService.get_user_by_id(user_id)
+    async def update_user_by_number(user_number: int, user_data: UserUpdate, updated_by: UUID) -> Optional[User]:
+        """Update user details by user_number (admin only for role changes)"""
+        user = await User.find_one(User.user_number == user_number)
         if not user:
-            return False
+            return None
         
-        # Prevent deleting the last admin
-        if user.is_admin:
-            admin_count = await User.find(User.role == UserRole.ADMIN).count()
-            if admin_count <= 1:
-                raise ValueError("Cannot delete the last administrator")
+        admin = await User.find_one(User.user_id == updated_by)
+        if not admin:
+            raise ValueError("Invalid admin user")
         
-        # Soft delete by deactivating
-        user.is_active = False
-        user.updated_at = datetime.utcnow()
-        await user.save()
+        update_data = user_data.dict(exclude_unset=True)
         
-        logger.info(f"Admin #{admin.user_number} deactivated user #{user.user_number}")
-        return True
+        # Convert is_admin to role
+        if 'is_admin' in update_data:
+            is_admin = update_data.pop('is_admin')
+            update_data['role'] = UserRole.ADMIN if is_admin else UserRole.STAFF
+        
+        # Handle full_name by splitting into first_name and last_name
+        if 'full_name' in update_data:
+            full_name = update_data.pop('full_name')
+            if full_name:
+                names = full_name.strip().split(' ', 1)
+                update_data['first_name'] = names[0]
+                update_data['last_name'] = names[1] if len(names) > 1 else names[0]
+        
+        # Only admins can change roles or active status
+        if ('role' in update_data or 'is_active' in update_data) and not admin.is_admin:
+            raise ValueError("Only administrators can change user roles or status")
+        
+        if update_data:
+            update_data["updated_at"] = datetime.utcnow()
+            await user.update({"$set": update_data})
+            return await User.find_one(User.user_number == user_number)
+        return user
+    
+# User deletion removed - Users are only deactivated via status toggle for audit compliance
     
     @staticmethod
     async def reset_user_pin(user_number: int, reset_by: UUID) -> User:
@@ -262,6 +295,27 @@ class UserService:
         return user
     
     @staticmethod
+    async def reset_user_pin_with_new(user_number: int, pin_data: UserSetPin, reset_by: UUID) -> User:
+        """Reset user PIN with new PIN assigned by admin"""
+        admin = await User.find_one(User.user_id == reset_by)
+        if not admin or not admin.is_admin:
+            raise ValueError("Only administrators can reset PINs")
+        
+        user = await User.find_one(User.user_number == user_number)
+        if not user:
+            raise ValueError("User not found")
+        
+        # Set new PIN
+        hashed_pin = get_password_hash(pin_data.pin)
+        user.hashed_pin = hashed_pin
+        user.pin_set = True
+        user.updated_at = datetime.utcnow()
+        
+        await user.save()
+        logger.info(f"Admin #{admin.user_number} reset PIN for user #{user.user_number} with new PIN")
+        return user
+    
+    @staticmethod
     async def check_user_number_available(user_number: int) -> bool:
         """Check if a user number is available"""
         existing_user = await User.find_one(User.user_number == user_number)
@@ -270,11 +324,12 @@ class UserService:
     @staticmethod
     async def get_next_available_user_number() -> Optional[int]:
         """Get the next available user number (10-99)"""
-        used_numbers = await User.find().distinct("user_number")
-        used_set = set(used_numbers)
+        # Get all users and extract their user numbers
+        all_users = await User.find().to_list()
+        used_numbers = {user.user_number for user in all_users}
         
         for num in range(10, 100):
-            if num not in used_set:
+            if num not in used_numbers:
                 return num
         
         return None  # All numbers are taken

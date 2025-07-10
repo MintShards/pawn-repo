@@ -13,6 +13,7 @@ import CustomerForm from './components/Customers/CustomerForm';
 import TransactionList from './components/Transactions/TransactionList';
 import NewPawnLoan from './components/Transactions/NewPawnLoan';
 import Reports from './components/Reports/Reports';
+import UserManagement from './components/UserManagement/UserManagement';
 
 const App = () => {
   return (
@@ -85,7 +86,7 @@ const App = () => {
                 <Route path="reports" element={<Reports />} />
                 
                 {/* Admin */}
-                <Route path="admin" element={<div>Admin Panel (Coming Soon)</div>} />
+                <Route path="admin" element={<UserManagement />} />
                 
                 {/* Profile */}
                 <Route path="profile" element={<div>User Profile (Coming Soon)</div>} />

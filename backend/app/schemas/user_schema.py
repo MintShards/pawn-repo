@@ -18,15 +18,49 @@ class UserLoginRequest(BaseModel):
         return v
 
 class UserCreateByAdmin(BaseModel):
-    user_number: int = Field(..., ge=10, le=99, description="Unique 2-digit user ID")
-    first_name: str = Field(..., min_length=1, max_length=50)
-    last_name: str = Field(..., min_length=1, max_length=50)
-    role: UserRole = Field(default=UserRole.STAFF)
+    first_name: str = Field(..., min_length=1, max_length=50, description="First name of the user")
+    last_name: str = Field(..., min_length=1, max_length=50, description="Last name of the user")
+    phone: Optional[str] = Field(None, max_length=15, description="Phone number")
+    email: Optional[str] = Field(None, max_length=100, description="Email address")
+    is_admin: bool = Field(default=False, description="Whether user should be admin")
+    pin: str = Field(..., min_length=4, max_length=10, description="Initial PIN for the user")
+    confirm_pin: str = Field(..., min_length=4, max_length=10, description="Confirm PIN")
 
-    @validator('user_number')
-    def validate_user_number(cls, v):
-        if not (10 <= v <= 99):
-            raise ValueError('User number must be between 10 and 99')
+    @validator('phone')
+    def validate_phone(cls, v):
+        if v and v.strip():  # Only validate if phone is provided and not empty
+            # Remove any non-digit characters
+            digits_only = ''.join(filter(str.isdigit, v))
+            if len(digits_only) < 10:
+                raise ValueError('Phone number must be at least 10 digits')
+            if len(digits_only) > 15:
+                raise ValueError('Phone number cannot exceed 15 digits')
+            return digits_only
+        return None  # Return None for empty values
+
+    @validator('email')
+    def validate_email(cls, v):
+        if v and v.strip():
+            # Basic email validation
+            import re
+            email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+            if not re.match(email_pattern, v.strip()):
+                raise ValueError('Invalid email format')
+            return v.strip()
+        return None  # Return None for empty values
+
+    @validator('pin', 'confirm_pin')
+    def validate_pin_format(cls, v):
+        if not v.isdigit():
+            raise ValueError('PIN must contain only digits')
+        if not (4 <= len(v) <= 10):
+            raise ValueError('PIN must be between 4 and 10 digits')
+        return v
+
+    @validator('confirm_pin')
+    def validate_pins_match(cls, v, values):
+        if 'pin' in values and v != values['pin']:
+            raise ValueError('PINs do not match')
         return v
 
 class UserSetPin(BaseModel):
@@ -69,7 +103,11 @@ class UserUpdatePin(BaseModel):
 class UserUpdate(BaseModel):
     first_name: Optional[str] = Field(None, min_length=1, max_length=50)
     last_name: Optional[str] = Field(None, min_length=1, max_length=50)
+    full_name: Optional[str] = Field(None, min_length=1, max_length=100)
+    phone: Optional[str] = Field(None, min_length=10, max_length=15)
+    email: Optional[str] = Field(None, min_length=1, max_length=100)
     role: Optional[UserRole] = None
+    is_admin: Optional[bool] = None
     is_active: Optional[bool] = None
 
 class UserOut(BaseModel):
@@ -78,6 +116,8 @@ class UserOut(BaseModel):
     first_name: str
     last_name: str
     full_name: str
+    phone: Optional[str] = None
+    email: Optional[str] = None
     role: UserRole
     is_active: bool
     pin_set: bool
@@ -95,9 +135,13 @@ class UserSummary(BaseModel):
     user_id: UUID
     user_number: int
     full_name: str
+    phone: Optional[str] = None
+    email: Optional[str] = None
     role: UserRole
+    is_admin: bool
     is_active: bool
     pin_set: bool
+    created_at: datetime
 
     class Config:
         from_attributes = True

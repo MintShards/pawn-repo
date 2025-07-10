@@ -20,6 +20,8 @@ class User(Document):
     # User details
     first_name: str = Field(..., min_length=1, max_length=50)
     last_name: str = Field(..., min_length=1, max_length=50)
+    phone: Optional[str] = Field(None, max_length=15, description="Phone number")
+    email: Optional[str] = Field(None, max_length=100, description="Email address")
     role: UserRole = Field(default=UserRole.STAFF)
     
     # Status
