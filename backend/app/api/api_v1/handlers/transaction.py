@@ -7,8 +7,9 @@ from datetime import date
 from decimal import Decimal
 from app.schemas.transaction_schema import (
     PawnTransactionCreate, PaymentCreate, PaymentResultOut, LoanStatusOut, 
-    LoanScenarioOut, StoreScenarioResponse, TransactionOut
+    LoanScenarioOut, StoreScenarioResponse, TransactionOut, TransactionSearch
 )
+from app.models.transaction_model import TransactionType, LoanStatus
 from app.services.transaction_service import TransactionService
 from app.services.receipt_service import receipt_service
 from app.api.deps.user_deps import get_current_user
@@ -156,6 +157,74 @@ async def get_payment_scenarios(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get payment scenarios"
+        )
+
+# ========== TRANSACTION SEARCH ==========
+
+@transaction_router.post("/search", summary="Search transactions with filters", response_model=List[TransactionOut])
+async def search_transactions(
+    search_params: TransactionSearch,
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(50, ge=1, le=100, description="Number of records to return"),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Search transactions based on various criteria.
+    
+    **Search Parameters:**
+    - **customer_id**: Filter by specific customer
+    - **transaction_type**: Filter by transaction type (pawn, payment, etc.)
+    - **loan_status**: Filter by loan status (active, overdue, etc.)
+    - **start_date/end_date**: Filter by date range
+    - **is_overdue**: Filter overdue transactions
+    
+    **Returns:**
+    List of matching transactions with all details
+    """
+    try:
+        transactions = await TransactionService.search_transactions(search_params, skip, limit)
+        return transactions
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error searching transactions: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to search transactions"
+        )
+
+@transaction_router.get("/customer/{customer_id}/active", summary="Get active loans for customer", response_model=List[TransactionOut])
+async def get_customer_active_loans(
+    customer_id: UUID,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get all active loans for a specific customer.
+    
+    **Returns:**
+    List of active pawn transactions for the customer
+    """
+    try:
+        search_params = TransactionSearch(
+            customer_id=customer_id,
+            transaction_type=TransactionType.PAWN,
+            loan_status=LoanStatus.ACTIVE
+        )
+        transactions = await TransactionService.search_transactions(search_params, 0, 100)
+        return transactions
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error getting customer active loans: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get customer loans"
         )
 
 # ========== STORE SCENARIO TESTING ==========

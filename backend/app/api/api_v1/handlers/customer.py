@@ -11,6 +11,9 @@ from app.services.customer_service import CustomerService
 from app.api.deps.user_deps import get_current_user
 from app.models.user_model import User
 import pymongo
+import logging
+
+logger = logging.getLogger(__name__)
 
 customer_router = APIRouter()
 
@@ -172,6 +175,34 @@ async def get_customer_by_phone(
             detail="Customer not found"
         )
     return customer
+
+@customer_router.get("/search/phone/{phone}", summary="Search customers by phone (partial match)", response_model=List[CustomerOut])
+async def search_customers_by_phone(
+    phone: str,
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(50, ge=1, le=100, description="Number of records to return"),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Search customers by partial phone number match.
+    Useful for frontend autocomplete and search suggestions.
+    """
+    try:
+        # First try exact match
+        exact_customer = await CustomerService.get_customer_by_phone(phone)
+        if exact_customer:
+            return [exact_customer]
+        
+        # Then try partial match
+        search_params = CustomerSearch(phone=phone)
+        customers = await CustomerService.search_customers(search_params, skip, limit)
+        return customers
+    except Exception as e:
+        logger.error(f"Error searching customers by phone: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to search customers by phone"
+        )
 
 @customer_router.get("/status/suspended", summary="Get suspended customers", response_model=List[CustomerOut])
 async def get_suspended_customers(

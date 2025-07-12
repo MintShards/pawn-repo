@@ -128,7 +128,13 @@ class CustomerService:
         if search_params.phone:
             # Use centralized phone normalization
             normalized_phone = normalize_phone_number(search_params.phone)
-            query_conditions.append(Customer.phone == normalized_phone)
+            # Support both exact match and partial match for search
+            if len(normalized_phone) >= 10:
+                # Full phone number - exact match
+                query_conditions.append(Customer.phone == normalized_phone)
+            else:
+                # Partial phone number - use regex for "starts with" search
+                query_conditions.append(RegEx(Customer.phone, f"^{re.escape(normalized_phone)}", "i"))
             
         if search_params.query:
             # Check if it's an email search
@@ -304,3 +310,24 @@ class CustomerService:
             restored_customers.append(customer)
         
         return restored_customers
+    
+    @staticmethod
+    async def search_customers_by_phone_partial(phone: str, skip: int = 0, limit: int = 50) -> List[Customer]:
+        """
+        Search customers by partial phone number for autocomplete functionality
+        """
+        if not phone or len(phone) < 3:
+            return []
+        
+        # Normalize the partial phone input
+        normalized_phone = normalize_phone_number(phone)
+        
+        # Search for phones that start with the normalized input
+        query = Customer.find(
+            And(
+                Customer.status == CustomerStatus.ACTIVE,
+                RegEx(Customer.phone, f"^{re.escape(normalized_phone)}", "i")
+            )
+        )
+        
+        return await query.skip(skip).limit(limit).to_list()
