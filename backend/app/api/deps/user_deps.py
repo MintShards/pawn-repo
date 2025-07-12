@@ -81,3 +81,55 @@ async def get_current_admin(current_user: User = Depends(get_current_user)) -> U
 async def get_current_active_user(current_user: User = Depends(get_current_user)) -> User:
     """Get the current user if they are active (alias for backward compatibility)"""
     return current_user
+
+async def get_current_user_websocket(token: str) -> User:
+    """Get current user from WebSocket token (without Depends)"""
+    try:
+        payload = jwt.decode(
+            token, 
+            settings.JWT_SECRET_KEY, 
+            algorithms=[settings.ALGORITHM] 
+        )
+        token_data = TokenPayLoad(**payload)
+
+        if datetime.fromtimestamp(token_data.exp) < datetime.now():
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token has expired"
+            )
+    except (jwt.JWTError, ValidationError):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Could not validate credentials"
+        )
+    
+    # Convert string UUID to UUID object for UserService
+    try:
+        user_uuid = UUID(str(token_data.sub)) if isinstance(token_data.sub, str) else token_data.sub
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid token format"
+        )
+    
+    user = await UserService.get_user_by_id(user_uuid)
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User account is deactivated"
+        )
+    
+    if not user.can_login:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User cannot login - PIN not set or account inactive"
+        )
+    
+    return user

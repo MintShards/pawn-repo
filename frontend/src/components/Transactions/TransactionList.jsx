@@ -181,7 +181,9 @@ const TransactionList = () => {
         
         try {
             setPaymentLoading(true);
-            await axiosInstance.post('/transactions/payment', {
+            
+            // Process payment
+            const paymentResponse = await axiosInstance.post('/transactions/payment', {
                 loan_id: selectedTransaction.loan_id,
                 amount: parseFloat(paymentAmount),
                 notes: paymentNote || null
@@ -194,6 +196,37 @@ const TransactionList = () => {
                 duration: 3000,
                 isClosable: true
             });
+            
+            // Generate payment receipt
+            try {
+                const receiptResponse = await axiosInstance.post(
+                    `/transactions/payment-receipt?loan_id=${selectedTransaction.loan_id}&payment_amount=${paymentAmount}`,
+                    {},
+                    { responseType: 'blob' }
+                );
+                
+                // Auto-download payment receipt
+                const blob = new Blob([receiptResponse.data], { type: 'application/pdf' });
+                const url = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `payment_receipt_${selectedTransaction.transaction_id}.pdf`;
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                window.URL.revokeObjectURL(url);
+                
+                toast({
+                    title: 'Payment Receipt Generated',
+                    description: 'Payment receipt has been downloaded',
+                    status: 'info',
+                    duration: 2000,
+                    isClosable: true
+                });
+            } catch (receiptError) {
+                console.warn('Could not generate payment receipt:', receiptError);
+                // Don't fail the payment if receipt generation fails
+            }
             
             // Reset form
             setPaymentAmount('');
@@ -224,6 +257,57 @@ const TransactionList = () => {
             fetchPaymentScenarios(transaction.loan_id);
         }
         onPaymentOpen();
+    };
+    
+    // Handle print receipt
+    const handlePrintReceipt = async (transaction) => {
+        try {
+            if (!transaction.loan_id) {
+                toast({
+                    title: 'Cannot Print Receipt',
+                    description: 'Receipt not available for this transaction type',
+                    status: 'warning',
+                    duration: 3000,
+                    isClosable: true
+                });
+                return;
+            }
+            
+            // Download receipt PDF
+            const response = await axiosInstance.get(
+                `/transactions/loan/${transaction.loan_id}/receipt?receipt_type=customer`,
+                { responseType: 'blob' }
+            );
+            
+            // Create blob URL and trigger download
+            const blob = new Blob([response.data], { type: 'application/pdf' });
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `receipt_${transaction.transaction_id}_customer.pdf`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+            
+            toast({
+                title: 'Receipt Downloaded',
+                description: 'Receipt PDF has been downloaded successfully',
+                status: 'success',
+                duration: 3000,
+                isClosable: true
+            });
+            
+        } catch (error) {
+            console.error('Error downloading receipt:', error);
+            toast({
+                title: 'Print Error',
+                description: error.response?.data?.detail || 'Failed to generate receipt',
+                status: 'error',
+                duration: 5000,
+                isClosable: true
+            });
+        }
     };
     
     return (
@@ -395,15 +479,7 @@ const TransactionList = () => {
                                                             icon={<FiPrinter />}
                                                             size="sm"
                                                             variant="ghost"
-                                                            onClick={() => {
-                                                                // Handle print receipt
-                                                                toast({
-                                                                    title: 'Print Receipt',
-                                                                    description: 'Print functionality coming soon',
-                                                                    status: 'info',
-                                                                    duration: 2000
-                                                                });
-                                                            }}
+                                                            onClick={() => handlePrintReceipt(transaction)}
                                                         />
                                                     </Tooltip>
                                                 </HStack>

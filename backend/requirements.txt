@@ -78,6 +78,8 @@ Pillow==11.1.0  # Image processing
 python-slugify==8.0.4  # URL-friendly slugs
 phonenumbers==8.13.50  # Phone number validation
 requests==2.32.3  # HTTP requests (for external APIs)
+reportlab==4.2.5  # PDF generation
+weasyprint==65.1  # HTML to PDF conversion
 
 # Development dependencies (optional)
 pytest==8.3.4

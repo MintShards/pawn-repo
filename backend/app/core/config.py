@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "PAWNREPO"
     DEBUG: bool = config("DEBUG", default=False, cast=bool) 
     MONGO_CONNECTION_STRING: str = config("MONGO_CONNECTION_STRING", cast=str)
+    
+    # Backup settings
+    BACKUP_DIRECTORY: str = config("BACKUP_DIRECTORY", default="./backups", cast=str)
+    ENABLE_AUTOMATIC_BACKUPS: bool = config("ENABLE_AUTOMATIC_BACKUPS", default=True, cast=bool)
 
     class Config:
         case_sensitive = True

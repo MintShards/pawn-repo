@@ -1,13 +1,16 @@
 # backend/app/api/api_v1/handlers/transaction.py - SIMPLIFIED VERSION 1
 from fastapi import APIRouter, HTTPException, status, Depends, Query
+from fastapi.responses import StreamingResponse
 from typing import List, Optional
 from uuid import UUID
 from datetime import date
+from decimal import Decimal
 from app.schemas.transaction_schema import (
     PawnTransactionCreate, PaymentCreate, PaymentResultOut, LoanStatusOut, 
     LoanScenarioOut, StoreScenarioResponse, TransactionOut
 )
 from app.services.transaction_service import TransactionService
+from app.services.receipt_service import receipt_service
 from app.api.deps.user_deps import get_current_user
 from app.models.user_model import User
 import logging
@@ -282,3 +285,124 @@ async def get_scenario_examples(
             "Forfeiture = 3 months + 1 week from original due"
         ]
     }
+
+# ========== RECEIPT GENERATION ==========
+
+@transaction_router.get("/loan/{loan_id}/receipt", summary="Generate transaction receipt PDF")
+async def generate_transaction_receipt(
+    loan_id: UUID,
+    receipt_type: str = Query("customer", description="Type of receipt: 'customer' or 'storage'"),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Generate a PDF receipt for a pawn transaction.
+    
+    **Receipt Types:**
+    - **customer**: Receipt for customer copy
+    - **storage**: Receipt for storage/internal copy
+    
+    **Returns:** PDF file for download/printing
+    """
+    try:
+        # Get transaction data
+        from app.services.customer_service import CustomerService
+        from app.services.item_service import ItemService
+        
+        # Get transaction details
+        transaction = await TransactionService.get_transaction_by_id(loan_id)
+        if not transaction:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Transaction not found"
+            )
+        
+        # Get related data
+        customer = await CustomerService.get_customer_by_id(transaction.customer_id)
+        items = await ItemService.get_items_by_transaction_id(loan_id)
+        
+        # Generate PDF
+        pdf_buffer = await receipt_service.generate_transaction_receipt(
+            transaction=transaction,
+            customer=customer,
+            items=items,
+            user=current_user,
+            receipt_type=receipt_type
+        )
+        
+        # Return as streaming response
+        filename = f"receipt_{transaction.transaction_number}_{receipt_type}.pdf"
+        return StreamingResponse(
+            pdf_buffer,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error generating receipt: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate receipt"
+        )
+
+@transaction_router.post("/payment-receipt", summary="Generate payment receipt PDF")
+async def generate_payment_receipt(
+    loan_id: UUID,
+    payment_amount: Decimal,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Generate a PDF receipt for a payment transaction.
+    
+    **Use after processing payment to provide customer receipt.**
+    """
+    try:
+        # Get transaction data
+        from app.services.customer_service import CustomerService
+        
+        transaction = await TransactionService.get_transaction_by_id(loan_id)
+        if not transaction:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Transaction not found"
+            )
+        
+        customer = await CustomerService.get_customer_by_id(transaction.customer_id)
+        
+        # Calculate new balance (simplified - in real implementation this would come from payment processing)
+        new_balance = transaction.current_balance - payment_amount
+        if new_balance < 0:
+            new_balance = Decimal('0.00')
+        
+        # Generate payment receipt
+        pdf_buffer = await receipt_service.generate_payment_receipt(
+            transaction=transaction,
+            customer=customer,
+            payment_amount=payment_amount,
+            new_balance=new_balance,
+            user=current_user
+        )
+        
+        # Return as streaming response
+        filename = f"payment_receipt_{transaction.transaction_number}.pdf"
+        return StreamingResponse(
+            pdf_buffer,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error generating payment receipt: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate payment receipt"
+        )

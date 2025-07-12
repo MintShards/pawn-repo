@@ -5,8 +5,9 @@ import { jest } from '@jest/globals';
 import UserCreateForm from '../UserCreateForm';
 
 // Mock the axios instance
+const mockPost = jest.fn();
 jest.mock('../../../services/axios', () => ({
-  post: jest.fn(),
+  post: mockPost,
 }));
 
 // Mock the auth hook

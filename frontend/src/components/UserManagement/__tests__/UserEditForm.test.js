@@ -5,8 +5,9 @@ import { jest } from '@jest/globals';
 import UserEditForm from '../UserEditForm';
 
 // Mock the axios instance
+const mockPatch = jest.fn();
 jest.mock('../../../services/axios', () => ({
-  patch: jest.fn(),
+  patch: mockPatch,
 }));
 
 const mockAxios = require('../../../services/axios');

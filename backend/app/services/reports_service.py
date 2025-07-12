@@ -4,10 +4,13 @@ from datetime import date, datetime, timedelta
 from app.models.customer_model import Customer
 from app.models.item_model import Item, ItemStatus
 from app.models.transaction_model import Transaction, TransactionType, TransactionStatus, LoanStatus
+from app.models.user_model import User
 from beanie.operators import And
 import csv
 import io
 import logging
+from decimal import Decimal
+from ..services.receipt_service import receipt_service
 
 logger = logging.getLogger(__name__)
 
@@ -378,3 +381,384 @@ class ReportsService:
         except Exception as e:
             logger.error(f"Error generating aged loans report: {str(e)}")
             raise
+
+    @staticmethod
+    async def get_daily_summary_report(report_date: date) -> Dict[str, Any]:
+        """Get comprehensive daily operations summary"""
+        try:
+            start_datetime = datetime.combine(report_date, datetime.min.time())
+            end_datetime = datetime.combine(report_date, datetime.max.time())
+            
+            # Get all transactions for the day
+            daily_transactions = await Transaction.find(
+                And(
+                    Transaction.transaction_date >= start_datetime,
+                    Transaction.transaction_date <= end_datetime,
+                    Transaction.status == TransactionStatus.COMPLETED
+                )
+            ).to_list()
+            
+            # Calculate daily metrics
+            loans_issued = [t for t in daily_transactions if t.transaction_type == TransactionType.PAWN]
+            payments_received = [t for t in daily_transactions if t.transaction_type in [
+                TransactionType.RENEWAL, TransactionType.REDEMPTION, TransactionType.PARTIAL_PAYMENT
+            ]]
+            redemptions = [t for t in daily_transactions if t.transaction_type == TransactionType.REDEMPTION]
+            
+            total_loans_amount = sum(t.principal_amount or 0 for t in loans_issued)
+            total_payments_amount = sum(t.total_amount for t in payments_received)
+            total_interest_collected = sum(t.interest_amount or 0 for t in payments_received)
+            
+            # Cash flow calculations
+            cash_out = total_loans_amount  # Money given to customers
+            cash_in = total_payments_amount  # Money received from customers
+            net_cash_flow = cash_in - cash_out
+            
+            # Outstanding loans at end of day
+            active_items = await Item.find(Item.status == ItemStatus.ACTIVE).to_list()
+            total_outstanding = sum(item.loan_amount for item in active_items)
+            
+            return {
+                "report_date": report_date,
+                "generated_at": datetime.now(),
+                "daily_activity": {
+                    "loans_issued": {
+                        "count": len(loans_issued),
+                        "total_amount": total_loans_amount,
+                        "average_amount": total_loans_amount / len(loans_issued) if loans_issued else 0
+                    },
+                    "payments_received": {
+                        "count": len(payments_received),
+                        "total_amount": total_payments_amount,
+                        "interest_collected": total_interest_collected
+                    },
+                    "redemptions": {
+                        "count": len(redemptions),
+                        "total_amount": sum(t.total_amount for t in redemptions)
+                    }
+                },
+                "cash_flow": {
+                    "cash_in": cash_in,
+                    "cash_out": cash_out,
+                    "net_flow": net_cash_flow,
+                    "outstanding_loans": total_outstanding
+                },
+                "summary": {
+                    "total_transactions": len(daily_transactions),
+                    "unique_customers": len(set(t.customer_id for t in daily_transactions)),
+                    "active_items_count": len(active_items)
+                }
+            }
+        except Exception as e:
+            logger.error(f"Error generating daily summary report: {str(e)}")
+            raise
+
+    @staticmethod
+    async def get_performance_metrics(start_date: date, end_date: date) -> Dict[str, Any]:
+        """Get business performance metrics"""
+        try:
+            start_datetime = datetime.combine(start_date, datetime.min.time())
+            end_datetime = datetime.combine(end_date, datetime.max.time())
+            
+            # Get transactions for the period
+            transactions = await Transaction.find(
+                And(
+                    Transaction.transaction_date >= start_datetime,
+                    Transaction.transaction_date <= end_datetime,
+                    Transaction.status == TransactionStatus.COMPLETED
+                )
+            ).to_list()
+            
+            # Calculate loan performance
+            loans = [t for t in transactions if t.transaction_type == TransactionType.PAWN]
+            payments = [t for t in transactions if t.transaction_type in [
+                TransactionType.RENEWAL, TransactionType.REDEMPTION, TransactionType.PARTIAL_PAYMENT
+            ]]
+            redemptions = [t for t in transactions if t.transaction_type == TransactionType.REDEMPTION]
+            
+            # Revenue metrics
+            total_revenue = sum(t.interest_amount or 0 for t in payments)
+            average_interest_per_loan = total_revenue / len(loans) if loans else 0
+            
+            # Customer metrics
+            unique_customers = len(set(t.customer_id for t in transactions))
+            repeat_customers = len([cid for cid in set(t.customer_id for t in transactions) 
+                                   if len([t for t in transactions if t.customer_id == cid]) > 1])
+            
+            # Loan lifecycle metrics
+            redemption_rate = len(redemptions) / len(loans) if loans else 0
+            average_loan_amount = sum(t.principal_amount or 0 for t in loans) / len(loans) if loans else 0
+            
+            # Period analysis
+            days_in_period = (end_date - start_date).days + 1
+            daily_average_revenue = total_revenue / days_in_period if days_in_period > 0 else 0
+            
+            return {
+                "period": {
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "days": days_in_period
+                },
+                "revenue_metrics": {
+                    "total_revenue": total_revenue,
+                    "average_interest_per_loan": average_interest_per_loan,
+                    "daily_average_revenue": daily_average_revenue
+                },
+                "loan_metrics": {
+                    "loans_issued": len(loans),
+                    "total_loan_amount": sum(t.principal_amount or 0 for t in loans),
+                    "average_loan_amount": average_loan_amount,
+                    "redemption_rate": redemption_rate,
+                    "redemptions_count": len(redemptions)
+                },
+                "customer_metrics": {
+                    "unique_customers": unique_customers,
+                    "repeat_customers": repeat_customers,
+                    "repeat_customer_rate": repeat_customers / unique_customers if unique_customers > 0 else 0,
+                    "average_transactions_per_customer": len(transactions) / unique_customers if unique_customers > 0 else 0
+                },
+                "activity_metrics": {
+                    "total_transactions": len(transactions),
+                    "payments_received": len(payments),
+                    "daily_transaction_average": len(transactions) / days_in_period if days_in_period > 0 else 0
+                }
+            }
+        except Exception as e:
+            logger.error(f"Error generating performance metrics: {str(e)}")
+            raise
+
+    @staticmethod
+    async def get_cash_flow_report(start_date: date, end_date: date) -> Dict[str, Any]:
+        """Get detailed cash flow report"""
+        try:
+            start_datetime = datetime.combine(start_date, datetime.min.time())
+            end_datetime = datetime.combine(end_date, datetime.max.time())
+            
+            # Get all transactions for the period
+            transactions = await Transaction.find(
+                And(
+                    Transaction.transaction_date >= start_datetime,
+                    Transaction.transaction_date <= end_datetime,
+                    Transaction.status == TransactionStatus.COMPLETED
+                )
+            ).sort(+Transaction.transaction_date).to_list()
+            
+            # Calculate daily cash flows
+            daily_flows = {}
+            current_date = start_date
+            while current_date <= end_date:
+                daily_flows[current_date.isoformat()] = {
+                    "date": current_date,
+                    "loans_disbursed": Decimal('0'),
+                    "payments_received": Decimal('0'),
+                    "net_flow": Decimal('0'),
+                    "transaction_count": 0
+                }
+                current_date += timedelta(days=1)
+            
+            # Process transactions
+            for transaction in transactions:
+                tx_date = transaction.transaction_date.date()
+                day_key = tx_date.isoformat()
+                
+                if day_key in daily_flows:
+                    daily_flows[day_key]["transaction_count"] += 1
+                    
+                    if transaction.transaction_type == TransactionType.PAWN:
+                        daily_flows[day_key]["loans_disbursed"] += Decimal(str(transaction.principal_amount or 0))
+                    elif transaction.transaction_type in [
+                        TransactionType.RENEWAL, TransactionType.REDEMPTION, TransactionType.PARTIAL_PAYMENT
+                    ]:
+                        daily_flows[day_key]["payments_received"] += Decimal(str(transaction.total_amount))
+            
+            # Calculate net flows
+            for day_data in daily_flows.values():
+                day_data["net_flow"] = day_data["payments_received"] - day_data["loans_disbursed"]
+            
+            # Summary calculations
+            total_disbursed = sum(day["loans_disbursed"] for day in daily_flows.values())
+            total_received = sum(day["payments_received"] for day in daily_flows.values())
+            net_cash_flow = total_received - total_disbursed
+            
+            return {
+                "period": {
+                    "start_date": start_date,
+                    "end_date": end_date
+                },
+                "summary": {
+                    "total_loans_disbursed": float(total_disbursed),
+                    "total_payments_received": float(total_received),
+                    "net_cash_flow": float(net_cash_flow),
+                    "total_transactions": sum(day["transaction_count"] for day in daily_flows.values())
+                },
+                "daily_flows": [
+                    {
+                        "date": day_data["date"],
+                        "loans_disbursed": float(day_data["loans_disbursed"]),
+                        "payments_received": float(day_data["payments_received"]),
+                        "net_flow": float(day_data["net_flow"]),
+                        "transaction_count": day_data["transaction_count"]
+                    }
+                    for day_data in daily_flows.values()
+                ]
+            }
+        except Exception as e:
+            logger.error(f"Error generating cash flow report: {str(e)}")
+            raise
+
+    @staticmethod
+    async def get_audit_trail_report(
+        start_date: date,
+        end_date: date,
+        user_id: Optional[str] = None,
+        action_type: Optional[str] = None,
+        entity_type: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Get audit trail report (requires importing audit model when available)"""
+        try:
+            # This would be implemented when audit logging is available
+            # For now, return transaction-based audit information
+            start_datetime = datetime.combine(start_date, datetime.min.time())
+            end_datetime = datetime.combine(end_date, datetime.max.time())
+            
+            transactions = await Transaction.find(
+                And(
+                    Transaction.created_at >= start_datetime,
+                    Transaction.created_at <= end_datetime
+                )
+            ).sort(-Transaction.created_at).to_list()
+            
+            audit_entries = []
+            for transaction in transactions:
+                # Get user details
+                user = await User.find_one(User.user_id == transaction.created_by) if transaction.created_by else None
+                
+                audit_entries.append({
+                    "timestamp": transaction.created_at,
+                    "user_id": str(transaction.created_by) if transaction.created_by else None,
+                    "user_name": f"{user.first_name} {user.last_name}" if user else "System",
+                    "action": f"CREATE_{transaction.transaction_type.value.upper()}",
+                    "entity_type": "Transaction",
+                    "entity_id": str(transaction.transaction_id),
+                    "details": {
+                        "transaction_type": transaction.transaction_type.value,
+                        "amount": float(transaction.total_amount),
+                        "customer_id": str(transaction.customer_id) if transaction.customer_id else None
+                    }
+                })
+            
+            return {
+                "period": {
+                    "start_date": start_date,
+                    "end_date": end_date
+                },
+                "filters": {
+                    "user_id": user_id,
+                    "action_type": action_type,
+                    "entity_type": entity_type
+                },
+                "summary": {
+                    "total_entries": len(audit_entries),
+                    "unique_users": len(set(entry["user_id"] for entry in audit_entries if entry["user_id"])),
+                    "unique_actions": len(set(entry["action"] for entry in audit_entries))
+                },
+                "entries": audit_entries
+            }
+        except Exception as e:
+            logger.error(f"Error generating audit trail report: {str(e)}")
+            raise
+
+    @staticmethod
+    async def export_report_pdf(
+        report_type: str,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        user: User = None
+    ) -> io.BytesIO:
+        """Export report as PDF using the receipt service"""
+        try:
+            # Generate report data based on type
+            if report_type == "daily-summary":
+                if not start_date:
+                    start_date = date.today()
+                report_data = await ReportsService.get_daily_summary_report(start_date)
+            elif report_type == "financial":
+                if not start_date or not end_date:
+                    raise ValueError("Financial report requires start_date and end_date")
+                report_data = await ReportsService.get_financial_report(start_date, end_date)
+            elif report_type == "performance-metrics":
+                if not start_date or not end_date:
+                    raise ValueError("Performance metrics report requires start_date and end_date")
+                report_data = await ReportsService.get_performance_metrics(start_date, end_date)
+            elif report_type == "cash-flow":
+                if not start_date or not end_date:
+                    raise ValueError("Cash flow report requires start_date and end_date")
+                report_data = await ReportsService.get_cash_flow_report(start_date, end_date)
+            else:
+                raise ValueError(f"Unsupported report type: {report_type}")
+            
+            # Generate PDF using report data
+            pdf_buffer = await ReportsService._generate_report_pdf(report_type, report_data, user)
+            return pdf_buffer
+            
+        except Exception as e:
+            logger.error(f"Error exporting PDF report: {str(e)}")
+            raise
+
+    @staticmethod
+    async def _generate_report_pdf(report_type: str, report_data: Dict[str, Any], user: User) -> io.BytesIO:
+        """Generate PDF from report data (simplified implementation)"""
+        from reportlab.lib.pagesizes import letter
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib import colors
+        
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=letter)
+        styles = getSampleStyleSheet()
+        story = []
+        
+        # Title
+        title = f"{report_type.replace('-', ' ').title()} Report"
+        story.append(Paragraph(title, styles['Title']))
+        story.append(Spacer(1, 12))
+        
+        # Report metadata
+        if 'period' in report_data:
+            period_text = f"Period: {report_data['period'].get('start_date', '')} to {report_data['period'].get('end_date', '')}"
+            story.append(Paragraph(period_text, styles['Normal']))
+        
+        story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+        if user:
+            story.append(Paragraph(f"Generated by: {user.first_name} {user.last_name}", styles['Normal']))
+        story.append(Spacer(1, 12))
+        
+        # Report content (simplified - would be enhanced based on report type)
+        if report_type == "daily-summary" and 'daily_activity' in report_data:
+            activity = report_data['daily_activity']
+            
+            data = [
+                ["Metric", "Count", "Amount"],
+                ["Loans Issued", str(activity['loans_issued']['count']), f"${activity['loans_issued']['total_amount']:.2f}"],
+                ["Payments Received", str(activity['payments_received']['count']), f"${activity['payments_received']['total_amount']:.2f}"],
+                ["Redemptions", str(activity['redemptions']['count']), f"${activity['redemptions']['total_amount']:.2f}"]
+            ]
+            
+            table = Table(data)
+            table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 14),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black)
+            ]))
+            
+            story.append(table)
+        
+        # Build PDF
+        doc.build(story)
+        buffer.seek(0)
+        return buffer

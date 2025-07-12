@@ -35,14 +35,25 @@ import {
     TableContainer,
     Badge,
     Skeleton,
-    SkeletonText
+    SkeletonText,
+    Tabs,
+    TabList,
+    TabPanels,
+    Tab,
+    TabPanel
 } from '@chakra-ui/react';
 import {
     FiDownload,
     FiRefreshCw,
-    FiFileText
+    FiFileText,
+    FiBarChart2,
+    FiDollarSign,
+    FiTrendingUp,
+    FiShield,
+    FiCalendar
 } from 'react-icons/fi';
 import axiosInstance from '../../services/axios';
+import AuditTrail from './AuditTrail';
 
 const Reports = () => {
     const toast = useToast();
@@ -236,8 +247,47 @@ const Reports = () => {
                 </Tooltip>
             </Flex>
             
-            {/* Date Range and Filters */}
-            <Card bg={cardBg} border="1px" borderColor={borderColor} mb={6}>
+            {/* Tabbed Interface */}
+            <Tabs variant="enclosed" colorScheme="blue">
+                <TabList>
+                    <Tab>
+                        <HStack spacing={2}>
+                            <FiBarChart2 />
+                            <Text>Business Reports</Text>
+                        </HStack>
+                    </Tab>
+                    <Tab>
+                        <HStack spacing={2}>
+                            <FiTrendingUp />
+                            <Text>Performance Metrics</Text>
+                        </HStack>
+                    </Tab>
+                    <Tab>
+                        <HStack spacing={2}>
+                            <FiDollarSign />
+                            <Text>Cash Flow</Text>
+                        </HStack>
+                    </Tab>
+                    <Tab>
+                        <HStack spacing={2}>
+                            <FiCalendar />
+                            <Text>Daily Summary</Text>
+                        </HStack>
+                    </Tab>
+                    <Tab>
+                        <HStack spacing={2}>
+                            <FiShield />
+                            <Text>Audit Trail</Text>
+                        </HStack>
+                    </Tab>
+                </TabList>
+                
+                <TabPanels>
+                    {/* Business Reports Tab */}
+                    <TabPanel p={0} pt={6}>
+                        <VStack spacing={6} align="stretch">
+                            {/* Date Range and Filters */}
+                            <Card bg={cardBg} border="1px" borderColor={borderColor}>
                 <CardBody>
                     <HStack spacing={4}>
                         <FormControl>
@@ -572,8 +622,41 @@ const Reports = () => {
                             )}
                         </>
                     )}
-                </CardBody>
-            </Card>
+                                </CardBody>
+                            </Card>
+                        </VStack>
+                    </TabPanel>
+                    
+                    {/* Performance Metrics Tab */}
+                    <TabPanel p={0} pt={6}>
+                        <Alert status="info">
+                            <AlertIcon />
+                            <Text>Performance metrics dashboard coming soon...</Text>
+                        </Alert>
+                    </TabPanel>
+                    
+                    {/* Cash Flow Tab */}
+                    <TabPanel p={0} pt={6}>
+                        <Alert status="info">
+                            <AlertIcon />
+                            <Text>Cash flow analysis dashboard coming soon...</Text>
+                        </Alert>
+                    </TabPanel>
+                    
+                    {/* Daily Summary Tab */}
+                    <TabPanel p={0} pt={6}>
+                        <Alert status="info">
+                            <AlertIcon />
+                            <Text>Daily summary dashboard coming soon...</Text>
+                        </Alert>
+                    </TabPanel>
+                    
+                    {/* Audit Trail Tab */}
+                    <TabPanel p={0}>
+                        <AuditTrail />
+                    </TabPanel>
+                </TabPanels>
+            </Tabs>
         </Box>
     );
 };

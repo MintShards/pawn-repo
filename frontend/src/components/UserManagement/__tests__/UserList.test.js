@@ -5,10 +5,13 @@ import { jest } from '@jest/globals';
 import UserList from '../UserList';
 
 // Mock the axios instance
+const mockGet = jest.fn();
+const mockPatch = jest.fn();
+const mockDelete = jest.fn();
 jest.mock('../../../services/axios', () => ({
-  get: jest.fn(),
-  patch: jest.fn(),
-  delete: jest.fn(),
+  get: mockGet,
+  patch: mockPatch,
+  delete: mockDelete,
 }));
 
 // Mock the auth hook
