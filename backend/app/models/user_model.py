@@ -4,8 +4,8 @@ from typing import Optional, List
 from datetime import datetime, timedelta
 from enum import Enum
 import re
-import secrets
-from hashlib import sha256
+
+from app.core.security import get_pin, verify_pin
 
 
 # Configuration constants
@@ -18,7 +18,7 @@ class AuthConfig:
     USER_ID_LENGTH = 2
     SESSION_TIMEOUT_HOURS = 8
     MAX_CONCURRENT_SESSIONS = 3
-    PIN_HASH_MIN_LENGTH = 64  # SHA-256 produces 64 character hex string
+    PIN_HASH_MIN_LENGTH = 60  # Bcrypt produces ~60 character hash
 
 
 # Custom exceptions
@@ -36,10 +36,6 @@ class InvalidCredentialsError(AuthenticationError):
     """Raised when credentials are invalid"""
     pass
 
-
-class InsufficientPrivilegesError(AuthenticationError):
-    """Raised when user lacks required privileges"""
-    pass
 
 
 class UserRole(str, Enum):
@@ -63,7 +59,7 @@ class User(Document):
     )
     pin_hash: str = Field(
         ..., 
-        description="SHA-256 hashed 4-digit PIN",
+        description="Bcrypt hashed 4-digit PIN",
         min_length=AuthConfig.PIN_HASH_MIN_LENGTH
     )
     
@@ -108,11 +104,11 @@ class User(Document):
     def validate_pin_hash(cls, v: str) -> str:
         """Validate PIN hash format and strength"""
         if not v or len(v) < AuthConfig.PIN_HASH_MIN_LENGTH:
-            raise ValueError(f'PIN hash must be at least {AuthConfig.PIN_HASH_MIN_LENGTH} characters (SHA-256)')
-        # Validate it looks like a proper hex hash
-        if not re.match(r'^[a-fA-F0-9]+$', v):
-            raise ValueError('PIN hash must be a valid hexadecimal string')
-        return v.lower()  # Normalize to lowercase
+            raise ValueError(f'PIN hash must be at least {AuthConfig.PIN_HASH_MIN_LENGTH} characters (bcrypt)')
+        # Validate it looks like a proper bcrypt hash
+        if not v.startswith('$2b$'):
+            raise ValueError('PIN hash must be a valid bcrypt hash')
+        return v
     
     def is_locked(self) -> bool:
         """Check if user account is locked due to failed login attempts"""
@@ -165,17 +161,19 @@ class User(Document):
     
     @classmethod
     def hash_pin(cls, pin: str) -> str:
-        """Hash a PIN using SHA-256"""
+        """Hash a PIN using bcrypt"""
         if not pin or len(pin) != AuthConfig.MIN_PIN_LENGTH:
             raise ValueError(f"PIN must be exactly {AuthConfig.MIN_PIN_LENGTH} digits")
         if not pin.isdigit():
             raise ValueError("PIN must contain only digits")
-        return sha256(pin.encode()).hexdigest()
+        return get_pin(pin)
     
     def verify_pin(self, pin: str) -> bool:
         """Verify a PIN against the stored hash"""
         try:
-            return self.hash_pin(pin) == self.pin_hash
+            if not pin or len(pin) != AuthConfig.MIN_PIN_LENGTH or not pin.isdigit():
+                return False
+            return verify_pin(pin, self.pin_hash)
         except ValueError:
             return False
     

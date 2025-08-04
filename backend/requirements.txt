@@ -1,0 +1,20 @@
+# Core Framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+
+# Database
+beanie==1.23.6
+motor==3.3.2
+
+# Validation & Configuration
+pydantic[email]==2.5.0
+pydantic-settings==2.1.0
+python-decouple==3.8
+email-validator==2.1.0
+
+# Security & Authentication
+PyJWT==2.8.0
+passlib[bcrypt]==1.7.4
+
+# File Handling
+python-multipart==0.0.6
