@@ -95,7 +95,7 @@ Deliver a fully functional **pawnshop operations system** for internal staff use
 
 ---
 
-## 🕁️ MVP Tech Stack (As Per README)
+## 🕁️ MVP Tech Stack
 
 - **Frontend**: React (JavaScript)
 - **Backend**: FastAPI (Python)
