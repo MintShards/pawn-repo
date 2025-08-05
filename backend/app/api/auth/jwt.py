@@ -133,10 +133,10 @@ async def refresh_access_token(request: RefreshTokenRequest) -> AccessTokenRespo
     except HTTPException:
         # Re-raise HTTP exceptions from UserService
         raise
-    except Exception:
+    except (ValueError, TypeError, KeyError) as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Failed to refresh access token",
+            detail=f"Token refresh error: {str(e)}",
             headers={"WWW-Authenticate": "Bearer"}
         )
 
@@ -170,9 +170,9 @@ async def verify_token(token: str) -> TokenVerificationResponse:
     except HTTPException:
         # Re-raise HTTP exceptions from decode_token
         raise
-    except Exception:
+    except (ValueError, TypeError, KeyError) as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token verification failed",
+            detail=f"Token verification error: {str(e)}",
             headers={"WWW-Authenticate": "Bearer"}
         )

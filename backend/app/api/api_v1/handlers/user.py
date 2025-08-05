@@ -275,8 +275,8 @@ async def health_check():
             "user_count": user_count,
             "timestamp": datetime.utcnow()
         }
-    except Exception:
+    except (ConnectionError, TimeoutError, RuntimeError) as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Database connection failed"
+            detail=f"Database service error: {str(e)}"
         )

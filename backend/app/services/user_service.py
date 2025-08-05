@@ -64,10 +64,10 @@ class UserService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=str(e)
             )
-        except Exception:
+        except (TypeError, AttributeError, ValueError) as e:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to create user"
+                detail=f"User creation failed: {str(e)}"
             )
     
     @staticmethod
@@ -125,10 +125,10 @@ class UserService:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=str(e)
             )
-        except Exception:
+        except (TypeError, AttributeError, RuntimeError) as e:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Authentication failed"
+                detail=f"Authentication service error: {str(e)}"
             )
     
     @staticmethod
@@ -457,10 +457,10 @@ class UserService:
         except HTTPException:
             # Re-raise HTTP exceptions
             raise
-        except Exception:
+        except (jwt.JWTError, ValueError, TypeError) as e:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Failed to refresh token"
+                detail=f"Token refresh failed: {str(e)}"
             )
     
     @staticmethod

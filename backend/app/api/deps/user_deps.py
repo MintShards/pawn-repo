@@ -230,9 +230,9 @@ async def get_refresh_token_user(
     except HTTPException:
         # Re-raise HTTP exceptions
         raise
-    except Exception:
+    except (ValueError, TypeError, AttributeError) as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid refresh token",
+            detail=f"Refresh token validation error: {str(e)}",
             headers={"WWW-Authenticate": "Bearer"}
         )
