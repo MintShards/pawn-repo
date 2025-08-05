@@ -95,7 +95,7 @@ Deliver a fully functional **pawnshop operations system** for internal staff use
 
 ---
 
-## 🕁️ MVP Tech Stack
+## 🕁️ Tech Stack
 
 - **Frontend**: React (JavaScript)
 - **Backend**: FastAPI (Python)
@@ -106,7 +106,7 @@ Deliver a fully functional **pawnshop operations system** for internal staff use
 
 ---
 
-## 🏁 MVP Success Criteria
+## 🏁 Success Criteria
 
 - Staff can perform daily pawnshop operations end-to-end through the system.
 - Admins can manage users and system configurations.

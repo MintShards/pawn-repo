@@ -379,3 +379,119 @@ class UserService:
             )
         
         return user
+    
+    @staticmethod
+    def _create_refresh_token(user: User) -> str:
+        """Create JWT refresh token"""
+        payload = {
+            "sub": user.user_id,
+            "role": str(user.role),
+            "status": str(user.status),
+            "exp": datetime.utcnow() + timedelta(minutes=settings.REFRESH_TOKEN_EXPIRATION),
+            "iat": datetime.utcnow(),
+            "token_type": "refresh"
+        }
+        return jwt.encode(payload, settings.JWT_REFRESH_SECRET_KEY, algorithm=settings.ALGORITHM)
+    
+    @staticmethod
+    def decode_refresh_token(token: str) -> dict:
+        """Decode and validate JWT refresh token"""
+        try:
+            payload = jwt.decode(token, settings.JWT_REFRESH_SECRET_KEY, algorithms=[settings.ALGORITHM])
+            return payload
+        except jwt.ExpiredSignatureError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Refresh token has expired"
+            )
+        except jwt.JWTError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid refresh token"
+            )
+    
+    @staticmethod
+    async def refresh_access_token(refresh_token: str) -> dict:
+        """Generate new access token from refresh token"""
+        try:
+            # Decode refresh token
+            payload = UserService.decode_refresh_token(refresh_token)
+            user_id = payload.get("sub")
+            
+            if not user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid refresh token payload"
+                )
+            
+            # Verify token type
+            if payload.get("token_type") != "refresh":
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid token type"
+                )
+            
+            # Get user and verify status
+            user = await User.find_one(User.user_id == user_id)
+            if not user:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="User not found"
+                )
+            
+            if user.status != UserStatus.ACTIVE:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Account is {user.status.value}"
+                )
+            
+            # Generate new access token
+            new_access_token = UserService._create_access_token(user)
+            
+            return {
+                "access_token": new_access_token,
+                "token_type": "bearer",
+                "expires_in": settings.ACCESS_TOKEN_EXPIRATION * 60
+            }
+            
+        except HTTPException:
+            # Re-raise HTTP exceptions
+            raise
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Failed to refresh token"
+            )
+    
+    @staticmethod
+    async def authenticate_user_with_refresh(auth_data: "UserAuth") -> dict:
+        """Authenticate user and return both access and refresh tokens"""
+        try:
+            # First authenticate the user (reuse existing logic)
+            login_response = await UserService.authenticate_user(auth_data)
+            
+            # Get the user for refresh token generation
+            user = await User.find_one(User.user_id == auth_data.user_id)
+            
+            # Generate refresh token
+            refresh_token = UserService._create_refresh_token(user)
+            
+            # Return enhanced response with refresh token
+            return {
+                "access_token": login_response.access_token,
+                "refresh_token": refresh_token,
+                "token_type": "bearer",
+                "expires_in": settings.ACCESS_TOKEN_EXPIRATION * 60,
+                "user": login_response.user.model_dump(),
+                "session_id": login_response.session_id
+            }
+            
+        except Exception as e:
+            # If it's already an HTTPException, re-raise it
+            if isinstance(e, HTTPException):
+                raise
+            # Otherwise, wrap in a generic error
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Authentication failed"
+            )
