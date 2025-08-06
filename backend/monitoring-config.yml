@@ -1,0 +1,291 @@
+# Monitoring and Alerting Configuration for Pawnshop API
+# This configuration file defines monitoring setup for production deployment
+
+# Prometheus Configuration
+prometheus:
+  scrape_configs:
+    - job_name: 'pawnshop-api'
+      static_configs:
+        - targets: ['localhost:8000']
+      metrics_path: '/metrics'
+      scrape_interval: 15s
+      scrape_timeout: 10s
+
+# Grafana Dashboard Configuration
+grafana:
+  dashboards:
+    - name: "Pawnshop API Overview"
+      panels:
+        - title: "Request Rate"
+          type: "graph"
+          targets:
+            - expr: "rate(pawnshop_requests_total[5m])"
+              legend: "Requests per second"
+        
+        - title: "Response Times"
+          type: "graph"
+          targets:
+            - expr: "histogram_quantile(0.95, pawnshop_request_duration_seconds_bucket)"
+              legend: "95th percentile"
+            - expr: "histogram_quantile(0.50, pawnshop_request_duration_seconds_bucket)"
+              legend: "50th percentile"
+        
+        - title: "Authentication Metrics"
+          type: "stat"
+          targets:
+            - expr: "pawnshop_auth_attempts_total"
+              legend: "Total Auth Attempts"
+        
+        - title: "System Resources"
+          type: "graph"
+          targets:
+            - expr: "pawnshop_memory_usage_mb"
+              legend: "Memory Usage (MB)"
+            - expr: "pawnshop_cpu_usage_percent"
+              legend: "CPU Usage (%)"
+        
+        - title: "Security Events"
+          type: "table"
+          targets:
+            - expr: "pawnshop_security_events_total"
+              legend: "Security Events"
+
+    - name: "Security Dashboard"
+      panels:
+        - title: "Failed Login Attempts"
+          type: "stat"
+          targets:
+            - expr: 'pawnshop_auth_attempts_total{result="failed"}'
+              legend: "Failed Logins"
+        
+        - title: "Rate Limit Violations"
+          type: "graph"
+          targets:
+            - expr: "rate(pawnshop_rate_limit_hits_total[5m])"
+              legend: "Rate Limit Hits per Second"
+        
+        - title: "Security Event Timeline"
+          type: "logs"
+          targets:
+            - expr: "pawnshop_security_events_total"
+
+# Alert Rules Configuration
+alerting:
+  groups:
+    - name: "pawnshop-api-alerts"
+      rules:
+        # High Error Rate
+        - alert: "HighErrorRate"
+          expr: 'rate(pawnshop_requests_total{status_code=~"5.."}[5m]) > 0.1'
+          for: "2m"
+          labels:
+            severity: "warning"
+          annotations:
+            summary: "High error rate detected"
+            description: "Error rate is {{ $value }} requests per second"
+        
+        # High Response Time
+        - alert: "HighResponseTime"
+          expr: 'histogram_quantile(0.95, pawnshop_request_duration_seconds_bucket) > 2'
+          for: "5m"
+          labels:
+            severity: "warning"
+          annotations:
+            summary: "High response time detected"
+            description: "95th percentile response time is {{ $value }} seconds"
+        
+        # Memory Usage Alert
+        - alert: "HighMemoryUsage"
+          expr: 'pawnshop_memory_usage_mb > 512'
+          for: "5m"
+          labels:
+            severity: "warning"
+          annotations:
+            summary: "High memory usage"
+            description: "Memory usage is {{ $value }}MB"
+        
+        # Critical Memory Usage
+        - alert: "CriticalMemoryUsage"
+          expr: 'pawnshop_memory_usage_mb > 1024'
+          for: "2m"
+          labels:
+            severity: "critical"
+          annotations:
+            summary: "Critical memory usage"
+            description: "Memory usage is {{ $value }}MB"
+        
+        # CPU Usage Alert
+        - alert: "HighCPUUsage"
+          expr: 'pawnshop_cpu_usage_percent > 70'
+          for: "10m"
+          labels:
+            severity: "warning"
+          annotations:
+            summary: "High CPU usage"
+            description: "CPU usage is {{ $value }}%"
+        
+        # Authentication Failure Burst
+        - alert: "AuthenticationFailureBurst"
+          expr: 'increase(pawnshop_auth_attempts_total{result="failed"}[5m]) > 10'
+          for: "0m"
+          labels:
+            severity: "critical"
+          annotations:
+            summary: "Authentication failure burst detected"
+            description: "{{ $value }} failed login attempts in the last 5 minutes"
+        
+        # Rate Limit Abuse
+        - alert: "RateLimitAbuse"
+          expr: 'increase(pawnshop_rate_limit_hits_total[5m]) > 50'
+          for: "0m"
+          labels:
+            severity: "warning"
+          annotations:
+            summary: "Rate limit abuse detected"
+            description: "{{ $value }} rate limit violations in the last 5 minutes"
+        
+        # Security Event Spike
+        - alert: "SecurityEventSpike"
+          expr: 'increase(pawnshop_security_events_total[5m]) > 20'
+          for: "0m"
+          labels:
+            severity: "critical"
+          annotations:
+            summary: "Security event spike detected"
+            description: "{{ $value }} security events in the last 5 minutes"
+        
+        # Service Down
+        - alert: "ServiceDown"
+          expr: 'up{job="pawnshop-api"} == 0'
+          for: "1m"
+          labels:
+            severity: "critical"
+          annotations:
+            summary: "Pawnshop API is down"
+            description: "The pawnshop API has been down for more than 1 minute"
+
+# Notification Configuration
+notifications:
+  channels:
+    - name: "email"
+      type: "email"
+      settings:
+        to: ["admin@pawnshop.local"]
+        subject: "Pawnshop API Alert: {{ .GroupLabels.alertname }}"
+        body: |
+          Alert: {{ .GroupLabels.alertname }}
+          Severity: {{ .CommonLabels.severity }}
+          Summary: {{ .CommonAnnotations.summary }}
+          Description: {{ .CommonAnnotations.description }}
+          
+          Time: {{ .CommonLabels.timestamp }}
+          Instance: {{ .CommonLabels.instance }}
+    
+    - name: "webhook"
+      type: "webhook"
+      settings:
+        url: "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+        payload: |
+          {
+            "text": "🚨 Pawnshop API Alert",
+            "attachments": [
+              {
+                "color": "{{ if eq .Status \"firing\" }}danger{{ else }}good{{ end }}",
+                "title": "{{ .GroupLabels.alertname }}",
+                "text": "{{ .CommonAnnotations.summary }}",
+                "fields": [
+                  {
+                    "title": "Severity",
+                    "value": "{{ .CommonLabels.severity }}",
+                    "short": true
+                  },
+                  {
+                    "title": "Status",
+                    "value": "{{ .Status }}",
+                    "short": true
+                  }
+                ]
+              }
+            ]
+          }
+
+# Log Aggregation Configuration
+logging:
+  sources:
+    - name: "pawnshop-api"
+      type: "file"
+      path: "/var/log/pawnshop/app.log"
+      parser: "json"
+      labels:
+        service: "pawnshop-api"
+        environment: "production"
+  
+  processing:
+    - type: "filter"
+      condition: 'level == "ERROR" or level == "CRITICAL"'
+      action: "alert"
+    
+    - type: "aggregate"
+      window: "5m"
+      group_by: ["level", "event_type"]
+      action: "metrics"
+
+# Health Check Configuration
+health_checks:
+  endpoints:
+    - name: "API Health"
+      url: "http://localhost:8000/api/v1/user/health"
+      interval: "30s"
+      timeout: "10s"
+      expected_status: 200
+    
+    - name: "Database Connectivity"
+      url: "http://localhost:8000/api/v1/monitoring/system-health"
+      interval: "60s"
+      timeout: "15s"
+      expected_status: 200
+      headers:
+        Authorization: "Bearer YOUR_ADMIN_TOKEN"
+    
+    - name: "Metrics Endpoint"
+      url: "http://localhost:8000/metrics"
+      interval: "30s"
+      timeout: "5s"
+      expected_status: 200
+
+# Performance Baseline Configuration
+baselines:
+  response_time:
+    login_endpoint: 200  # ms
+    user_list_endpoint: 500  # ms
+    stats_endpoint: 1000  # ms
+  
+  throughput:
+    requests_per_second: 100
+    concurrent_users: 50
+  
+  resource_usage:
+    max_memory_mb: 512
+    max_cpu_percent: 60
+    max_disk_usage_percent: 80
+
+# Deployment Configuration
+deployment:
+  environments:
+    - name: "production"
+      monitoring_enabled: true
+      log_level: "INFO"
+      metrics_retention: "30d"
+      alert_sensitivity: "high"
+    
+    - name: "staging"
+      monitoring_enabled: true
+      log_level: "DEBUG"
+      metrics_retention: "7d"
+      alert_sensitivity: "medium"
+    
+    - name: "development"
+      monitoring_enabled: false
+      log_level: "DEBUG"
+      metrics_retention: "1d"
+      alert_sensitivity: "low"

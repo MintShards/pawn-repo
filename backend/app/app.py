@@ -12,6 +12,7 @@ from beanie import init_beanie
 from motor.motor_asyncio import AsyncIOMotorClient
 
 from app.core.config import settings
+from app.core.security_middleware import setup_security_middleware
 from app.models.user_model import User
 from app.api.api_v1.router import router
 
@@ -42,11 +43,28 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    description="Secure pawnshop operations system with PIN-based authentication",
+    description="Secure pawnshop operations system with PIN-based authentication and production security",
     version="1.0.0",
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
     lifespan=lifespan
 )
+
+# Setup security middleware (rate limiting, CORS, security headers, logging)
+app = setup_security_middleware(app, settings.BACKEND_CORS_ORIGINS)
+
+# Add APM middleware
+try:
+    from app.core.monitoring import APMMiddleware, get_metrics_endpoint
+    app.add_middleware(APMMiddleware)
+    
+    # Add metrics endpoint
+    @app.get("/metrics")
+    async def metrics():
+        """Prometheus metrics endpoint"""
+        return get_metrics_endpoint()
+        
+except ImportError:
+    pass
 
 # Include API routes
 app.include_router(router, prefix=settings.API_V1_STR)

@@ -1,11 +1,12 @@
 """JWT authentication endpoints for the pawnshop system."""
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Request
 
 from app.schemas.user_schema import UserAuth, LoginResponse
 from app.schemas.auth_schema import TokenSchema, RefreshTokenRequest, AccessTokenResponse, TokenVerificationResponse
 from app.services.user_service import UserService
 from app.models.user_model import AuthenticationError, AccountLockedError, InvalidCredentialsError
+from app.core.security_middleware import auth_rate_limit, api_rate_limit
 
 auth_router = APIRouter()
 
@@ -13,7 +14,8 @@ auth_router = APIRouter()
                  response_model=LoginResponse,
                  summary="JWT User Login",
                  description="Authenticate user with 2-digit user ID and 4-digit PIN, returns JWT token")
-async def jwt_login(auth_data: UserAuth) -> LoginResponse:
+@auth_rate_limit()
+async def jwt_login(request: Request, auth_data: UserAuth) -> LoginResponse:
     """
     JWT-based user authentication endpoint.
     
@@ -55,7 +57,8 @@ async def jwt_login(auth_data: UserAuth) -> LoginResponse:
                  response_model=LoginResponse,
                  summary="OAuth2 Compatible Token Endpoint",
                  description="OAuth2-compatible token endpoint for standard JWT workflows")
-async def get_token(auth_data: UserAuth) -> LoginResponse:
+@auth_rate_limit()
+async def get_token(request: Request, auth_data: UserAuth) -> LoginResponse:
     """
     OAuth2-compatible token endpoint.
     
@@ -68,13 +71,14 @@ async def get_token(auth_data: UserAuth) -> LoginResponse:
     Returns:
         LoginResponse with JWT access token and user information
     """
-    return await jwt_login(auth_data)
+    return await jwt_login(request, auth_data)
 
 @auth_router.post("/login-with-refresh",
                  response_model=TokenSchema,
                  summary="JWT Login with Refresh Token",
                  description="Authenticate user and return both access and refresh tokens")
-async def jwt_login_with_refresh(auth_data: UserAuth) -> TokenSchema:
+@auth_rate_limit()
+async def jwt_login_with_refresh(request: Request, auth_data: UserAuth) -> TokenSchema:
     """
     JWT-based user authentication with refresh token support.
     
@@ -114,7 +118,8 @@ async def jwt_login_with_refresh(auth_data: UserAuth) -> TokenSchema:
                  response_model=AccessTokenResponse,
                  summary="Refresh Access Token",
                  description="Generate new access token using refresh token")
-async def refresh_access_token(request: RefreshTokenRequest) -> AccessTokenResponse:
+@api_rate_limit()
+async def refresh_access_token(http_request: Request, request: RefreshTokenRequest) -> AccessTokenResponse:
     """
     Generate new access token from refresh token.
     
@@ -131,7 +136,6 @@ async def refresh_access_token(request: RefreshTokenRequest) -> AccessTokenRespo
         result = await UserService.refresh_access_token(request.refresh_token)
         return AccessTokenResponse(**result)
     except HTTPException:
-        # Re-raise HTTP exceptions from UserService
         raise
     except (ValueError, TypeError, KeyError) as e:
         raise HTTPException(
@@ -144,7 +148,8 @@ async def refresh_access_token(request: RefreshTokenRequest) -> AccessTokenRespo
                 response_model=TokenVerificationResponse,
                 summary="Verify JWT Token",
                 description="Verify the validity of a JWT token")
-async def verify_token(token: str) -> TokenVerificationResponse:
+@api_rate_limit()
+async def verify_token(request: Request, token: str) -> TokenVerificationResponse:
     """
     Verify JWT token validity.
     
@@ -168,7 +173,6 @@ async def verify_token(token: str) -> TokenVerificationResponse:
             token_type=payload.get("token_type", "access")
         )
     except HTTPException:
-        # Re-raise HTTP exceptions from decode_token
         raise
     except (ValueError, TypeError, KeyError) as e:
         raise HTTPException(

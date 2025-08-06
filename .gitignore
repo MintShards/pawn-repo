@@ -41,3 +41,11 @@ npm-debug.log*
 
 # Database
 *.mongodb
+
+# Testing (temporary files)
+.coverage
+.pytest_cache/
+.tox/
+htmlcov/
+*.cover
+.hypothesis/
