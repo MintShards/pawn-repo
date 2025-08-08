@@ -16,6 +16,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 
 from app.app import app
 from app.models.user_model import User
+from app.models.customer_model import Customer
 from app.core.config import settings
 
 
@@ -42,7 +43,7 @@ async def db_client():
     # Initialize Beanie with test database
     await init_beanie(
         database=database,
-        document_models=[User]
+        document_models=[User, Customer]
     )
     
     yield database
@@ -57,9 +58,11 @@ async def clean_db(db_client):
     """Clean database before each test."""
     # Clear all collections
     await User.delete_all()
+    await Customer.delete_all()
     yield
     # Clean up after test
     await User.delete_all()
+    await Customer.delete_all()
 
 
 @pytest.fixture

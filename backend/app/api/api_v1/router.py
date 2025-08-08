@@ -9,6 +9,7 @@ from fastapi import APIRouter
 from app.api.api_v1.handlers.user import user_router
 from app.api.auth.jwt import auth_router
 from app.api.api_v1.handlers.monitoring import monitoring_router
+from app.api.api_v1.handlers.customer import customer_router
 
 # Main API v1 router
 router = APIRouter()
@@ -32,5 +33,12 @@ router.include_router(
     monitoring_router,
     prefix="/monitoring",
     tags=["System Monitoring"],
+    responses={403: {"description": "Admin access required"}}
+)
+
+router.include_router(
+    customer_router,
+    prefix="/customer",
+    tags=["Customer Management"],
     responses={403: {"description": "Admin access required"}}
 )

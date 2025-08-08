@@ -105,6 +105,10 @@ async def get_admin_user(
     return current_user
 
 
+# Alias for backwards compatibility
+get_current_admin_user = get_admin_user
+
+
 async def get_staff_or_admin_user(
     current_user: User = Depends(get_current_active_user)
 ) -> User:

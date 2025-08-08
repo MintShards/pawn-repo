@@ -1,0 +1,389 @@
+"""
+Customer API handlers for FastAPI endpoints.
+
+This module defines all customer-related API endpoints including
+CRUD operations, search, statistics, and status management.
+"""
+
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+
+from app.api.deps.user_deps import get_current_user, get_current_admin_user
+from app.models.user_model import User
+from app.models.customer_model import CustomerStatus
+from app.schemas.customer_schema import (
+    CustomerCreate, CustomerUpdate, CustomerResponse, CustomerListResponse,
+    CustomerStatsResponse
+)
+from app.services.customer_service import CustomerService
+
+
+# Create router
+customer_router = APIRouter()
+
+
+@customer_router.post(
+    "/",
+    response_model=CustomerResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create new customer",
+    description="Create a new customer profile (Staff and Admin access)",
+    responses={
+        201: {"description": "Customer created successfully"},
+        400: {"description": "Bad request - Invalid data"},
+        409: {"description": "Phone number already exists"},
+        422: {"description": "Validation error"},
+        500: {"description": "Internal server error"}
+    }
+)
+async def create_customer(
+    customer_data: CustomerCreate,
+    current_user: User = Depends(get_current_user)
+) -> CustomerResponse:
+    """Create a new customer profile with comprehensive error handling"""
+    try:
+        customer = await CustomerService.create_customer(
+            customer_data=customer_data,
+            created_by=current_user.user_id
+        )
+        
+        # Add computed properties before response
+        customer_dict = customer.model_dump()
+        customer_dict["risk_level"] = customer.risk_level
+        customer_dict["can_borrow_amount"] = customer.can_borrow_amount
+        return CustomerResponse.model_validate(customer_dict)
+    
+    except HTTPException:
+        # Re-raise HTTP exceptions from service layer
+        raise
+    except ValueError as e:
+        # Handle validation errors
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        # Log unexpected errors
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create customer. Please try again later."
+        )
+
+
+@customer_router.get(
+    "/",
+    response_model=CustomerListResponse,
+    summary="Get customers list",
+    description="Get paginated list of customers with filtering (Staff and Admin access)",
+    responses={
+        200: {"description": "Customers list retrieved successfully"},
+        400: {"description": "Bad request - Invalid parameters"},
+        422: {"description": "Validation error"},
+        500: {"description": "Internal server error"}
+    }
+)
+async def get_customers_list(
+    status_filter: Optional[CustomerStatus] = Query(None, alias="status", description="Filter by customer status"),
+    search: Optional[str] = Query(None, description="Search in name and phone number", max_length=100),
+    page: int = Query(1, description="Page number", ge=1),
+    per_page: int = Query(10, description="Items per page", ge=1, le=100),
+    sort_by: str = Query("created_at", description="Sort field"),
+    sort_order: str = Query("desc", description="Sort order", pattern="^(asc|desc)$"),
+    current_user: User = Depends(get_current_user)
+) -> CustomerListResponse:
+    """Get paginated list of customers with optional filtering"""
+    try:
+        return await CustomerService.get_customers_list(
+            status=status_filter,
+            search=search,
+            page=page,
+            per_page=per_page,
+            sort_by=sort_by,
+            sort_order=sort_order
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve customers. Please try again later."
+        )
+
+
+@customer_router.get(
+    "/stats",
+    response_model=CustomerStatsResponse,
+    summary="Get customer statistics",
+    description="Get customer statistics for admin dashboard (Admin only)",
+    responses={
+        200: {"description": "Customer statistics retrieved successfully"},
+        403: {"description": "Admin access required"}
+    }
+)
+async def get_customer_statistics(
+    current_user: User = Depends(get_current_admin_user)
+) -> CustomerStatsResponse:
+    """Get customer statistics for admin dashboard"""
+    return await CustomerService.get_customer_statistics()
+
+
+@customer_router.get(
+    "/{phone_number}",
+    response_model=CustomerResponse,
+    summary="Get customer by phone number",
+    description="Get customer details by phone number (Staff and Admin access)",
+    responses={
+        200: {"description": "Customer details retrieved successfully"},
+        400: {"description": "Bad request - Invalid phone number format"},
+        404: {"description": "Customer not found"},
+        422: {"description": "Validation error"},
+        500: {"description": "Internal server error"}
+    }
+)
+async def get_customer_by_phone(
+    phone_number: str,
+    current_user: User = Depends(get_current_user)
+) -> CustomerResponse:
+    """Get customer details by phone number"""
+    try:
+        # Validate phone number format
+        if not phone_number.isdigit() or len(phone_number) != 10:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid phone number format. Must be 10 digits."
+            )
+        
+        customer = await CustomerService.get_customer_by_phone(phone_number)
+        if not customer:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Customer not found"
+            )
+        
+        # Add computed properties before response
+        customer_dict = customer.model_dump()
+        customer_dict["risk_level"] = customer.risk_level
+        customer_dict["can_borrow_amount"] = customer.can_borrow_amount
+        return CustomerResponse.model_validate(customer_dict)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve customer. Please try again later."
+        )
+
+
+@customer_router.put(
+    "/{phone_number}",
+    response_model=CustomerResponse,
+    summary="Update customer",
+    description="Update customer information (Staff can update basic info, Admin can update status)",
+    responses={
+        200: {"description": "Customer updated successfully"},
+        400: {"description": "Bad request - Invalid data or phone number"},
+        403: {"description": "Forbidden - Insufficient permissions"},
+        404: {"description": "Customer not found"},
+        422: {"description": "Validation error"},
+        500: {"description": "Internal server error"}
+    }
+)
+async def update_customer(
+    phone_number: str,
+    customer_data: CustomerUpdate,
+    current_user: User = Depends(get_current_user)
+) -> CustomerResponse:
+    """Update customer information with comprehensive error handling"""
+    try:
+        # Validate phone number format
+        if not phone_number.isdigit() or len(phone_number) != 10:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid phone number format. Must be 10 digits."
+            )
+        
+        is_admin = current_user.role == "admin" or (hasattr(current_user.role, 'value') and current_user.role.value == "admin")
+        
+        # Check if non-admin is trying to update status
+        if not is_admin and customer_data.status is not None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only administrators can update customer status"
+            )
+        
+        customer = await CustomerService.update_customer(
+            phone_number=phone_number,
+            update_data=customer_data,
+            updated_by=current_user.user_id,
+            is_admin=is_admin
+        )
+        
+        # Add computed properties before response
+        customer_dict = customer.model_dump()
+        customer_dict["risk_level"] = customer.risk_level
+        customer_dict["can_borrow_amount"] = customer.can_borrow_amount
+        return CustomerResponse.model_validate(customer_dict)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update customer. Please try again later."
+        )
+
+
+@customer_router.post(
+    "/{phone_number}/deactivate",
+    response_model=CustomerResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Deactivate customer account",
+    description="Deactivate customer account (customer-requested closure). Admin only.",
+    responses={
+        200: {"description": "Customer deactivated successfully"},
+        400: {"description": "Cannot deactivate customer with active loans"},
+        403: {"description": "Admin access required"},
+        404: {"description": "Customer not found"},
+        500: {"description": "Internal server error"}
+    }
+)
+async def deactivate_customer(
+    phone_number: str,
+    reason: str = "Customer requested account closure",
+    current_user: User = Depends(get_current_admin_user)
+) -> CustomerResponse:
+    """Deactivate customer account (customer-requested closure)"""
+    try:
+        # Validate phone number format
+        if not phone_number.isdigit() or len(phone_number) != 10:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid phone number format. Must be 10 digits."
+            )
+        
+        customer = await CustomerService.get_customer_by_phone(phone_number)
+        
+        # Check for active loans
+        if customer.active_loans > 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot deactivate customer with active loans"
+            )
+        
+        # Deactivate the customer
+        customer.deactivate(reason, current_user.user_id)
+        await customer.save()
+        
+        # Add computed properties before response
+        customer_dict = customer.model_dump()
+        customer_dict["risk_level"] = customer.risk_level
+        customer_dict["can_borrow_amount"] = customer.can_borrow_amount
+        return CustomerResponse.model_validate(customer_dict)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to deactivate customer. Please try again later."
+        )
+
+
+@customer_router.post(
+    "/{phone_number}/archive",
+    response_model=CustomerResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Archive customer account",
+    description="Archive customer account (long-term inactive, compliance preservation). Admin only.",
+    responses={
+        200: {"description": "Customer archived successfully"},
+        400: {"description": "Cannot archive customer with active loans"},
+        403: {"description": "Admin access required"},
+        404: {"description": "Customer not found"},
+        500: {"description": "Internal server error"}
+    }
+)
+async def archive_customer(
+    phone_number: str,
+    reason: str = "Long-term inactive account",
+    current_user: User = Depends(get_current_admin_user)
+) -> CustomerResponse:
+    """Archive customer account (long-term inactive, compliance preservation)"""
+    try:
+        # Validate phone number format
+        if not phone_number.isdigit() or len(phone_number) != 10:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid phone number format. Must be 10 digits."
+            )
+        
+        customer = await CustomerService.get_customer_by_phone(phone_number)
+        
+        # Check for active loans
+        if customer.active_loans > 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot archive customer with active loans"
+            )
+        
+        # Archive the customer
+        customer.archive(reason, current_user.user_id)
+        await customer.save()
+        
+        # Add computed properties before response
+        customer_dict = customer.model_dump()
+        customer_dict["risk_level"] = customer.risk_level
+        customer_dict["can_borrow_amount"] = customer.can_borrow_amount
+        return CustomerResponse.model_validate(customer_dict)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to archive customer. Please try again later."
+        )
+
+
+@customer_router.get(
+    "/{phone_number}/loan-eligibility",
+    summary="Check loan eligibility",
+    description="Check if customer is eligible for a new loan (Staff and Admin access)",
+    responses={
+        200: {"description": "Eligibility check completed"},
+        404: {"description": "Customer not found"},
+        500: {"description": "Internal server error"}
+    }
+)
+async def check_loan_eligibility(
+    phone_number: str,
+    loan_amount: Optional[float] = Query(None, description="Optional loan amount to validate"),
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Check customer's loan eligibility with comprehensive validation"""
+    try:
+        # Validate phone number format
+        if not phone_number.isdigit() or len(phone_number) != 10:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid phone number format. Must be 10 digits."
+            )
+        
+        eligibility = await CustomerService.validate_loan_eligibility(
+            phone_number=phone_number,
+            loan_amount=loan_amount
+        )
+        
+        return eligibility
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to check loan eligibility. Please try again later."
+        )

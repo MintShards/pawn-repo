@@ -15,6 +15,7 @@ from app.core.config import settings
 from app.core.security_middleware import setup_security_middleware
 from app.models.user_model import User
 from app.api.api_v1.router import router
+from app.models.customer_model import Customer
 
 # Database client
 db_client = None
@@ -31,7 +32,7 @@ async def lifespan(app: FastAPI):
     
     await init_beanie(
         database=db_client,
-        document_models=[User]
+        document_models=[User, Customer]
     )
     
     yield
