@@ -104,14 +104,14 @@ class TestSimpleEndpoints:
         # Test with invalid data types
         response = client.post("/api/v1/auth/jwt/login", json={
             "user_id": 123,  # Should be string
-            "pin": 1234      # Should be string
+            "pin": 6969      # Should be string
         })
         assert response.status_code == 422
         
         # Test with invalid formats
         response = client.post("/api/v1/auth/jwt/login", json={
             "user_id": "123",  # Should be 2 digits
-            "pin": "12345"     # Should be 4 digits
+            "pin": "99999"     # Should be 4 digits
         })
         assert response.status_code == 422
 
@@ -136,7 +136,7 @@ class TestSimpleEndpoints:
         """Test authentication with mocked database."""
         # Mock user data
         mock_user = MagicMock()
-        mock_user.user_id = "01"
+        mock_user.user_id = "69"  # Admin user ID
         mock_user.role = "admin"
         mock_user.status = "active"
         mock_user.verify_pin.return_value = True
@@ -149,7 +149,7 @@ class TestSimpleEndpoints:
     def test_request_validation_edge_cases(self, client):
         """Test request validation edge cases."""
         # Test extremely large request
-        large_data = {"user_id": "01", "pin": "1234", "extra": "x" * 10000}
+        large_data = {"user_id": "69", "pin": "6969", "extra": "x" * 10000}
         response = client.post("/api/v1/auth/jwt/login", json=large_data)
         assert response.status_code in [400, 422, 413]  # Should handle gracefully
         

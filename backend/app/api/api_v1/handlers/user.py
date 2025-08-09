@@ -1,22 +1,26 @@
-from typing import Optional
+# Standard library imports
 from datetime import datetime
+from typing import Optional
 
+# Third-party imports  
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 
+# Local imports
+from app.core.auth import (
+    get_current_active_user, get_admin_user, require_admin,
+    require_staff_or_admin, get_current_user_optional
+)
+from app.models.user_model import User, UserRole, UserStatus
 from app.schemas.user_schema import (
     UserAuth, UserCreate, UserUpdate, UserPinChange,
     UserResponse, UserDetailResponse, UserListResponse,
     LoginResponse, UserStatsResponse, UserFilters
 )
-from app.models.user_model import User, UserRole, UserStatus
 from app.services.user_service import UserService
-from app.core.auth import (
-    get_current_active_user, get_admin_user, require_admin,
-    require_staff_or_admin, get_current_user_optional
-)
 
 user_router = APIRouter()
 
+# Authentication endpoints
 @user_router.post("/login", 
                  response_model=LoginResponse,
                  summary="User login",
@@ -36,6 +40,7 @@ async def logout(current_user: User = Depends(get_current_active_user)):
     await current_user.save()
     return {"message": "Logged out successfully"}
 
+# Admin-only user creation endpoint
 @user_router.post("/create",
                  response_model=UserResponse,
                  summary="Create a new user",
@@ -48,6 +53,7 @@ async def create_user(
     """Create a new user (Admin only)"""
     return await UserService.create_user(user_data, created_by=current_user.user_id)
 
+# Current user (/me) endpoints - MUST come before /{user_id} routes
 @user_router.get("/me",
                 response_model=UserResponse,
                 summary="Get current user profile",
@@ -83,6 +89,16 @@ async def change_current_user_pin(
     """Change current user's PIN"""
     return await UserService.change_pin(current_user.user_id, pin_data)
 
+@user_router.delete("/me")
+async def delete_me_not_allowed():
+    """DELETE method not allowed for /me endpoint - users cannot delete themselves via this endpoint"""
+    raise HTTPException(
+        status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+        detail="Method not allowed",
+        headers={"Allow": "GET, PUT, POST"}
+    )
+
+# List and statistics endpoints (specific paths)
 @user_router.get("/list",
                 response_model=UserListResponse,
                 summary="Get users list",
@@ -119,6 +135,28 @@ async def get_user_statistics(admin_user: User = Depends(get_admin_user)):
     """Get user statistics (Admin only)"""
     return await UserService.get_user_stats()
 
+# Health check endpoint
+@user_router.get("/health",
+                summary="Health check",
+                description="API health check endpoint")
+async def health_check():
+    """Health check endpoint"""
+    try:
+        # Test database connection
+        user_count = await User.find().count()
+        return {
+            "status": "healthy",
+            "database": "connected",
+            "user_count": user_count,
+            "timestamp": datetime.utcnow()
+        }
+    except (ConnectionError, TimeoutError, RuntimeError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Database service error: {str(e)}"
+        )
+
+# Parameterized routes (/{user_id}) - MUST come LAST to avoid capturing specific paths
 @user_router.get("/{user_id}",
                 response_model=UserDetailResponse,
                 summary="Get user by ID",
@@ -259,24 +297,3 @@ async def terminate_user_sessions(
     await user.save()
     
     return {"message": "All user sessions terminated successfully"}
-
-# Health check endpoint
-@user_router.get("/health",
-                summary="Health check",
-                description="API health check endpoint")
-async def health_check():
-    """Health check endpoint"""
-    try:
-        # Test database connection
-        user_count = await User.find().count()
-        return {
-            "status": "healthy",
-            "database": "connected",
-            "user_count": user_count,
-            "timestamp": datetime.utcnow()
-        }
-    except (ConnectionError, TimeoutError, RuntimeError) as e:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Database service error: {str(e)}"
-        )

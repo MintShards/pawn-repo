@@ -120,11 +120,9 @@ class UserService:
                 session_id=session_id
             )
             
-        except (InvalidCredentialsError, AccountLockedError) as e:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=str(e)
-            )
+        except (InvalidCredentialsError, AccountLockedError):
+            # Re-raise authentication-specific exceptions for API layer to handle
+            raise
         except (TypeError, AttributeError, RuntimeError) as e:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -347,7 +345,7 @@ class UserService:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Token has expired"
             )
-        except jwt.JWTError:
+        except (jwt.DecodeError, jwt.InvalidTokenError, jwt.InvalidSignatureError, ValueError):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid token"
@@ -404,7 +402,7 @@ class UserService:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Refresh token has expired"
             )
-        except jwt.JWTError:
+        except (jwt.DecodeError, jwt.InvalidTokenError, jwt.InvalidSignatureError, ValueError):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid refresh token"
@@ -457,7 +455,7 @@ class UserService:
         except HTTPException:
             # Re-raise HTTP exceptions
             raise
-        except (jwt.JWTError, ValueError, TypeError) as e:
+        except (jwt.DecodeError, jwt.InvalidTokenError, jwt.InvalidSignatureError, ValueError, TypeError) as e:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=f"Token refresh failed: {str(e)}"
@@ -486,11 +484,14 @@ class UserService:
                 "session_id": login_response.session_id
             }
             
+        except (InvalidCredentialsError, AccountLockedError, AuthenticationError):
+            # Re-raise authentication-specific exceptions for API layer to handle
+            raise
+        except HTTPException:
+            # Re-raise HTTP exceptions as-is
+            raise
         except Exception as e:
-            # If it's already an HTTPException, re-raise it
-            if isinstance(e, HTTPException):
-                raise
-            # Otherwise, wrap in a generic error
+            # Only wrap genuine service-layer errors
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Authentication failed"

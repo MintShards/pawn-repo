@@ -277,12 +277,25 @@ async def custom_rate_limit_handler(request: Request, exc: RateLimitExceeded):
     """Custom handler for rate limit exceeded"""
     client_ip = get_remote_address(request)
     
-    # Log rate limit event
+    # Calculate retry_after based on rate limit (default to 60 seconds)
+    retry_after = 60
+    if exc.limit and hasattr(exc.limit, 'limit'):
+        # Extract time window from rate limit string (e.g., "3/minute" -> 60)
+        limit_str = str(exc.limit.limit)
+        if '/minute' in limit_str:
+            retry_after = 60
+        elif '/second' in limit_str:
+            retry_after = 1
+        elif '/hour' in limit_str:
+            retry_after = 3600
+    
+    # Log rate limit event (without accessing non-existent retry_after)
     security_logger.warning(
         "rate_limit_exceeded",
         client_ip=client_ip,
         path=str(request.url.path),
-        retry_after=exc.retry_after
+        limit_type=str(exc.limit.limit) if exc.limit else "unknown",
+        calculated_retry_after=retry_after
     )
     
     # Record rate limit hit in monitoring system
@@ -292,15 +305,14 @@ async def custom_rate_limit_handler(request: Request, exc: RateLimitExceeded):
     except ImportError:
         pass
     
-    response = HTTPException(
+    raise HTTPException(
         status_code=status.HTTP_429_TOO_MANY_REQUESTS,
         detail={
             "error": "Rate limit exceeded",
-            "message": f"Too many requests. Try again in {exc.retry_after} seconds.",
-            "retry_after": exc.retry_after
+            "message": f"Too many requests. Try again in {retry_after} seconds.",
+            "retry_after": retry_after
         }
     )
-    return response
 
 # Function to configure CORS
 def configure_cors(app, allowed_origins: list = None):

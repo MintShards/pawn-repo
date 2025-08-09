@@ -296,6 +296,7 @@ class CustomerService:
             "active_loans": customer.active_loans,
             "max_loans": 5,
             "credit_limit": float(customer.credit_limit),
+            "max_loan_amount": float(customer.credit_limit),  # For backward compatibility
             "available_credit": float(customer.can_borrow_amount),
             "risk_level": customer.risk_level
         }

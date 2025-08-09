@@ -84,16 +84,16 @@ def mock_db_client():
     return MagicMock()
 
 
-# Test user data
+# Test user data - Updated to match seed.py configuration
 @pytest.fixture
 def admin_user_data():
-    """Test admin user data."""
+    """Test admin user data - matches actual seeded admin user."""
     return {
-        "user_id": "01",
-        "pin": "1234",
+        "user_id": "69",  # Actual admin ID from seed.py
+        "pin": "6969",    # Actual admin PIN from seed.py
         "first_name": "Admin",
-        "last_name": "User",
-        "email": "admin@test.com",
+        "last_name": "Boss",
+        "email": "admin@pawnshop.com",
         "role": "admin",
         "status": "active"
     }
@@ -101,13 +101,13 @@ def admin_user_data():
 
 @pytest.fixture
 def staff_user_data():
-    """Test staff user data."""
+    """Test staff user data - matches actual seeded staff user."""
     return {
         "user_id": "02", 
-        "pin": "5678",
-        "first_name": "Staff",
-        "last_name": "User",
-        "email": "staff@test.com",
+        "pin": "1234",   # Actual staff PIN from seed.py
+        "first_name": "John",
+        "last_name": "Staff",
+        "email": "staff@pawnshop.com",
         "role": "staff",
         "status": "active"
     }
@@ -115,15 +115,15 @@ def staff_user_data():
 
 @pytest.fixture
 def inactive_user_data():
-    """Test inactive user data."""
+    """Test inactive user data - for testing deactivated accounts."""
     return {
-        "user_id": "03",
-        "pin": "9999",
+        "user_id": "98",  # Use existing deactivated user ID
+        "pin": "9898",    # Different PIN for test isolation
         "first_name": "Inactive",
         "last_name": "User", 
         "email": "inactive@test.com",
         "role": "staff",
-        "status": "inactive"
+        "status": "deactivated"  # Match actual enum value
     }
 
 

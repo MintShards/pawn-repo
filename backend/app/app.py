@@ -5,17 +5,20 @@ A secure pawnshop management system with PIN-based authentication,
 user management, and comprehensive audit logging.
 """
 
+# Standard library imports
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+# Third-party imports
 from beanie import init_beanie
+from fastapi import FastAPI
 from motor.motor_asyncio import AsyncIOMotorClient
 
+# Local imports
+from app.api.api_v1.router import router
 from app.core.config import settings
 from app.core.security_middleware import setup_security_middleware
-from app.models.user_model import User
-from app.api.api_v1.router import router
 from app.models.customer_model import Customer
+from app.models.user_model import User
 
 # Database client
 db_client = None

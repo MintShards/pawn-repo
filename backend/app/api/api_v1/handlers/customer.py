@@ -5,12 +5,16 @@ This module defines all customer-related API endpoints including
 CRUD operations, search, statistics, and status management.
 """
 
+# Standard library imports
 from typing import Optional
+
+# Third-party imports
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 
+# Local imports
 from app.api.deps.user_deps import get_current_user, get_current_admin_user
-from app.models.user_model import User
 from app.models.customer_model import CustomerStatus
+from app.models.user_model import User
 from app.schemas.customer_schema import (
     CustomerCreate, CustomerUpdate, CustomerResponse, CustomerListResponse,
     CustomerStatsResponse
@@ -28,6 +32,20 @@ customer_router = APIRouter()
     status_code=status.HTTP_201_CREATED,
     summary="Create new customer",
     description="Create a new customer profile (Staff and Admin access)",
+    responses={
+        201: {"description": "Customer created successfully"},
+        400: {"description": "Bad request - Invalid data"},
+        409: {"description": "Phone number already exists"},
+        422: {"description": "Validation error"},
+        500: {"description": "Internal server error"}
+    }
+)
+@customer_router.post(
+    "/create",
+    response_model=CustomerResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create new customer (alias)",
+    description="Create a new customer profile - alias for POST / (Staff and Admin access)",
     responses={
         201: {"description": "Customer created successfully"},
         400: {"description": "Bad request - Invalid data"},

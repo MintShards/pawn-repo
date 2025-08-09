@@ -118,7 +118,9 @@ class CustomerResponse(CustomerBase):
     phone_number: str = Field(..., description="10-digit phone number")
     status: CustomerStatus = Field(..., description="Customer account status")
     created_at: datetime = Field(..., description="Account creation timestamp")
+    created_by: str = Field(..., description="User ID who created this customer")
     updated_at: datetime = Field(..., description="Last update timestamp")
+    updated_by: Optional[str] = Field(None, description="User ID who last updated")
     total_transactions: int = Field(..., description="Total number of transactions")
     active_loans: int = Field(..., description="Number of active loans")
     last_transaction_date: Optional[datetime] = Field(
@@ -142,7 +144,9 @@ class CustomerResponse(CustomerBase):
                 "status": "active",
                 "notes": "Regular customer",
                 "created_at": "2024-01-01T10:00:00Z",
+                "created_by": "01",
                 "updated_at": "2024-01-15T14:30:00Z",
+                "updated_by": "02",
                 "total_transactions": 15,
                 "active_loans": 2,
                 "last_transaction_date": "2024-01-15T14:30:00Z",

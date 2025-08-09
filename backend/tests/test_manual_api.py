@@ -89,15 +89,15 @@ class TestManualAPI:
         
         # Invalid data types
         response = self._make_request("POST", "/api/v1/auth/jwt/login", json={
-            "user_id": 123,  # Should be string
-            "pin": 1234      # Should be string
+            "user_id": 123,   # Should be string
+            "pin": 6969       # Should be string
         })
         assert response.status_code == 422
         
         # Invalid formats
         response = self._make_request("POST", "/api/v1/auth/jwt/login", json={
             "user_id": "123",  # Should be 2 digits
-            "pin": "12345"     # Should be 4 digits
+            "pin": "99999"     # Should be 4 digits
         })
         assert response.status_code == 422
     
@@ -187,7 +187,7 @@ class TestManualAPI:
         
         # Missing content type for JSON data
         response = self._make_request("POST", "/api/v1/auth/jwt/login", 
-                                    data='{"user_id": "01", "pin": "1234"}')
+                                    data='{"user_id": "69", "pin": "6969"}')
         # Should handle gracefully
         assert response.status_code in [422, 415]
     

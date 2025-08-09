@@ -1,14 +1,82 @@
 """JWT authentication endpoints for the pawnshop system."""
 
+# Standard library imports
+import logging
+
+# Third-party imports
 from fastapi import APIRouter, HTTPException, status, Request
 
-from app.schemas.user_schema import UserAuth, LoginResponse
-from app.schemas.auth_schema import TokenSchema, RefreshTokenRequest, AccessTokenResponse, TokenVerificationResponse
-from app.services.user_service import UserService
-from app.models.user_model import AuthenticationError, AccountLockedError, InvalidCredentialsError
+# Local imports
 from app.core.security_middleware import auth_rate_limit, api_rate_limit
+from app.models.user_model import AuthenticationError, AccountLockedError, InvalidCredentialsError
+from app.schemas.auth_schema import TokenSchema, RefreshTokenRequest, AccessTokenResponse, TokenVerificationResponse
+from app.schemas.user_schema import UserAuth, LoginResponse
+from app.services.user_service import UserService
+
+# Security logger for authentication events
+security_logger = logging.getLogger("security.auth")
 
 auth_router = APIRouter()
+
+
+def _extract_client_info(request: Request) -> tuple[str, str]:
+    """Extract client IP and user agent from request."""
+    client_ip = request.client.host if request.client else 'unknown'
+    user_agent = request.headers.get('user-agent', 'unknown')
+    return client_ip, user_agent
+
+
+def _handle_auth_exception(e: Exception, auth_data: UserAuth, client_ip: str, user_agent: str, context: str = "") -> HTTPException:
+    """Handle authentication exceptions with consistent logging and error responses."""
+    context_suffix = f" {context}" if context else ""
+    
+    if isinstance(e, (InvalidCredentialsError, AccountLockedError)):
+        security_logger.warning(
+            f"Failed authentication{context_suffix}: user_id={auth_data.user_id}, "
+            f"reason={type(e).__name__}, ip={client_ip}, user_agent={user_agent[:50]}"
+        )
+        return HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+    
+    elif isinstance(e, AuthenticationError):
+        security_logger.warning(
+            f"Authentication error{context_suffix}: user_id={auth_data.user_id}, "
+            f"reason={type(e).__name__}, ip={client_ip}, user_agent={user_agent[:50]}"
+        )
+        return HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication failed",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+    
+    elif isinstance(e, HTTPException) and e.status_code == 403:
+        security_logger.warning(
+            f"Authentication forbidden{context_suffix}: user_id={auth_data.user_id}, "
+            f"ip={client_ip}, reason=account_inactive"
+        )
+        return e
+    
+    else:
+        security_logger.error(
+            f"Authentication system error{context_suffix}: user_id={auth_data.user_id}, "
+            f"ip={client_ip}, error={type(e).__name__}"
+        )
+        return HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Authentication service temporarily unavailable"
+        )
+
+
+def _log_successful_auth(auth_data: UserAuth, client_ip: str, user_agent: str, context: str = ""):
+    """Log successful authentication with context."""
+    context_suffix = f" {context}" if context else ""
+    security_logger.info(
+        f"Successful authentication{context_suffix}: user_id={auth_data.user_id}, "
+        f"ip={client_ip}, user_agent={user_agent[:50]}"
+    )
 
 @auth_router.post("/login", 
                  response_model=LoginResponse,
@@ -18,9 +86,6 @@ auth_router = APIRouter()
 async def jwt_login(request: Request, auth_data: UserAuth) -> LoginResponse:
     """
     JWT-based user authentication endpoint.
-    
-    This endpoint provides the same functionality as the main login endpoint
-    but is located under /auth/jwt/login for JWT-specific authentication flows.
     
     Args:
         auth_data: UserAuth containing user_id and pin
@@ -33,25 +98,15 @@ async def jwt_login(request: Request, auth_data: UserAuth) -> LoginResponse:
         HTTPException: 403 for inactive accounts
         HTTPException: 500 for authentication system errors
     """
+    client_ip, user_agent = _extract_client_info(request)
+    
     try:
-        return await UserService.authenticate_user(auth_data)
-    except (InvalidCredentialsError, AccountLockedError) as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(e),
-            headers={"WWW-Authenticate": "Bearer"}
-        )
-    except AuthenticationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(e),
-            headers={"WWW-Authenticate": "Bearer"}
-        )
+        result = await UserService.authenticate_user(auth_data)
+        _log_successful_auth(auth_data, client_ip, user_agent)
+        return result
+        
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Authentication service error"
-        )
+        raise _handle_auth_exception(e, auth_data, client_ip, user_agent)
 
 @auth_router.post("/token", 
                  response_model=LoginResponse,
@@ -87,39 +142,23 @@ async def jwt_login_with_refresh(request: Request, auth_data: UserAuth) -> Token
         
     Returns:
         TokenSchema with both access and refresh tokens
-        
-    Raises:
-        HTTPException: 401 for invalid credentials or locked accounts
-        HTTPException: 403 for inactive accounts
-        HTTPException: 500 for authentication system errors
     """
+    client_ip, user_agent = _extract_client_info(request)
+    
     try:
         result = await UserService.authenticate_user_with_refresh(auth_data)
+        _log_successful_auth(auth_data, client_ip, user_agent, "with refresh")
         return TokenSchema(**result)
-    except (InvalidCredentialsError, AccountLockedError) as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(e),
-            headers={"WWW-Authenticate": "Bearer"}
-        )
-    except AuthenticationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(e),
-            headers={"WWW-Authenticate": "Bearer"}
-        )
+        
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Authentication service error"
-        )
+        raise _handle_auth_exception(e, auth_data, client_ip, user_agent, "with refresh")
 
 @auth_router.post("/refresh",
                  response_model=AccessTokenResponse,
                  summary="Refresh Access Token",
                  description="Generate new access token using refresh token")
 @api_rate_limit()
-async def refresh_access_token(http_request: Request, request: RefreshTokenRequest) -> AccessTokenResponse:
+async def refresh_access_token(request: RefreshTokenRequest) -> AccessTokenResponse:
     """
     Generate new access token from refresh token.
     
@@ -128,9 +167,6 @@ async def refresh_access_token(http_request: Request, request: RefreshTokenReque
         
     Returns:
         AccessTokenResponse with new access token
-        
-    Raises:
-        HTTPException: 401 for invalid or expired refresh tokens
     """
     try:
         result = await UserService.refresh_access_token(request.refresh_token)
@@ -140,7 +176,7 @@ async def refresh_access_token(http_request: Request, request: RefreshTokenReque
     except (ValueError, TypeError, KeyError) as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Token refresh error: {str(e)}",
+            detail="Token refresh failed",
             headers={"WWW-Authenticate": "Bearer"}
         )
 
@@ -158,9 +194,6 @@ async def verify_token(request: Request, token: str) -> TokenVerificationRespons
         
     Returns:
         TokenVerificationResponse containing token validity and payload information
-        
-    Raises:
-        HTTPException: 401 for invalid or expired tokens
     """
     try:
         payload = UserService.decode_token(token)
@@ -174,9 +207,9 @@ async def verify_token(request: Request, token: str) -> TokenVerificationRespons
         )
     except HTTPException:
         raise
-    except (ValueError, TypeError, KeyError) as e:
+    except (ValueError, TypeError, KeyError):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Token verification error: {str(e)}",
+            detail="Token verification failed",
             headers={"WWW-Authenticate": "Bearer"}
         )
