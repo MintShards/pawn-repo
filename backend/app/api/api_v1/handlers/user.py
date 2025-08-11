@@ -1,3 +1,10 @@
+"""
+User Management API Handlers
+
+This module provides FastAPI endpoints for user management operations
+including user creation, authentication, profile management, and administration.
+"""
+
 # Standard library imports
 from datetime import datetime
 from typing import Optional

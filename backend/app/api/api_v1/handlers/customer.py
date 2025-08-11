@@ -224,7 +224,8 @@ async def update_customer(
                 detail="Invalid phone number format. Must be 10 digits."
             )
         
-        is_admin = current_user.role == "admin" or (hasattr(current_user.role, 'value') and current_user.role.value == "admin")
+        is_admin = (current_user.role == "admin" or 
+                   (hasattr(current_user.role, 'value') and current_user.role.value == "admin"))
         
         # Check if non-admin is trying to update status
         if not is_admin and customer_data.status is not None:

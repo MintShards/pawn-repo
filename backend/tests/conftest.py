@@ -17,6 +17,10 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from app.app import app
 from app.models.user_model import User
 from app.models.customer_model import Customer
+from app.models.pawn_transaction_model import PawnTransaction
+from app.models.pawn_item_model import PawnItem
+from app.models.payment_model import Payment
+from app.models.extension_model import Extension
 from app.core.config import settings
 
 
@@ -43,7 +47,7 @@ async def db_client():
     # Initialize Beanie with test database
     await init_beanie(
         database=database,
-        document_models=[User, Customer]
+        document_models=[User, Customer, PawnTransaction, PawnItem, Payment, Extension]
     )
     
     yield database
@@ -59,10 +63,18 @@ async def clean_db(db_client):
     # Clear all collections
     await User.delete_all()
     await Customer.delete_all()
+    await PawnTransaction.delete_all()
+    await PawnItem.delete_all()
+    await Payment.delete_all()
+    await Extension.delete_all()
     yield
     # Clean up after test
     await User.delete_all()
     await Customer.delete_all()
+    await PawnTransaction.delete_all()
+    await PawnItem.delete_all()
+    await Payment.delete_all()
+    await Extension.delete_all()
 
 
 @pytest.fixture

@@ -271,5 +271,73 @@ def test_dependency_injection():
     assert "get_current_active_user" in content or "get_admin_user" in content
 
 
+@pytest.mark.unit 
+class TestMonitoringEndpoints:
+    """Test monitoring and system health endpoints."""
+
+    async def test_system_health_admin(self, async_client, auth_headers_admin):
+        """Test system health check as admin."""
+        response = await async_client.get("/api/v1/monitoring/system-health", headers=auth_headers_admin)
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert "status" in data
+        assert "timestamp" in data
+        # Should contain either full metrics or fallback message
+        assert "system" in data or "message" in data
+
+    async def test_system_health_staff_forbidden(self, async_client, auth_headers_staff):
+        """Test system health check as staff (should be forbidden)."""
+        response = await async_client.get("/api/v1/monitoring/system-health", headers=auth_headers_staff)
+        
+        assert response.status_code == 403
+
+    async def test_system_health_unauthorized(self, async_client):
+        """Test system health check without authentication."""
+        response = await async_client.get("/api/v1/monitoring/system-health")
+        
+        assert response.status_code == 401
+
+    async def test_performance_metrics_admin(self, async_client, auth_headers_admin):
+        """Test performance metrics as admin."""
+        response = await async_client.get("/api/v1/monitoring/performance-metrics", headers=auth_headers_admin)
+        
+        # Should either return metrics or indicate monitoring not configured
+        assert response.status_code in [200, 503]
+        
+        if response.status_code == 200:
+            data = response.json()
+            assert "timestamp" in data
+            assert "performance" in data or "thresholds" in data
+
+    async def test_monitoring_response_times(self, async_client, auth_headers_admin):
+        """Test that monitoring endpoints respond within reasonable time."""
+        import time
+        
+        start_time = time.time()
+        response = await async_client.get("/api/v1/monitoring/system-health", headers=auth_headers_admin)
+        end_time = time.time()
+        
+        response_time = end_time - start_time
+        
+        # Should respond within 5 seconds (even with fallback)
+        assert response_time < 5.0
+        assert response.status_code in [200, 503]
+
+    async def test_monitoring_endpoints_with_invalid_token(self, async_client, invalid_auth_headers):
+        """Test monitoring endpoints with invalid authentication."""
+        endpoints = [
+            "/api/v1/monitoring/system-health",
+            "/api/v1/monitoring/performance-metrics",
+            "/api/v1/monitoring/business-metrics", 
+            "/api/v1/monitoring/security-events",
+            "/api/v1/monitoring/alerts-status"
+        ]
+        
+        for endpoint in endpoints:
+            response = await async_client.get(endpoint, headers=invalid_auth_headers)
+            assert response.status_code == 401
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

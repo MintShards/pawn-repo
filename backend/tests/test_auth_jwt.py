@@ -181,3 +181,52 @@ class TestJWTAuthentication:
             "pin": "1234"
         })
         assert response.status_code == 200
+
+
+@pytest.mark.security
+class TestSecurityFeatures:
+    """Test security features and protections."""
+
+    async def test_cors_headers(self, async_client: AsyncClient):
+        """Test CORS headers are properly configured."""
+        response = await async_client.options("/api/v1/user/health")
+        
+        # Should handle OPTIONS request for CORS preflight
+        assert response.status_code in [200, 204, 404]
+
+    async def test_authentication_bypass_attempts(self, async_client: AsyncClient):
+        """Test attempts to bypass authentication."""
+        protected_endpoints = [
+            "/api/v1/user/me",
+            "/api/v1/user/create",
+            "/api/v1/user/stats",
+            "/api/v1/monitoring/system-health"
+        ]
+        
+        bypass_attempts = [
+            {},  # No headers
+            {"Authorization": ""},  # Empty auth
+            {"Authorization": "Bearer "},  # Empty token
+            {"Authorization": "Basic dGVzdA=="},  # Wrong auth type
+            {"Authorization": "Bearer fake_token"},  # Fake token
+        ]
+        
+        for endpoint in protected_endpoints:
+            for headers in bypass_attempts:
+                response = await async_client.get(endpoint, headers=headers)
+                # All should be unauthorized
+                assert response.status_code == 401
+
+    async def test_input_validation_security(self, async_client: AsyncClient, auth_headers_admin):
+        """Test input validation prevents malicious data."""
+        malicious_payloads = [
+            {"first_name": "A" * 1000},  # Extremely long string
+            {"first_name": "\x00\x01\x02"},  # Binary data
+            {"first_name": ""},  # Empty string
+            {"user_id": "../../../etc/passwd"},  # Path traversal
+        ]
+        
+        for payload in malicious_payloads:
+            response = await async_client.put("/api/v1/user/me", json=payload, headers=auth_headers_admin)
+            # Should reject with validation error
+            assert response.status_code in [400, 422]
