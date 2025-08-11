@@ -584,3 +584,117 @@ class InterestCalculationService:
             "adjustment_history": adjustments,
             "has_been_adjusted": len(adjustments) > 0
         }
+    
+    @staticmethod
+    async def calculate_current_balance(
+        transaction_id: str,
+        as_of_date: Optional[datetime] = None
+    ) -> Dict[str, Any]:
+        """
+        Calculate current balance for a transaction including interest accrual.
+        
+        Args:
+            transaction_id: Unique transaction identifier
+            as_of_date: Balance calculation date (defaults to now)
+            
+        Returns:
+            Dictionary containing balance information
+        """
+        from app.schemas.pawn_transaction_schema import BalanceResponse
+        
+        if as_of_date is None:
+            as_of_date = datetime.now(UTC)
+        
+        # Get transaction
+        transaction = await PawnTransaction.find_one(
+            PawnTransaction.transaction_id == transaction_id
+        )
+        if not transaction:
+            raise TransactionNotFoundError(f"Transaction {transaction_id} not found")
+        
+        # Get all payments for this transaction
+        payments = await Payment.find(
+            Payment.transaction_id == transaction_id
+        ).sort(Payment.payment_date).to_list()
+        
+        # Calculate basic balance components
+        loan_amount = transaction.loan_amount
+        monthly_interest = transaction.monthly_interest_amount
+        
+        # Calculate months elapsed using calendar month logic
+        months_elapsed = transaction.calculate_months_elapsed(as_of_date)
+        
+        # Apply 3-month interest cap (business rule)
+        capped_months = min(months_elapsed, 3)
+        total_interest_due = monthly_interest * capped_months
+        
+        # Calculate total due
+        total_due = loan_amount + total_interest_due
+        
+        # Calculate total payments (defensive programming)
+        try:
+            total_paid = sum(payment.payment_amount for payment in payments) if payments else 0
+        except (AttributeError, TypeError) as e:
+            print(f"Warning: Error calculating total payments for transaction {transaction_id}: {e}")
+            total_paid = 0
+        
+        # Calculate current balance
+        current_balance = max(0, total_due - total_paid)
+        
+        # Payment allocation (oldest interest first, then principal)
+        remaining_payments = total_paid
+        interest_paid = min(remaining_payments, total_interest_due)
+        principal_paid = max(0, remaining_payments - total_interest_due)
+        
+        # Remaining balances
+        interest_balance = max(0, total_interest_due - interest_paid)
+        principal_balance = max(0, loan_amount - principal_paid)
+        
+        # Status checks (defensive programming)
+        try:
+            is_overdue = as_of_date > transaction.maturity_date
+            is_in_grace_period = (
+                as_of_date > transaction.maturity_date and 
+                as_of_date <= transaction.grace_period_end
+            )
+            days_until_forfeiture = max(0, (transaction.grace_period_end - as_of_date).days)
+        except (AttributeError, TypeError) as e:
+            print(f"Warning: Error calculating date status for transaction {transaction_id}: {e}")
+            # Default to safe values
+            is_overdue = False
+            is_in_grace_period = False
+            days_until_forfeiture = 0
+        
+        return BalanceResponse(
+            transaction_id=transaction_id,
+            as_of_date=as_of_date.date().isoformat(),
+            
+            # Main balance components
+            loan_amount=loan_amount,
+            monthly_interest=monthly_interest,
+            total_due=total_due,
+            total_paid=total_paid,
+            current_balance=current_balance,
+            
+            # Payment allocation breakdown
+            principal_due=loan_amount,
+            interest_due=total_interest_due,
+            principal_paid=principal_paid,
+            interest_paid=interest_paid,
+            principal_balance=principal_balance,
+            interest_balance=interest_balance,
+            
+            # Transaction details
+            payment_count=len(payments),
+            status=transaction.status,
+            
+            # Date information
+            pawn_date=transaction.pawn_date.date().isoformat(),
+            maturity_date=transaction.maturity_date.date().isoformat(),
+            grace_period_end=transaction.grace_period_end.date().isoformat(),
+            
+            # Status flags
+            is_overdue=is_overdue,
+            is_in_grace_period=is_in_grace_period,
+            days_until_forfeiture=days_until_forfeiture
+        )

@@ -17,7 +17,7 @@ from app.core.auth import (
     get_current_active_user, get_admin_user, require_admin,
     require_staff_or_admin, get_current_user_optional
 )
-from app.models.user_model import User, UserRole, UserStatus
+from app.models.user_model import User, UserRole, UserStatus, InvalidCredentialsError, AccountLockedError
 from app.schemas.user_schema import (
     UserAuth, UserCreate, UserUpdate, UserPinChange,
     UserResponse, UserDetailResponse, UserListResponse,
@@ -34,7 +34,20 @@ user_router = APIRouter()
                  description="Authenticate user with 2-digit user ID and 4-digit PIN")
 async def login(auth_data: UserAuth):
     """User login endpoint"""
-    return await UserService.authenticate_user(auth_data)
+    try:
+        return await UserService.authenticate_user(auth_data)
+    except InvalidCredentialsError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(e),
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+    except AccountLockedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_423_LOCKED,
+            detail=str(e),
+            headers={"WWW-Authenticate": "Bearer"}
+        )
 
 @user_router.post("/logout",
                  summary="User logout",

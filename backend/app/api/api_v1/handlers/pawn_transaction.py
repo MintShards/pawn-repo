@@ -26,8 +26,13 @@ from app.schemas.receipt_schema import (
     InitialPawnReceiptResponse, PaymentReceiptResponse, ExtensionReceiptResponse,
     ReceiptTextResponse, ReceiptSummaryResponse, ReceiptGenerationRequest
 )
-from app.services.pawn_transaction_service import PawnTransactionService
-from app.services.interest_calculation_service import InterestCalculationService
+from app.services.pawn_transaction_service import (
+    PawnTransactionService, PawnTransactionError, 
+    CustomerValidationError, StaffValidationError, TransactionStateError
+)
+from app.services.interest_calculation_service import (
+    InterestCalculationService, TransactionNotFoundError, InterestCalculationError
+)
 from app.services.receipt_service import ReceiptService, ReceiptGenerationError
 
 # Create router
@@ -72,6 +77,30 @@ async def create_pawn_transaction(
     except HTTPException:
         # Re-raise HTTP exceptions from service layer
         raise
+    except CustomerValidationError as e:
+        # Customer-related validation errors (404 or 400)
+        if "not found" in str(e).lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(e)
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+    except StaffValidationError as e:
+        # Staff user validation errors
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Staff validation error: {str(e)}"
+        )
+    except PawnTransactionError as e:
+        # General transaction business logic errors
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except ValueError as e:
         # Handle validation errors
         raise HTTPException(
@@ -79,10 +108,13 @@ async def create_pawn_transaction(
             detail=str(e)
         )
     except Exception as e:
-        # Log unexpected errors
+        # Log unexpected errors for debugging
+        import traceback
+        print(f"Unexpected error in create_pawn_transaction: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create pawn transaction. Please try again later."
+            detail=f"Failed to create pawn transaction: {str(e)}"
         )
 
 
@@ -131,15 +163,25 @@ async def get_pawn_transactions_list(
         
         return await PawnTransactionService.get_transactions_list(filters)
     
+    except PawnTransactionError as e:
+        # Service-specific transaction errors
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except Exception as e:
+        # Log unexpected errors for debugging
+        import traceback
+        print(f"Unexpected error in get_pawn_transactions_list: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve transactions. Please try again later."
+            detail=f"Failed to retrieve transactions: {str(e)}"
         )
 
 
@@ -202,10 +244,26 @@ async def get_transaction_summary(
         
     except HTTPException:
         raise
+    except PawnTransactionError as e:
+        # Handle transaction not found specifically
+        if "not found" in str(e).lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(e)
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
     except Exception as e:
+        # Log unexpected errors for debugging
+        import traceback
+        print(f"Unexpected error in get_transaction_summary: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve transaction summary. Please try again later."
+            detail=f"Failed to retrieve transaction summary: {str(e)}"
         )
 
 
@@ -234,10 +292,24 @@ async def get_transaction_balance(
         
     except HTTPException:
         raise
+    except TransactionNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except InterestCalculationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except Exception as e:
+        # Log unexpected errors for debugging
+        import traceback
+        print(f"Unexpected error in get_transaction_balance: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to calculate balance. Please try again later."
+            detail=f"Failed to calculate balance: {str(e)}"
         )
 
 
@@ -266,10 +338,24 @@ async def get_interest_breakdown(
         
     except HTTPException:
         raise
+    except TransactionNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except InterestCalculationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except Exception as e:
+        # Log unexpected errors for debugging
+        import traceback
+        print(f"Unexpected error in get_interest_breakdown: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to calculate interest breakdown. Please try again later."
+            detail=f"Failed to calculate interest breakdown: {str(e)}"
         )
 
 
@@ -298,10 +384,24 @@ async def get_payoff_amount(
         
     except HTTPException:
         raise
+    except TransactionNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except InterestCalculationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except Exception as e:
+        # Log unexpected errors for debugging
+        import traceback
+        print(f"Unexpected error in get_payoff_amount: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to calculate payoff amount. Please try again later."
+            detail=f"Failed to calculate payoff amount: {str(e)}"
         )
 
 
@@ -336,15 +436,43 @@ async def update_transaction_status(
         
     except HTTPException:
         raise
+    except PawnTransactionError as e:
+        # Handle transaction not found specifically
+        if "not found" in str(e).lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(e)
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+    except StaffValidationError as e:
+        # Staff user validation errors
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Staff validation error: {str(e)}"
+        )
+    except TransactionStateError as e:
+        # Invalid status transition errors
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid status transition: {str(e)}"
+        )
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except Exception as e:
+        # Log unexpected errors for debugging
+        import traceback
+        print(f"Unexpected error in update_transaction_status: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update transaction status. Please try again later."
+            detail=f"Failed to update transaction status: {str(e)}"
         )
 
 
@@ -375,15 +503,39 @@ async def bulk_update_transaction_status(
         
         return result
         
+    except HTTPException:
+        raise
+    except PawnTransactionError as e:
+        # Handle transaction not found or business logic errors
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except StaffValidationError as e:
+        # Staff user validation errors
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Staff validation error: {str(e)}"
+        )
+    except TransactionStateError as e:
+        # Invalid status transition errors
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid status transition: {str(e)}"
+        )
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except Exception as e:
+        # Log unexpected errors for debugging
+        import traceback
+        print(f"Unexpected error in bulk_update_transaction_status: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to perform bulk status update. Please try again later."
+            detail=f"Failed to perform bulk status update: {str(e)}"
         )
 
 
@@ -431,10 +583,25 @@ async def get_customer_transactions(
         
     except HTTPException:
         raise
+    except PawnTransactionError as e:
+        # Service-specific transaction errors
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except Exception as e:
+        # Log unexpected errors for debugging
+        import traceback
+        print(f"Unexpected error in get_customer_transactions: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve customer transactions. Please try again later."
+            detail=f"Failed to retrieve customer transactions: {str(e)}"
         )
 
 
@@ -465,15 +632,43 @@ async def redeem_transaction(
         
     except HTTPException:
         raise
+    except PawnTransactionError as e:
+        # Handle transaction not found specifically
+        if "not found" in str(e).lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(e)
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+    except StaffValidationError as e:
+        # Staff user validation errors
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Staff validation error: {str(e)}"
+        )
+    except TransactionStateError as e:
+        # Invalid status transition errors
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot redeem transaction: {str(e)}"
+        )
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except Exception as e:
+        # Log unexpected errors for debugging
+        import traceback
+        print(f"Unexpected error in redeem_transaction: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to redeem transaction. Please try again later."
+            detail=f"Failed to redeem transaction: {str(e)}"
         )
 
 
@@ -506,15 +701,43 @@ async def forfeit_transaction(
         
     except HTTPException:
         raise
+    except PawnTransactionError as e:
+        # Handle transaction not found specifically
+        if "not found" in str(e).lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(e)
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+    except StaffValidationError as e:
+        # Staff user validation errors
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Staff validation error: {str(e)}"
+        )
+    except TransactionStateError as e:
+        # Invalid status transition errors
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot forfeit transaction: {str(e)}"
+        )
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except Exception as e:
+        # Log unexpected errors for debugging
+        import traceback
+        print(f"Unexpected error in forfeit_transaction: {e}")
+        print(f"Traceback: {traceback.format_exc()}") 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to forfeit transaction. Please try again later."
+            detail=f"Failed to forfeit transaction: {str(e)}"
         )
 
 
@@ -562,15 +785,34 @@ async def get_initial_pawn_receipt(
         
         return InitialPawnReceiptResponse.model_validate(receipt_data)
         
+    except HTTPException:
+        raise
     except ReceiptGenerationError as e:
+        # Handle transaction not found or receipt generation errors
+        if "not found" in str(e).lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(e)
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+    except ValueError as e:
+        # Invalid format or receipt type parameters
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            detail=f"Invalid parameters: {str(e)}"
         )
     except Exception as e:
+        # Log unexpected errors for debugging
+        import traceback
+        print(f"Unexpected error in get_initial_pawn_receipt: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to generate initial pawn receipt. Please try again later."
+            detail=f"Failed to generate initial pawn receipt: {str(e)}"
         )
 
 
@@ -619,15 +861,34 @@ async def get_payment_receipt(
         
         return PaymentReceiptResponse.model_validate(receipt_data)
         
+    except HTTPException:
+        raise
     except ReceiptGenerationError as e:
+        # Handle transaction/payment not found or receipt generation errors
+        if "not found" in str(e).lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(e)
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+    except ValueError as e:
+        # Invalid format or receipt type parameters
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            detail=f"Invalid parameters: {str(e)}"
         )
     except Exception as e:
+        # Log unexpected errors for debugging
+        import traceback
+        print(f"Unexpected error in get_payment_receipt: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to generate payment receipt. Please try again later."
+            detail=f"Failed to generate payment receipt: {str(e)}"
         )
 
 
@@ -676,15 +937,34 @@ async def get_extension_receipt(
         
         return ExtensionReceiptResponse.model_validate(receipt_data)
         
+    except HTTPException:
+        raise
     except ReceiptGenerationError as e:
+        # Handle transaction/extension not found or receipt generation errors
+        if "not found" in str(e).lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(e)
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+    except ValueError as e:
+        # Invalid format or receipt type parameters
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            detail=f"Invalid parameters: {str(e)}"
         )
     except Exception as e:
+        # Log unexpected errors for debugging
+        import traceback
+        print(f"Unexpected error in get_extension_receipt: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to generate extension receipt. Please try again later."
+            detail=f"Failed to generate extension receipt: {str(e)}"
         )
 
 
@@ -708,13 +988,32 @@ async def get_receipt_summary(
         summary = await ReceiptService.get_transaction_receipt_summary(transaction_id)
         return ReceiptSummaryResponse.model_validate(summary)
         
+    except HTTPException:
+        raise
     except ReceiptGenerationError as e:
+        # Handle transaction not found or receipt generation errors
+        if "not found" in str(e).lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(e)
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+    except ValueError as e:
+        # Invalid parameters
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            detail=f"Invalid parameters: {str(e)}"
         )
     except Exception as e:
+        # Log unexpected errors for debugging
+        import traceback
+        print(f"Unexpected error in get_receipt_summary: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get receipt summary. Please try again later."
+            detail=f"Failed to get receipt summary: {str(e)}"
         )

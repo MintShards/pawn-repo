@@ -271,8 +271,12 @@ class PawnTransactionService:
         # Calculate total due with interest accrual
         total_due = transaction.calculate_total_due(as_of_date)
         
-        # Calculate total payments made
-        total_paid = sum(payment.payment_amount for payment in payments)
+        # Calculate total payments made (defensive programming)
+        try:
+            total_paid = sum(payment.payment_amount for payment in payments) if payments else 0
+        except (AttributeError, TypeError) as e:
+            print(f"Warning: Error calculating total payments for transaction {transaction_id}: {e}")
+            total_paid = 0
         
         # Calculate current balance
         current_balance = total_due - total_paid
@@ -456,3 +460,287 @@ class PawnTransactionService:
                 await customer.save()
         
         return updated_counts
+    
+    @staticmethod
+    async def get_transactions_list(filters) -> Dict[str, Any]:
+        """
+        Get paginated list of transactions with filtering.
+        
+        Args:
+            filters: TransactionSearchFilters object with pagination and filter options
+            
+        Returns:
+            Dictionary containing transactions list and pagination info
+        """
+        from app.schemas.pawn_transaction_schema import PawnTransactionListResponse, PawnTransactionResponse
+        
+        try:
+            # Build query
+            query = PawnTransaction.find()
+            
+            # Apply filters
+            if filters.status:
+                query = query.find(PawnTransaction.status == filters.status)
+                
+            if filters.customer_id:
+                query = query.find(PawnTransaction.customer_id == filters.customer_id)
+                
+            if filters.min_amount is not None:
+                query = query.find(PawnTransaction.loan_amount >= filters.min_amount)
+                
+            if filters.max_amount is not None:
+                query = query.find(PawnTransaction.loan_amount <= filters.max_amount)
+                
+            if filters.start_date:
+                query = query.find(PawnTransaction.pawn_date >= filters.start_date)
+                
+            if filters.end_date:
+                query = query.find(PawnTransaction.pawn_date <= filters.end_date)
+                
+            if filters.storage_location:
+                query = query.find(PawnTransaction.storage_location.contains(filters.storage_location, case_insensitive=True))
+            
+            # Get total count before pagination
+            total_count = await query.count()
+            
+            # Apply sorting
+            sort_direction = 1 if filters.sort_order == "asc" else -1
+            if hasattr(PawnTransaction, filters.sort_by):
+                sort_field = getattr(PawnTransaction, filters.sort_by)
+                query = query.sort([(sort_field, sort_direction)])
+            else:
+                # Default sort by pawn_date if field doesn't exist
+                query = query.sort([(PawnTransaction.pawn_date, -1)])
+            
+            # Apply pagination
+            skip = (filters.page - 1) * filters.page_size
+            transactions = await query.skip(skip).limit(filters.page_size).to_list()
+            
+            # Convert to response format
+            transaction_responses = []
+            for transaction in transactions:
+                transaction_dict = transaction.model_dump()
+                transaction_responses.append(PawnTransactionResponse.model_validate(transaction_dict))
+            
+            # Calculate pagination info
+            has_next = (skip + filters.page_size) < total_count
+            
+            return PawnTransactionListResponse(
+                transactions=transaction_responses,
+                total_count=total_count,
+                page=filters.page,
+                page_size=filters.page_size,
+                has_next=has_next
+            )
+            
+        except Exception as e:
+            raise PawnTransactionError(f"Failed to retrieve transactions list: {str(e)}")
+    
+    @staticmethod
+    async def get_transaction_summary(transaction_id: str) -> Dict[str, Any]:
+        """
+        Get comprehensive transaction summary with items and balance.
+        
+        Args:
+            transaction_id: Unique transaction identifier
+            
+        Returns:
+            Dictionary containing transaction, items, balance, and summary info
+        """
+        from app.schemas.pawn_transaction_schema import (
+            TransactionSummaryResponse, PawnTransactionResponse, PawnItemResponse
+        )
+        from app.schemas.pawn_transaction_schema import BalanceResponse
+        from app.models.pawn_item_model import PawnItem
+        from app.services.interest_calculation_service import InterestCalculationService
+        
+        try:
+            # Get transaction
+            transaction = await PawnTransaction.find_one(
+                PawnTransaction.transaction_id == transaction_id
+            )
+            if not transaction:
+                raise PawnTransactionError(f"Transaction {transaction_id} not found")
+            
+            # Get transaction items
+            items = await PawnItem.find(
+                PawnItem.transaction_id == transaction_id
+            ).sort(PawnItem.item_number).to_list()
+            
+            # Convert to response schemas
+            transaction_response = PawnTransactionResponse.model_validate(transaction.model_dump())
+            
+            item_responses = []
+            for item in items:
+                item_dict = item.model_dump()
+                item_responses.append(PawnItemResponse.model_validate(item_dict))
+            
+            # Get current balance (using a simplified version for now)
+            balance_info = await InterestCalculationService.calculate_current_balance(
+                transaction_id
+            )
+            
+            # Calculate summary statistics
+            current_date = datetime.now(UTC)
+            days_since_pawn = (current_date.date() - transaction.pawn_date.date()).days
+            days_to_maturity = (transaction.maturity_date.date() - current_date.date()).days
+            
+            summary_stats = {
+                "total_items": len(items),
+                "days_since_pawn": days_since_pawn,
+                "days_to_maturity": days_to_maturity,
+                "is_overdue": current_date > transaction.maturity_date,
+                "is_in_grace_period": (
+                    current_date > transaction.maturity_date and 
+                    current_date <= transaction.grace_period_end
+                ),
+                "loan_to_value_ratio": None,  # Could be calculated if item values were stored
+                "payment_count": 0,  # Will be updated when payment system is integrated
+            }
+            
+            return TransactionSummaryResponse(
+                transaction=transaction_response,
+                items=item_responses,
+                balance=balance_info,
+                summary=summary_stats
+            )
+            
+        except PawnTransactionError:
+            # Re-raise our own errors
+            raise
+        except Exception as e:
+            raise PawnTransactionError(f"Failed to get transaction summary: {str(e)}")
+    
+    @staticmethod
+    async def bulk_update_status(
+        transaction_ids: List[str],
+        new_status: TransactionStatus,
+        updated_by_user_id: str,
+        notes: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Bulk update status for multiple transactions.
+        
+        Args:
+            transaction_ids: List of transaction IDs to update
+            new_status: New status to apply
+            updated_by_user_id: User ID making the updates
+            notes: Optional notes about the updates
+            
+        Returns:
+            Dictionary with update results
+        """
+        from app.schemas.pawn_transaction_schema import BulkStatusUpdateResponse
+        
+        success_count = 0
+        error_count = 0
+        successful_updates = []
+        failed_updates = []
+        
+        for transaction_id in transaction_ids:
+            try:
+                await PawnTransactionService.update_transaction_status(
+                    transaction_id=transaction_id,
+                    new_status=new_status,
+                    updated_by_user_id=updated_by_user_id,
+                    notes=notes
+                )
+                success_count += 1
+                successful_updates.append(transaction_id)
+            except Exception as e:
+                error_count += 1
+                failed_updates.append({
+                    "transaction_id": transaction_id,
+                    "error": str(e)
+                })
+        
+        return BulkStatusUpdateResponse(
+            success_count=success_count,
+            error_count=error_count,
+            total_requested=len(transaction_ids),
+            successful_updates=successful_updates,
+            failed_updates=failed_updates
+        )
+    
+    @staticmethod
+    async def redeem_transaction(
+        transaction_id: str,
+        redeemed_by_user_id: str
+    ) -> PawnTransaction:
+        """
+        Mark transaction as redeemed (full payoff).
+        
+        Args:
+            transaction_id: Unique transaction identifier
+            redeemed_by_user_id: User ID who processed the redemption
+            
+        Returns:
+            Updated PawnTransaction
+        """
+        # Validate staff user
+        staff_user = await User.find_one(User.user_id == redeemed_by_user_id)
+        if not staff_user or staff_user.status != UserStatus.ACTIVE:
+            raise StaffValidationError(f"Staff user {redeemed_by_user_id} not found or inactive")
+        
+        # Get transaction
+        transaction = await PawnTransactionService.get_transaction_by_id(transaction_id)
+        if not transaction:
+            raise PawnTransactionError(f"Transaction {transaction_id} not found")
+        
+        # Check if transaction can be redeemed
+        valid_statuses = [TransactionStatus.ACTIVE, TransactionStatus.OVERDUE, TransactionStatus.EXTENDED]
+        if transaction.status not in valid_statuses:
+            raise TransactionStateError(f"Cannot redeem transaction with status {transaction.status}")
+        
+        # Update transaction status
+        return await PawnTransactionService.update_transaction_status(
+            transaction_id=transaction_id,
+            new_status=TransactionStatus.REDEEMED,
+            updated_by_user_id=redeemed_by_user_id,
+            notes=f"Transaction redeemed by {staff_user.first_name} {staff_user.last_name}"
+        )
+    
+    @staticmethod
+    async def forfeit_transaction(
+        transaction_id: str,
+        forfeited_by_user_id: str,
+        reason: Optional[str] = None
+    ) -> PawnTransaction:
+        """
+        Mark transaction as forfeited.
+        
+        Args:
+            transaction_id: Unique transaction identifier
+            forfeited_by_user_id: User ID who processed the forfeiture
+            reason: Optional reason for forfeiture
+            
+        Returns:
+            Updated PawnTransaction
+        """
+        # Validate staff user
+        staff_user = await User.find_one(User.user_id == forfeited_by_user_id)
+        if not staff_user or staff_user.status != UserStatus.ACTIVE:
+            raise StaffValidationError(f"Staff user {forfeited_by_user_id} not found or inactive")
+        
+        # Get transaction
+        transaction = await PawnTransactionService.get_transaction_by_id(transaction_id)
+        if not transaction:
+            raise PawnTransactionError(f"Transaction {transaction_id} not found")
+        
+        # Check if transaction can be forfeited
+        valid_statuses = [TransactionStatus.ACTIVE, TransactionStatus.OVERDUE, TransactionStatus.EXTENDED]
+        if transaction.status not in valid_statuses:
+            raise TransactionStateError(f"Cannot forfeit transaction with status {transaction.status}")
+        
+        # Prepare notes
+        forfeit_notes = f"Transaction forfeited by {staff_user.first_name} {staff_user.last_name}"
+        if reason:
+            forfeit_notes += f". Reason: {reason}"
+        
+        # Update transaction status
+        return await PawnTransactionService.update_transaction_status(
+            transaction_id=transaction_id,
+            new_status=TransactionStatus.FORFEITED,
+            updated_by_user_id=forfeited_by_user_id,
+            notes=forfeit_notes
+        )

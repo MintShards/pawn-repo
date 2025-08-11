@@ -183,8 +183,34 @@ class PawnTransaction(Document):
         Returns:
             Total amount due in whole dollars
         """
+        # Use the new calculate_months_elapsed method
+        months_elapsed = self.calculate_months_elapsed(as_of_date)
+        
+        # Total due = principal + (monthly interest * months)
+        self.total_due = self.loan_amount + (self.monthly_interest_amount * months_elapsed)
+        return self.total_due
+    
+    def calculate_months_elapsed(self, as_of_date: Optional[datetime] = None) -> int:
+        """
+        Calculate months elapsed since pawn date using calendar month arithmetic.
+        
+        Args:
+            as_of_date: Date to calculate from (defaults to now)
+            
+        Returns:
+            Number of months elapsed (capped at 3 for interest calculation)
+        """
         if as_of_date is None:
             as_of_date = datetime.now(UTC)
+        
+        # Defensive programming - ensure valid dates
+        if not isinstance(as_of_date, datetime):
+            print(f"Warning: Invalid as_of_date type {type(as_of_date)}, using current date")
+            as_of_date = datetime.now(UTC)
+        
+        if not hasattr(self, 'pawn_date') or not self.pawn_date:
+            print(f"Warning: Invalid pawn_date for transaction, defaulting to 1 month")
+            return 1
         
         # Calculate months completed based on calendar months
         # Jan 23 → Feb 23 = 1 month completed (Feb is 1 month after Jan)
@@ -210,9 +236,7 @@ class PawnTransaction(Document):
         # Minimum 1 month of interest always applies
         months_elapsed = max(1, months_elapsed)
         
-        # Total due = principal + (monthly interest * months)
-        self.total_due = self.loan_amount + (self.monthly_interest_amount * months_elapsed)
-        return self.total_due
+        return months_elapsed
     
     def update_status(self) -> None:
         """
