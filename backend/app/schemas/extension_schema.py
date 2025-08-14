@@ -52,7 +52,8 @@ class ExtensionResponse(ExtensionBase):
     
     # Date calculations
     original_maturity_date: datetime = Field(..., description="Original maturity date")
-    new_maturity_date: datetime = Field(..., description="New maturity date after extension")
+    new_maturity_date: Optional[datetime] = Field(None, description="New maturity date after extension")
+    new_grace_period_end: Optional[datetime] = Field(None, description="New grace period end date")
     extension_date: datetime = Field(..., description="Date extension was processed")
     
     # Financial details
@@ -103,15 +104,11 @@ class ExtensionSummaryResponse(BaseModel):
     transaction_id: str = Field(..., description="Transaction identifier")
     total_extensions: int = Field(..., description="Total number of extensions")
     total_extension_fees: int = Field(..., description="Total extension fees charged")
-    total_extension_months: int = Field(..., description="Total months extended")
-    
-    # Date progression
-    original_maturity_date: datetime = Field(..., description="Original maturity date")
-    current_maturity_date: datetime = Field(..., description="Current maturity date")
-    
-    # Extension details
-    extensions: List[ExtensionResponse] = Field(..., description="List of all extensions")
+    total_months_extended: int = Field(..., description="Total months extended")
     last_extension_date: Optional[datetime] = Field(None, description="Date of last extension")
+    average_fee_per_month: int = Field(..., description="Average fee per month")
+    current_maturity_date: datetime = Field(..., description="Current maturity date")
+    current_grace_period_end: datetime = Field(..., description="Current grace period end date")
 
 
 class ExtensionReceiptResponse(BaseModel):

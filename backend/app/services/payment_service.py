@@ -15,6 +15,21 @@ from app.models.pawn_transaction_model import PawnTransaction, TransactionStatus
 from app.models.user_model import User, UserStatus
 
 
+def get_enum_value(enum_field) -> str:
+    """
+    Helper to safely get enum value, handling both enum objects and strings.
+    
+    Args:
+        enum_field: Enum object or string
+        
+    Returns:
+        String value of the enum
+    """
+    if isinstance(enum_field, str):
+        return enum_field
+    return enum_field.value
+
+
 class PaymentError(Exception):
     """Base exception for payment processing operations"""
     pass
@@ -108,6 +123,15 @@ class PaymentService:
         balance_after_payment = max(0, current_balance - payment_amount)
         is_overpayment = payment_amount > current_balance
         
+        # Calculate payment allocation (interest first, then principal)
+        interest_due = balance_info.get("interest_balance", 0)
+        principal_due = balance_info.get("principal_balance", 0)
+        
+        # Apply payment to interest first
+        interest_portion = min(payment_amount, interest_due)
+        remaining_payment = payment_amount - interest_portion
+        principal_portion = min(remaining_payment, principal_due)
+        
         # Create payment record
         payment = Payment(
             transaction_id=transaction_id,
@@ -115,6 +139,8 @@ class PaymentService:
             payment_amount=payment_amount,
             balance_before_payment=current_balance,
             balance_after_payment=balance_after_payment,
+            principal_portion=principal_portion,
+            interest_portion=interest_portion,
             payment_method="cash",
             receipt_number=receipt_number,
             internal_notes=internal_notes
@@ -135,6 +161,144 @@ class PaymentService:
         return payment
     
     @staticmethod
+    async def get_payment_history(transaction_id: str) -> Dict[str, Any]:
+        """
+        Get comprehensive payment history for a transaction.
+        
+        Args:
+            transaction_id: Transaction identifier
+            
+        Returns:
+            Dictionary containing payment history and summary
+            
+        Raises:
+            TransactionNotFoundError: Transaction not found
+        """
+        from app.schemas.payment_schema import PaymentHistoryResponse, PaymentResponse
+        
+        # Verify transaction exists
+        transaction = await PawnTransaction.find_one(
+            PawnTransaction.transaction_id == transaction_id
+        )
+        if not transaction:
+            raise TransactionNotFoundError(f"Transaction {transaction_id} not found")
+        
+        # Get all non-voided payments
+        payments = await Payment.find(
+            Payment.transaction_id == transaction_id,
+            Payment.is_voided != True  # Exclude voided payments
+        ).sort(-Payment.payment_date).to_list()
+        
+        # Convert to response format
+        payment_responses = []
+        for payment in payments:
+            payment_dict = payment.model_dump()
+            payment_responses.append(PaymentResponse.model_validate(payment_dict))
+        
+        # Calculate totals
+        total_paid = sum(payment.payment_amount for payment in payments)
+        
+        # Get current balance
+        from app.services.pawn_transaction_service import PawnTransactionService
+        balance_info = await PawnTransactionService.calculate_current_balance(transaction_id)
+        
+        # Create payment summary
+        from app.schemas.payment_schema import PaymentSummaryResponse
+        
+        # Calculate last payment date
+        last_payment_date = payments[0].payment_date if payments else None
+        
+        # Create payment summary
+        payment_summary = PaymentSummaryResponse(
+            transaction_id=transaction_id,
+            total_payments=total_paid,
+            payment_count=len(payments),
+            last_payment_date=last_payment_date,
+            total_principal_paid=balance_info.get("principal_paid", 0),
+            total_interest_paid=balance_info.get("interest_paid", 0),
+            current_balance=balance_info["current_balance"],
+            principal_balance=balance_info.get("principal_balance", 0),
+            interest_balance=balance_info.get("interest_balance", 0)
+        )
+        
+        # Create transaction details (ensure dates are timezone-aware)
+        pawn_date = transaction.pawn_date
+        if pawn_date.tzinfo is None:
+            pawn_date = pawn_date.replace(tzinfo=UTC)
+        
+        maturity_date = transaction.maturity_date  
+        if maturity_date.tzinfo is None:
+            maturity_date = maturity_date.replace(tzinfo=UTC)
+        
+        transaction_details = {
+            "transaction_id": transaction_id,
+            "status": get_enum_value(transaction.status),
+            "loan_amount": transaction.loan_amount,
+            "pawn_date": pawn_date.isoformat(),
+            "maturity_date": maturity_date.isoformat()
+        }
+        
+        return PaymentHistoryResponse(
+            transaction_id=transaction_id,
+            payments=payment_responses,
+            summary=payment_summary,
+            transaction_details=transaction_details
+        )
+    
+    @staticmethod
+    async def get_payment_summary(transaction_id: str) -> 'PaymentSummaryResponse':
+        """
+        Get payment summary for a transaction.
+        
+        Args:
+            transaction_id: Transaction identifier
+            
+        Returns:
+            PaymentSummaryResponse with payment totals and breakdown
+            
+        Raises:
+            TransactionNotFoundError: Transaction not found
+        """
+        from app.schemas.payment_schema import PaymentSummaryResponse
+        
+        # Verify transaction exists
+        transaction = await PawnTransaction.find_one(
+            PawnTransaction.transaction_id == transaction_id
+        )
+        if not transaction:
+            raise TransactionNotFoundError(f"Transaction {transaction_id} not found")
+        
+        # Get all non-voided payments
+        payments = await Payment.find(
+            Payment.transaction_id == transaction_id,
+            Payment.is_voided != True  # Exclude voided payments
+        ).sort(-Payment.payment_date).to_list()
+        
+        # Calculate totals
+        total_payments = sum(payment.payment_amount for payment in payments)
+        total_principal_paid = sum(payment.principal_portion for payment in payments)
+        total_interest_paid = sum(payment.interest_portion for payment in payments)
+        
+        # Get current balance info
+        from app.services.pawn_transaction_service import PawnTransactionService
+        balance_info = await PawnTransactionService.calculate_current_balance(transaction_id)
+        
+        # Calculate last payment date
+        last_payment_date = payments[0].payment_date if payments else None
+        
+        return PaymentSummaryResponse(
+            transaction_id=transaction_id,
+            total_payments=total_payments,
+            payment_count=len(payments),
+            last_payment_date=last_payment_date,
+            total_principal_paid=total_principal_paid,
+            total_interest_paid=total_interest_paid,
+            current_balance=balance_info["current_balance"],
+            principal_balance=balance_info.get("principal_balance", 0),
+            interest_balance=balance_info.get("interest_balance", 0)
+        )
+    
+    @staticmethod
     async def get_transaction_payments(
         transaction_id: str,
         limit: Optional[int] = None
@@ -149,7 +313,10 @@ class PaymentService:
         Returns:
             List of Payment objects ordered by payment date (newest first)
         """
-        query = Payment.find(Payment.transaction_id == transaction_id).sort(-Payment.payment_date)
+        query = Payment.find(
+            Payment.transaction_id == transaction_id,
+            Payment.is_voided != True  # Exclude voided payments
+        ).sort(-Payment.payment_date)
         
         if limit:
             query = query.limit(limit)
@@ -439,3 +606,230 @@ class PaymentService:
             "staff_breakdown": staff_breakdown,
             "payments": payment_details
         }
+    
+    @staticmethod
+    async def void_payment(
+        payment_id: str,
+        voided_by_user_id: str,
+        void_reason: Optional[str] = None
+    ) -> Payment:
+        """
+        Void a payment (reverses payment and restores balance).
+        
+        Args:
+            payment_id: Unique payment identifier
+            voided_by_user_id: User ID who is voiding the payment
+            void_reason: Optional reason for voiding
+            
+        Returns:
+            Payment: The voided payment record
+            
+        Raises:
+            PaymentError: Payment not found or cannot be voided
+            StaffValidationError: Staff user not found or insufficient permissions
+        """
+        # Validate payment exists
+        payment = await Payment.find_one(Payment.payment_id == payment_id)
+        if not payment:
+            raise PaymentError(f"Payment {payment_id} not found")
+        
+        # Check if payment is already voided
+        if payment.is_voided:
+            raise PaymentError(f"Payment {payment_id} is already voided")
+        
+        # Validate staff user
+        staff_user = await User.find_one(User.user_id == voided_by_user_id)
+        if not staff_user:
+            raise StaffValidationError(f"Staff user {voided_by_user_id} not found")
+        
+        if staff_user.status != UserStatus.ACTIVE:
+            raise StaffValidationError(
+                f"Staff user {staff_user.first_name} {staff_user.last_name} is not active"
+            )
+        
+        # Get transaction to check current status
+        transaction = await PawnTransaction.find_one(
+            PawnTransaction.transaction_id == payment.transaction_id
+        )
+        if not transaction:
+            raise PaymentError(f"Transaction {payment.transaction_id} not found")
+        
+        # Business rule: Cannot void payments on sold transactions
+        if transaction.status == TransactionStatus.SOLD:
+            raise PaymentError("Cannot void payments on sold transactions")
+        
+        # Check if this was the payment that marked the transaction as redeemed
+        was_redemption_payment = (
+            transaction.status == TransactionStatus.REDEEMED and 
+            payment.balance_after_payment == 0
+        )
+        
+        # Void the payment
+        payment.void_payment(voided_by_user_id, void_reason)
+        await payment.save()
+        
+        # If this payment caused redemption, revert transaction status
+        if was_redemption_payment:
+            from app.services.pawn_transaction_service import PawnTransactionService
+            
+            # Calculate new status based on current date and balance
+            balance_info = await PawnTransactionService.calculate_current_balance(
+                payment.transaction_id
+            )
+            
+            # Since we voided a payment, the balance is now positive again
+            new_balance = balance_info["current_balance"] + payment.payment_amount
+            
+            # Determine appropriate status
+            import datetime
+            current_date = datetime.datetime.now(datetime.UTC)
+            grace_period_end = transaction.grace_period_end
+            if grace_period_end.tzinfo is None:
+                grace_period_end = grace_period_end.replace(tzinfo=datetime.UTC)
+            
+            if current_date <= grace_period_end:
+                # Still within grace period
+                if current_date <= transaction.maturity_date:
+                    new_status = TransactionStatus.ACTIVE
+                else:
+                    new_status = TransactionStatus.OVERDUE
+            else:
+                # Past grace period, should be forfeited but we'll mark as overdue
+                # since the payment void might be correcting an error
+                new_status = TransactionStatus.OVERDUE
+            
+            await PawnTransactionService.update_transaction_status(
+                transaction_id=payment.transaction_id,
+                new_status=new_status,
+                updated_by_user_id=voided_by_user_id,
+                notes=f"Status reverted due to payment {payment_id} being voided. New balance: ${new_balance}"
+            )
+        
+        return payment
+    
+    @staticmethod
+    async def validate_payment_request(
+        transaction_id: str,
+        payment_amount: int
+    ) -> 'PaymentValidationResponse':
+        """
+        Validate payment request and return validation response.
+        
+        Args:
+            transaction_id: Transaction identifier
+            payment_amount: Proposed payment amount
+            
+        Returns:
+            PaymentValidationResponse with validation results
+            
+        Raises:
+            TransactionNotFoundError: Transaction not found
+            PaymentValidationError: Invalid payment parameters
+        """
+        from app.schemas.payment_schema import PaymentValidationResponse
+        
+        try:
+            validation_data = await PaymentService.validate_payment_amount(
+                transaction_id=transaction_id,
+                payment_amount=payment_amount
+            )
+            
+            return PaymentValidationResponse(
+                is_valid=validation_data["is_valid"],
+                validation_errors=list(filter(None, validation_data.get("warnings", []))),
+                current_balance=validation_data["current_balance"],
+                new_balance=validation_data["projected_balance"],
+                principal_allocation=validation_data["payment_breakdown"]["principal_payment"],
+                interest_allocation=validation_data["payment_breakdown"]["interest_payment"],
+                will_be_paid_off=validation_data["will_be_paid_off"],
+                recommended_amount=validation_data["current_balance"] if validation_data["current_balance"] > 0 else None
+            )
+            
+        except (TransactionNotFoundError, PaymentValidationError):
+            raise
+        except Exception as e:
+            raise PaymentValidationError(f"Validation failed: {str(e)}")
+    
+    @staticmethod
+    async def get_payments_list(
+        transaction_id: Optional[str] = None,
+        processed_by: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        min_amount: Optional[int] = None,
+        max_amount: Optional[int] = None,
+        page: int = 1,
+        page_size: int = 20,
+        sort_by: str = "payment_date",
+        sort_order: str = "desc"
+    ) -> 'PaymentListResponse':
+        """
+        Get paginated list of payments with optional filtering.
+        
+        Returns:
+            PaymentListResponse with paginated payment data
+        """
+        from app.schemas.payment_schema import PaymentListResponse, PaymentResponse
+        
+        # Build query filters
+        query_filters = []
+        
+        if transaction_id:
+            query_filters.append(Payment.transaction_id == transaction_id)
+        
+        if processed_by:
+            query_filters.append(Payment.processed_by_user_id == processed_by)
+        
+        if start_date:
+            query_filters.append(Payment.payment_date >= start_date)
+        
+        if end_date:
+            query_filters.append(Payment.payment_date <= end_date)
+        
+        if min_amount is not None:
+            query_filters.append(Payment.payment_amount >= min_amount)
+        
+        if max_amount is not None:
+            query_filters.append(Payment.payment_amount <= max_amount)
+        
+        # Build base query
+        if query_filters:
+            query = Payment.find(*query_filters)
+        else:
+            query = Payment.find()
+        
+        # Apply sorting
+        sort_field = getattr(Payment, sort_by, Payment.payment_date)
+        if sort_order.lower() == "asc":
+            query = query.sort(sort_field)
+        else:
+            query = query.sort(-sort_field)
+        
+        # Get total count
+        total_count = await query.count()
+        
+        # Apply pagination
+        skip = (page - 1) * page_size
+        payments = await query.skip(skip).limit(page_size).to_list()
+        
+        # Convert to response format
+        payment_responses = []
+        for payment in payments:
+            payment_dict = payment.model_dump()
+            # Ensure backward compatibility
+            if 'principal_portion' not in payment_dict:
+                payment_dict['principal_portion'] = 0
+            if 'interest_portion' not in payment_dict:
+                payment_dict['interest_portion'] = 0
+            if 'payment_type' not in payment_dict:
+                payment_dict['payment_type'] = payment_dict.get('payment_method', 'cash')
+            
+            payment_responses.append(PaymentResponse.model_validate(payment_dict))
+        
+        return PaymentListResponse(
+            payments=payment_responses,
+            total_count=total_count,
+            page=page,
+            page_size=page_size,
+            has_next=skip + page_size < total_count
+        )

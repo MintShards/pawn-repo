@@ -21,7 +21,10 @@ from app.schemas.extension_schema import (
     ExtensionReceiptResponse, ExtensionHistoryResponse,
     ExtensionValidationResponse
 )
-from app.services.extension_service import ExtensionService
+from app.services.extension_service import (
+    ExtensionService, ExtensionError, ExtensionValidationError, 
+    TransactionNotFoundError, StaffValidationError, ExtensionNotAllowedError
+)
 
 # Create router
 extension_router = APIRouter()
@@ -61,17 +64,35 @@ async def process_extension(
     except HTTPException:
         # Re-raise HTTP exceptions from service layer
         raise
+    except TransactionNotFoundError as e:
+        # Handle transaction not found
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except (ExtensionValidationError, StaffValidationError, ExtensionNotAllowedError) as e:
+        # Handle business rule violations and validation errors
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except ValueError as e:
-        # Handle validation errors
+        # Handle general validation errors
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except Exception as e:
-        # Log unexpected errors
+        # Log unexpected errors for debugging
+        import traceback
+        print(f"Unexpected error in process_extension: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
+        
+        # Include the actual error in development
+        error_detail = str(e) if str(e) else "Failed to process extension. Please try again later."
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to process extension. Please try again later."
+            detail=f"Extension processing failed: {error_detail}"
         )
 
 
@@ -97,10 +118,22 @@ async def get_extension_history(
         
     except HTTPException:
         raise
+    except TransactionNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
     except Exception as e:
+        # Log unexpected errors for debugging
+        import traceback
+        print(f"Unexpected error in get_extension_history: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
+        
+        # Include the actual error in development
+        error_detail = str(e) if str(e) else "Failed to retrieve extension history. Please try again later."
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve extension history. Please try again later."
+            detail=f"Extension history retrieval failed: {error_detail}"
         )
 
 
@@ -126,10 +159,22 @@ async def get_extension_summary(
         
     except HTTPException:
         raise
+    except TransactionNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
     except Exception as e:
+        # Log unexpected errors for debugging
+        import traceback
+        print(f"Unexpected error in get_extension_summary: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
+        
+        # Include the actual error in development
+        error_detail = str(e) if str(e) else "Failed to retrieve extension summary. Please try again later."
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve extension summary. Please try again later."
+            detail=f"Extension summary retrieval failed: {error_detail}"
         )
 
 
@@ -158,10 +203,22 @@ async def check_extension_eligibility(
         
     except HTTPException:
         raise
+    except TransactionNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
     except Exception as e:
+        # Log unexpected errors for debugging
+        import traceback
+        print(f"Unexpected error in check_extension_eligibility: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
+        
+        # Include the actual error in development
+        error_detail = str(e) if str(e) else "Failed to check extension eligibility. Please try again later."
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to check extension eligibility. Please try again later."
+            detail=f"Extension eligibility check failed: {error_detail}"
         )
 
 
@@ -350,13 +407,25 @@ async def cancel_extension(
         
     except HTTPException:
         raise
+    except ExtensionError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except Exception as e:
+        # Log unexpected errors for debugging
+        import traceback
+        print(f"Unexpected error in cancel_extension: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
+        
+        # Include the actual error in development
+        error_detail = str(e) if str(e) else "Failed to cancel extension. Please try again later."
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to cancel extension. Please try again later."
+            detail=f"Extension cancellation failed: {error_detail}"
         )

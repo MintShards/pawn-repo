@@ -51,6 +51,16 @@ class Payment(Document):
         ge=0,
         description="Remaining balance after this payment"
     )
+    principal_portion: int = Field(
+        default=0,
+        ge=0,
+        description="Amount of payment applied to principal"
+    )
+    interest_portion: int = Field(
+        default=0,
+        ge=0,
+        description="Amount of payment applied to interest"
+    )
     
     # Payment metadata
     payment_method: str = Field(
@@ -66,6 +76,25 @@ class Payment(Document):
         default=None,
         max_length=200,
         description="Internal notes about this payment"
+    )
+    
+    # Void functionality
+    is_voided: bool = Field(
+        default=False,
+        description="Whether this payment has been voided"
+    )
+    voided_date: Optional[datetime] = Field(
+        default=None,
+        description="Date/time when payment was voided"
+    )
+    voided_by_user_id: Optional[str] = Field(
+        default=None,
+        description="User ID who voided this payment"
+    )
+    void_reason: Optional[str] = Field(
+        default=None,
+        max_length=200,
+        description="Reason for voiding payment"
     )
     
     # Timestamps
@@ -171,6 +200,22 @@ class Payment(Document):
             return normalized if normalized else None
         return v
     
+    @field_validator('void_reason', mode='before')
+    @classmethod
+    def validate_void_reason(cls, v) -> Optional[str]:
+        """Handle empty strings and normalize void reason"""
+        if v == "" or v is None:
+            return None
+        if isinstance(v, str):
+            normalized = v.strip()
+            return normalized if normalized else None
+        return v
+    
+    @property
+    def payment_type(self) -> str:
+        """Return payment_method as payment_type for schema compatibility"""
+        return self.payment_method
+    
     def validate_payment_math(self) -> None:
         """
         Validate that payment math is correct.
@@ -182,6 +227,25 @@ class Payment(Document):
                 f'Payment math incorrect: {self.balance_before_payment} - {self.payment_amount} '
                 f'should equal {expected_balance}, but balance_after_payment is {self.balance_after_payment}'
             )
+    
+    def void_payment(self, voided_by_user_id: str, void_reason: Optional[str] = None) -> None:
+        """
+        Mark this payment as voided.
+        
+        Args:
+            voided_by_user_id: User ID who is voiding the payment
+            void_reason: Optional reason for voiding
+            
+        Raises:
+            ValueError: If payment is already voided
+        """
+        if self.is_voided:
+            raise ValueError(f"Payment {self.payment_id} is already voided")
+        
+        self.is_voided = True
+        self.voided_date = datetime.now(UTC)
+        self.voided_by_user_id = voided_by_user_id
+        self.void_reason = void_reason
     
     async def save(self, *args, **kwargs) -> None:
         """Override save to validate payment math and update timestamps"""

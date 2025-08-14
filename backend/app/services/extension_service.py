@@ -90,12 +90,19 @@ class ExtensionService:
                 f"Cannot extend {transaction.status} transaction"
             )
         
-        # Check if within grace period (business rule)
+        # Check if within extension window (business rule: can extend anytime within 3 months)
         current_time = datetime.now(UTC)
-        if current_time > transaction.grace_period_end:
+        
+        # Ensure grace_period_end is timezone-aware for comparison
+        grace_period_end = transaction.grace_period_end
+        if grace_period_end.tzinfo is None:
+            grace_period_end = grace_period_end.replace(tzinfo=UTC)
+        
+        # Allow extensions anytime before grace period ends (within 3 months + 7 days)
+        if current_time > grace_period_end:
             raise ExtensionNotAllowedError(
-                f"Cannot extend - transaction past grace period. Grace period ended on "
-                f"{transaction.grace_period_end.strftime('%Y-%m-%d %H:%M:%S UTC')}"
+                f"Cannot extend - extension window has closed. Extension deadline was "
+                f"{grace_period_end.strftime('%Y-%m-%d %H:%M:%S UTC')}. Current time: {current_time.strftime('%Y-%m-%d %H:%M:%S UTC')}"
             )
         
         # Validate staff user
@@ -124,7 +131,7 @@ class ExtensionService:
         # Get current maturity date for extension calculation
         current_maturity = transaction.maturity_date
         
-        # Create extension record (this will calculate new dates using calendar months)
+        # Create extension record (dates will be calculated automatically in save())
         extension = Extension(
             transaction_id=transaction_id,
             processed_by_user_id=processed_by_user_id,
@@ -132,8 +139,6 @@ class ExtensionService:
             extension_fee_per_month=extension_fee_per_month,
             total_extension_fee=total_extension_fee,
             original_maturity_date=current_maturity,
-            new_maturity_date=None,  # Will be calculated in save()
-            new_grace_period_end=None,  # Will be calculated in save()
             extension_reason=extension_reason,
             internal_notes=internal_notes
         )
@@ -314,7 +319,7 @@ class ExtensionService:
         new_maturity_date = temp_extension.calculate_new_maturity_date()
         new_grace_period_end = temp_extension.calculate_new_grace_period_end()
         
-        # Check eligibility
+        # Check eligibility (can extend anytime before grace period ends)
         current_time = datetime.now(UTC)
         can_extend = current_time <= transaction.grace_period_end
         
@@ -381,12 +386,17 @@ class ExtensionService:
         
         current_time = datetime.now(UTC)
         
-        # Check if within grace period
-        is_eligible = current_time <= transaction.grace_period_end
+        # Ensure grace_period_end is timezone-aware for comparison
+        grace_period_end = transaction.grace_period_end
+        if grace_period_end.tzinfo is None:
+            grace_period_end = grace_period_end.replace(tzinfo=UTC)
+        
+        # Check if within extension window (can extend anytime before grace period ends)
+        is_eligible = current_time <= grace_period_end
         
         # Calculate time remaining
         if is_eligible:
-            time_remaining = transaction.grace_period_end - current_time
+            time_remaining = grace_period_end - current_time
             days_remaining = time_remaining.days
             hours_remaining = time_remaining.seconds // 3600
             minutes_remaining = (time_remaining.seconds % 3600) // 60
@@ -404,12 +414,17 @@ class ExtensionService:
             transaction, is_eligible, status_allows_extension
         )
         
+        # Ensure dates are timezone-aware for isoformat
+        maturity_date = transaction.maturity_date
+        if maturity_date.tzinfo is None:
+            maturity_date = maturity_date.replace(tzinfo=UTC)
+        
         return {
             "transaction_id": transaction_id,
             "is_eligible": is_eligible and status_allows_extension,
             "current_status": transaction.status,
-            "maturity_date": transaction.maturity_date.isoformat(),
-            "grace_period_end": transaction.grace_period_end.isoformat(),
+            "maturity_date": maturity_date.isoformat(),
+            "grace_period_end": grace_period_end.isoformat(),
             "days_remaining": days_remaining,
             "hours_remaining": hours_remaining,
             "minutes_remaining": minutes_remaining,
@@ -432,7 +447,7 @@ class ExtensionService:
         if not status_allows_extension:
             return f"Cannot extend - transaction status is '{transaction.status}'"
         elif not is_eligible:
-            return "Cannot extend - past grace period"
+            return "Cannot extend - extension window has closed"
         else:
             return None
     
@@ -596,3 +611,426 @@ class ExtensionService:
             "staff_breakdown": staff_breakdown,
             "extensions": extension_details
         }
+    
+    @staticmethod
+    async def get_extension_history(transaction_id: str) -> 'ExtensionHistoryResponse':
+        """
+        Get comprehensive extension history for a transaction.
+        
+        Args:
+            transaction_id: Transaction identifier
+            
+        Returns:
+            ExtensionHistoryResponse with extension history and summary
+            
+        Raises:
+            TransactionNotFoundError: Transaction not found
+        """
+        from app.schemas.extension_schema import ExtensionHistoryResponse, ExtensionResponse
+        
+        # Verify transaction exists
+        transaction = await PawnTransaction.find_one(
+            PawnTransaction.transaction_id == transaction_id
+        )
+        if not transaction:
+            raise TransactionNotFoundError(f"Transaction {transaction_id} not found")
+        
+        # Get all extensions
+        extensions = await Extension.find(
+            Extension.transaction_id == transaction_id
+        ).sort(-Extension.extension_date).to_list()
+        
+        # Convert to response format
+        extension_responses = []
+        for extension in extensions:
+            extension_dict = extension.model_dump()
+            extension_responses.append(ExtensionResponse.model_validate(extension_dict))
+        
+        # Get extension summary
+        summary = await ExtensionService.get_extension_summary(transaction_id)
+        
+        # Create transaction details
+        transaction_details = {
+            "transaction_id": transaction_id,
+            "status": transaction.status,
+            "original_maturity_date": transaction.maturity_date.isoformat(),
+            "current_grace_period_end": transaction.grace_period_end.isoformat()
+        }
+        
+        return ExtensionHistoryResponse(
+            transaction_id=transaction_id,
+            extensions=extension_responses,
+            summary=summary,
+            transaction_details=transaction_details
+        )
+    
+    @staticmethod
+    async def get_extension_summary(transaction_id: str) -> 'ExtensionSummaryResponse':
+        """
+        Get extension summary for a transaction.
+        
+        Args:
+            transaction_id: Transaction identifier
+            
+        Returns:
+            ExtensionSummaryResponse with extension totals and breakdown
+            
+        Raises:
+            TransactionNotFoundError: Transaction not found
+        """
+        from app.schemas.extension_schema import ExtensionSummaryResponse
+        
+        # Verify transaction exists
+        transaction = await PawnTransaction.find_one(
+            PawnTransaction.transaction_id == transaction_id
+        )
+        if not transaction:
+            raise TransactionNotFoundError(f"Transaction {transaction_id} not found")
+        
+        # Get all extensions
+        extensions = await Extension.find(
+            Extension.transaction_id == transaction_id
+        ).sort(-Extension.extension_date).to_list()
+        
+        # Calculate totals
+        total_fees = sum(extension.total_extension_fee for extension in extensions)
+        total_months = sum(extension.extension_months for extension in extensions)
+        
+        # Calculate last extension date
+        last_extension_date = extensions[0].extension_date if extensions else None
+        
+        return ExtensionSummaryResponse(
+            transaction_id=transaction_id,
+            total_extensions=len(extensions),
+            total_extension_fees=total_fees,
+            total_months_extended=total_months,
+            last_extension_date=last_extension_date,
+            average_fee_per_month=total_fees // total_months if total_months > 0 else 0,
+            current_maturity_date=transaction.maturity_date,
+            current_grace_period_end=transaction.grace_period_end
+        )
+    
+    @staticmethod
+    async def check_extension_eligibility(
+        transaction_id: str, 
+        extension_months: Optional[int] = None
+    ) -> 'ExtensionEligibilityResponse':
+        """
+        Check extension eligibility for a transaction.
+        
+        Args:
+            transaction_id: Transaction identifier
+            extension_months: Optional extension months to check
+            
+        Returns:
+            ExtensionEligibilityResponse with eligibility status
+            
+        Raises:
+            TransactionNotFoundError: Transaction not found
+        """
+        from app.schemas.extension_schema import ExtensionEligibilityResponse
+        
+        # Get transaction details
+        transaction = await PawnTransaction.find_one(
+            PawnTransaction.transaction_id == transaction_id
+        )
+        if not transaction:
+            raise TransactionNotFoundError(f"Transaction {transaction_id} not found")
+        
+        # Get eligibility data
+        eligibility_data = await ExtensionService.validate_extension_eligibility(transaction_id)
+        
+        # Get current balance
+        from app.services.pawn_transaction_service import PawnTransactionService
+        balance_info = await PawnTransactionService.calculate_current_balance(transaction_id)
+        
+        # Get extension history
+        extensions = await Extension.find(
+            Extension.transaction_id == transaction_id
+        ).to_list()
+        
+        # Calculate if overdue (ensure timezone-aware comparison)
+        current_time = datetime.now(UTC)
+        maturity_date = transaction.maturity_date
+        if maturity_date.tzinfo is None:
+            maturity_date = maturity_date.replace(tzinfo=UTC)
+        
+        is_overdue = current_time > maturity_date
+        days_overdue = max(0, (current_time - maturity_date).days) if is_overdue else 0
+        
+        # Build eligibility reasons
+        eligibility_reasons = []
+        if eligibility_data["is_eligible"]:
+            eligibility_reasons.append("Transaction is eligible for extension")
+            eligibility_reasons.append(f"Extension window closes on {eligibility_data['grace_period_end']}")
+        else:
+            if eligibility_data.get("reason"):
+                eligibility_reasons.append(eligibility_data["reason"])
+        
+        return ExtensionEligibilityResponse(
+            transaction_id=transaction_id,
+            is_eligible=eligibility_data["is_eligible"],
+            eligibility_reasons=eligibility_reasons,
+            current_status=str(eligibility_data["current_status"]),
+            current_balance=balance_info["current_balance"],
+            maturity_date=maturity_date,
+            is_overdue=is_overdue,
+            days_overdue=days_overdue,
+            previous_extensions=len(extensions),
+            can_extend_months=[1, 2, 3] if eligibility_data["is_eligible"] else [],
+            recommended_fee_per_month=50,
+            min_fee_per_month=25,
+            max_fee_per_month=100
+        )
+    
+    @staticmethod
+    async def generate_extension_receipt(extension_id: str) -> 'ExtensionReceiptResponse':
+        """
+        Generate extension receipt for printing/display.
+        
+        Args:
+            extension_id: Extension identifier
+            
+        Returns:
+            ExtensionReceiptResponse with receipt data
+            
+        Raises:
+            ExtensionError: Extension not found
+        """
+        from app.schemas.extension_schema import ExtensionReceiptResponse
+        from app.services.receipt_service import ReceiptService
+        
+        # Get extension
+        extension = await ExtensionService.get_extension_by_id(extension_id)
+        if not extension:
+            raise ExtensionError(f"Extension {extension_id} not found")
+        
+        # Generate comprehensive receipt data using ReceiptService
+        receipt_data = await ReceiptService.generate_extension_receipt(
+            transaction_id=extension.transaction_id,
+            extension_id=extension_id,
+            receipt_type="customer"
+        )
+        
+        # Transform to ExtensionReceiptResponse format
+        customer = receipt_data.get("customer", {})
+        extension_details = receipt_data.get("extension_details", {})
+        
+        return ExtensionReceiptResponse(
+            extension_id=extension_id,
+            transaction_id=extension.transaction_id,
+            customer_name=customer.get("name", ""),
+            customer_phone=customer.get("phone", ""),
+            extension_months=extension.extension_months,
+            extension_fee_per_month=extension.extension_fee_per_month,
+            extension_fee_per_month_formatted=extension_details.get("fee_per_month", f"${extension.extension_fee_per_month}.00"),
+            total_extension_fee=extension.total_extension_fee,
+            total_extension_fee_formatted=extension_details.get("total_extension_fee", f"${extension.total_extension_fee}.00"),
+            original_maturity_date=extension_details.get("original_maturity", extension.original_maturity_date.strftime("%B %d, %Y")),
+            new_maturity_date=extension_details.get("new_maturity_date", extension.new_maturity_date.strftime("%B %d, %Y")),
+            new_grace_period_end=extension_details.get("new_grace_period_ends", extension.new_grace_period_end.strftime("%B %d, %Y")),
+            extension_date=extension.extension_date.strftime("%B %d, %Y at %I:%M %p"),
+            processed_by=receipt_data.get("staff_member", extension.processed_by_user_id),
+            extension_reason=extension.extension_reason,
+            notes=extension.internal_notes,
+            transaction_status=receipt_data.get("transaction_status", "extended"),
+            item_count=receipt_data.get("item_count", 0)
+        )
+    
+    @staticmethod
+    async def validate_extension_request(
+        transaction_id: str,
+        extension_months: int,
+        extension_fee_per_month: int
+    ) -> 'ExtensionValidationResponse':
+        """
+        Validate extension request and return validation response.
+        
+        Args:
+            transaction_id: Transaction identifier
+            extension_months: Requested extension months
+            extension_fee_per_month: Requested fee per month
+            
+        Returns:
+            ExtensionValidationResponse with validation results
+            
+        Raises:
+            TransactionNotFoundError: Transaction not found
+        """
+        from app.schemas.extension_schema import ExtensionValidationResponse
+        
+        try:
+            preview_data = await ExtensionService.calculate_extension_preview(
+                transaction_id=transaction_id,
+                extension_months=extension_months,
+                extension_fee_per_month=extension_fee_per_month
+            )
+            
+            return ExtensionValidationResponse(
+                is_valid=preview_data["is_valid"],
+                can_process=preview_data["can_process"],
+                validation_errors=list(filter(None, preview_data.get("warnings", []))),
+                current_maturity_date=preview_data["current_maturity_date"],
+                new_maturity_date=preview_data["new_maturity_date"],
+                new_grace_period_end=preview_data["new_grace_period_end"],
+                total_extension_fee=preview_data["total_extension_fee"],
+                days_added=extension_months * 30,  # Approximate
+                will_extend_grace_period=True,
+                recommended_fee=50  # Default recommendation
+            )
+            
+        except (TransactionNotFoundError, ExtensionValidationError):
+            raise
+        except Exception as e:
+            raise ExtensionValidationError(f"Validation failed: {str(e)}")
+    
+    @staticmethod
+    async def get_extensions_list(
+        transaction_id: Optional[str] = None,
+        processed_by: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        extension_months: Optional[int] = None,
+        page: int = 1,
+        page_size: int = 20,
+        sort_by: str = "extension_date",
+        sort_order: str = "desc"
+    ) -> 'ExtensionListResponse':
+        """
+        Get paginated list of extensions with optional filtering.
+        
+        Returns:
+            ExtensionListResponse with paginated extension data
+        """
+        from app.schemas.extension_schema import ExtensionListResponse, ExtensionResponse
+        
+        # Build query filters
+        query_filters = []
+        
+        if transaction_id:
+            query_filters.append(Extension.transaction_id == transaction_id)
+        
+        if processed_by:
+            query_filters.append(Extension.processed_by_user_id == processed_by)
+        
+        if start_date:
+            query_filters.append(Extension.extension_date >= start_date)
+        
+        if end_date:
+            query_filters.append(Extension.extension_date <= end_date)
+        
+        if extension_months is not None:
+            query_filters.append(Extension.extension_months == extension_months)
+        
+        # Build base query
+        if query_filters:
+            query = Extension.find(*query_filters)
+        else:
+            query = Extension.find()
+        
+        # Apply sorting
+        sort_field = getattr(Extension, sort_by, Extension.extension_date)
+        if sort_order.lower() == "asc":
+            query = query.sort(sort_field)
+        else:
+            query = query.sort(-sort_field)
+        
+        # Get total count
+        total_count = await query.count()
+        
+        # Apply pagination
+        skip = (page - 1) * page_size
+        extensions = await query.skip(skip).limit(page_size).to_list()
+        
+        # Convert to response format
+        extension_responses = []
+        for extension in extensions:
+            extension_dict = extension.model_dump()
+            extension_responses.append(ExtensionResponse.model_validate(extension_dict))
+        
+        return ExtensionListResponse(
+            extensions=extension_responses,
+            total_count=total_count,
+            page=page,
+            page_size=page_size,
+            has_next=skip + page_size < total_count
+        )
+    
+    @staticmethod
+    async def cancel_extension(
+        extension_id: str,
+        cancelled_by_user_id: str,
+        cancellation_reason: Optional[str] = None
+    ) -> Extension:
+        """
+        Cancel an extension (admin only operation).
+        
+        Args:
+            extension_id: Extension to cancel
+            cancelled_by_user_id: User cancelling the extension
+            cancellation_reason: Optional reason for cancellation
+            
+        Returns:
+            Extension: The cancelled extension
+            
+        Raises:
+            ExtensionError: Extension not found or cannot be cancelled
+        """
+        # Get extension
+        extension = await Extension.find_one(Extension.extension_id == extension_id)
+        if not extension:
+            raise ExtensionError(f"Extension {extension_id} not found")
+        
+        # Get transaction
+        transaction = await PawnTransaction.find_one(
+            PawnTransaction.transaction_id == extension.transaction_id
+        )
+        if not transaction:
+            raise ExtensionError(f"Transaction {extension.transaction_id} not found")
+        
+        # Business rule: Cannot cancel if transaction is completed
+        if transaction.status in [TransactionStatus.SOLD, TransactionStatus.REDEEMED, TransactionStatus.FORFEITED]:
+            raise ExtensionError(f"Cannot cancel extension - transaction is {transaction.status}")
+        
+        # Revert transaction dates to original maturity date
+        transaction.maturity_date = extension.original_maturity_date
+        # Recalculate grace period from original maturity
+        transaction.grace_period_end = extension.original_maturity_date + timedelta(days=7)
+        
+        # Revert status if it was extended
+        if transaction.status == TransactionStatus.EXTENDED:
+            # Determine appropriate status based on current date
+            current_time = datetime.now(UTC)
+            # Ensure maturity_date is timezone-aware for comparison
+            maturity_date = transaction.maturity_date
+            if maturity_date.tzinfo is None:
+                maturity_date = maturity_date.replace(tzinfo=UTC)
+            
+            if current_time <= maturity_date:
+                transaction.status = TransactionStatus.ACTIVE
+            else:
+                transaction.status = TransactionStatus.OVERDUE
+        
+        # Add cancellation note
+        cancellation_note = (
+            f"[{datetime.now(UTC).isoformat()}] Extension {extension_id} cancelled by {cancelled_by_user_id}. "
+            f"Reverted to original maturity: {extension.original_maturity_date.strftime('%Y-%m-%d')}."
+        )
+        
+        if cancellation_reason:
+            cancellation_note += f" Reason: {cancellation_reason}"
+        
+        current_notes = transaction.internal_notes or ""
+        transaction.internal_notes = f"{current_notes}\n{cancellation_note}".strip()
+        
+        # Mark extension as cancelled (we'll add these fields to the Extension model)
+        extension.is_cancelled = True
+        extension.cancelled_date = datetime.now(UTC)
+        extension.cancelled_by_user_id = cancelled_by_user_id
+        extension.cancellation_reason = cancellation_reason
+        
+        # Save both records
+        await extension.save()
+        await transaction.save()
+        
+        return extension

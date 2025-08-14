@@ -58,6 +58,12 @@ class PaymentResponse(PaymentBase):
     created_at: datetime = Field(..., description="Payment creation timestamp")
     updated_at: datetime = Field(..., description="Payment last update timestamp")
     
+    # Void functionality
+    is_voided: bool = Field(default=False, description="Whether payment has been voided")
+    voided_date: Optional[datetime] = Field(None, description="Date payment was voided")
+    voided_by_user_id: Optional[str] = Field(None, description="User who voided payment")
+    void_reason: Optional[str] = Field(None, description="Reason for voiding payment")
+    
     model_config = ConfigDict(from_attributes=True)
 
 

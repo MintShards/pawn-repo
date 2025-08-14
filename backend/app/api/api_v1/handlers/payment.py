@@ -20,7 +20,10 @@ from app.schemas.payment_schema import (
     PaymentSummaryResponse, PaymentReceiptResponse, PaymentHistoryResponse,
     PaymentValidationResponse
 )
-from app.services.payment_service import PaymentService
+from app.services.payment_service import (
+    PaymentService, PaymentError, PaymentValidationError, 
+    TransactionNotFoundError, StaffValidationError
+)
 
 # Create router
 payment_router = APIRouter()
@@ -54,22 +57,50 @@ async def process_payment(
             internal_notes=payment_data.internal_notes
         )
         
-        return PaymentResponse.model_validate(payment.model_dump())
+        # Convert payment to dict and ensure all required fields are present
+        payment_dict = payment.model_dump()
+        
+        # Ensure void fields have default values if missing (new payments won't be voided)
+        if 'is_voided' not in payment_dict:
+            payment_dict['is_voided'] = False
+        if 'voided_date' not in payment_dict:
+            payment_dict['voided_date'] = None
+        if 'voided_by_user_id' not in payment_dict:
+            payment_dict['voided_by_user_id'] = None
+        if 'void_reason' not in payment_dict:
+            payment_dict['void_reason'] = None
+        
+        return PaymentResponse.model_validate(payment_dict)
     
     except HTTPException:
         # Re-raise HTTP exceptions from service layer
         raise
-    except ValueError as e:
+    except TransactionNotFoundError as e:
+        # Handle transaction not found
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except (PaymentValidationError, StaffValidationError) as e:
         # Handle validation errors
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
+    except ValueError as e:
+        # Handle other validation errors
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except Exception as e:
-        # Log unexpected errors
+        # Log unexpected errors for debugging
+        import traceback
+        print(f"Unexpected error in process_payment: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to process payment. Please try again later."
+            detail=f"Failed to process payment: {str(e)}"
         )
 
 
@@ -95,10 +126,20 @@ async def get_payment_history(
         
     except HTTPException:
         raise
+    except TransactionNotFoundError as e:
+        # Handle transaction not found
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
     except Exception as e:
+        # Log unexpected errors for debugging
+        import traceback
+        print(f"Unexpected error in get_payment_history: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve payment history. Please try again later."
+            detail=f"Failed to retrieve payment history: {str(e)}"
         )
 
 
@@ -124,10 +165,20 @@ async def get_payment_summary(
         
     except HTTPException:
         raise
+    except TransactionNotFoundError as e:
+        # Handle transaction not found
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
     except Exception as e:
+        # Log unexpected errors for debugging
+        import traceback
+        print(f"Unexpected error in get_payment_summary: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve payment summary. Please try again later."
+            detail=f"Failed to retrieve payment summary: {str(e)}"
         )
 
 
@@ -155,14 +206,39 @@ async def get_payment_by_id(
                 detail="Payment not found"
             )
         
-        return PaymentResponse.model_validate(payment.model_dump())
+        # Convert payment to dict and ensure all required fields are present
+        payment_dict = payment.model_dump()
+        
+        # Ensure new fields have default values if missing (for backward compatibility)
+        if 'principal_portion' not in payment_dict or payment_dict['principal_portion'] is None:
+            payment_dict['principal_portion'] = 0
+        if 'interest_portion' not in payment_dict or payment_dict['interest_portion'] is None:
+            payment_dict['interest_portion'] = 0
+        if 'payment_type' not in payment_dict:
+            payment_dict['payment_type'] = payment_dict.get('payment_method', 'cash')
+        
+        # Ensure void fields have default values if missing
+        if 'is_voided' not in payment_dict:
+            payment_dict['is_voided'] = False
+        if 'voided_date' not in payment_dict:
+            payment_dict['voided_date'] = None
+        if 'voided_by_user_id' not in payment_dict:
+            payment_dict['voided_by_user_id'] = None
+        if 'void_reason' not in payment_dict:
+            payment_dict['void_reason'] = None
+            
+        return PaymentResponse.model_validate(payment_dict)
         
     except HTTPException:
         raise
     except Exception as e:
+        # Log unexpected errors for debugging
+        import traceback
+        print(f"Unexpected error in get_payment_by_id: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve payment. Please try again later."
+            detail=f"Failed to retrieve payment: {str(e)}"
         )
 
 
@@ -183,15 +259,81 @@ async def get_payment_receipt(
 ) -> PaymentReceiptResponse:
     """Get payment receipt data for printing/display"""
     try:
-        receipt = await PaymentService.generate_payment_receipt(payment_id)
-        return receipt
+        # First get the payment to find the transaction_id
+        payment = await PaymentService.get_payment_by_id(payment_id)
+        if not payment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Payment not found"
+            )
+        
+        # Import ReceiptService locally to avoid circular imports
+        from app.services.receipt_service import ReceiptService
+        receipt_data = await ReceiptService.generate_payment_receipt(
+            transaction_id=payment.transaction_id,
+            payment_id=payment_id,
+            receipt_type="customer"
+        )
+        
+        # Transform receipt data to PaymentReceiptResponse format
+        payment_details = receipt_data.get("payment_details", {})
+        balance_breakdown = receipt_data.get("balance_breakdown", {})
+        customer = receipt_data.get("customer", {})
+        
+        # Determine if transaction is paid off
+        is_paid_off = payment_details.get("status") == "PAID IN FULL - ITEMS RELEASED"
+        
+        # Create PaymentReceiptResponse
+        payment_receipt = PaymentReceiptResponse(
+            payment_id=payment_id,
+            receipt_number=payment_details.get("receipt_number"),
+            
+            # Transaction details
+            transaction_id=receipt_data.get("transaction_id"),
+            customer_name=customer.get("name", ""),
+            customer_phone=customer.get("phone", ""),
+            
+            # Payment details
+            payment_amount=payment.payment_amount,
+            payment_amount_formatted=payment_details.get("payment_amount", f"${payment.payment_amount}.00"),
+            payment_date=payment_details.get("payment_date", payment.payment_date.strftime("%B %d, %Y at %I:%M %p")),
+            payment_type=payment.payment_method,
+            
+            # Balance information
+            balance_before=payment.balance_before_payment,
+            balance_after=payment.balance_after_payment,
+            balance_before_formatted=f"${payment.balance_before_payment}.00",
+            balance_after_formatted=payment_details.get("remaining_balance", f"${payment.balance_after_payment}.00"),
+            
+            # Payment allocation
+            principal_portion=getattr(payment, 'principal_portion', 0),
+            interest_portion=getattr(payment, 'interest_portion', 0),
+            principal_portion_formatted=f"${getattr(payment, 'principal_portion', 0)}.00",
+            interest_portion_formatted=f"${getattr(payment, 'interest_portion', 0)}.00",
+            
+            # Staff information
+            processed_by=receipt_data.get("staff_member", payment.processed_by_user_id),
+            
+            # Additional information
+            notes=payment.internal_notes,
+            
+            # Transaction status
+            transaction_status=receipt_data.get("transaction_status", "active"),
+            is_paid_off=is_paid_off
+        )
+        
+        return payment_receipt
         
     except HTTPException:
         raise
     except Exception as e:
+        # Log unexpected errors for debugging
+        import traceback
+        print(f"Unexpected error in get_payment_receipt: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to generate payment receipt. Please try again later."
+            detail=f"Failed to generate payment receipt: {str(e)}"
         )
 
 
@@ -312,7 +454,18 @@ async def void_payment(
             void_reason=reason
         )
         
-        return PaymentResponse.model_validate(payment.model_dump())
+        # Convert payment to dict and ensure all required fields are present
+        payment_dict = payment.model_dump()
+        
+        # Ensure backward compatibility for older fields
+        if 'principal_portion' not in payment_dict or payment_dict['principal_portion'] is None:
+            payment_dict['principal_portion'] = 0
+        if 'interest_portion' not in payment_dict or payment_dict['interest_portion'] is None:
+            payment_dict['interest_portion'] = 0
+        if 'payment_type' not in payment_dict:
+            payment_dict['payment_type'] = payment_dict.get('payment_method', 'cash')
+        
+        return PaymentResponse.model_validate(payment_dict)
         
     except HTTPException:
         raise

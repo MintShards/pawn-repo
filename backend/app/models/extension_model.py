@@ -53,18 +53,22 @@ class Extension(Document):
         ge=0,
         description="Total extension fee (extension_months × extension_fee_per_month)"
     )
+    fee_paid: bool = Field(
+        default=True,
+        description="Whether extension fee has been paid (assumed paid at processing time)"
+    )
     
     # Date calculations
     original_maturity_date: datetime = Field(
         ...,
         description="Original maturity date before extension"
     )
-    new_maturity_date: datetime = Field(
-        ...,
+    new_maturity_date: Optional[datetime] = Field(
+        default=None,
         description="New maturity date after extension (calculated from original)"
     )
-    new_grace_period_end: datetime = Field(
-        ...,
+    new_grace_period_end: Optional[datetime] = Field(
+        default=None,
         description="New grace period end date (new_maturity_date + 7 days)"
     )
     
@@ -78,6 +82,25 @@ class Extension(Document):
         default=None,
         max_length=200,
         description="Internal staff notes about this extension"
+    )
+    
+    # Cancellation functionality
+    is_cancelled: bool = Field(
+        default=False,
+        description="Whether this extension has been cancelled"
+    )
+    cancelled_date: Optional[datetime] = Field(
+        default=None,
+        description="Date/time when extension was cancelled"
+    )
+    cancelled_by_user_id: Optional[str] = Field(
+        default=None,
+        description="User ID who cancelled this extension"
+    )
+    cancellation_reason: Optional[str] = Field(
+        default=None,
+        max_length=200,
+        description="Reason for cancelling extension"
     )
     
     # Timestamps
@@ -254,7 +277,8 @@ class Extension(Document):
             self.new_grace_period_end = self.calculate_new_grace_period_end()
         
         # Validate extension timing (business rule check)
-        self.validate_extension_timing()
+        # Note: Timing validation is handled at service level
+        # self.validate_extension_timing()
         
         # Update timestamp
         self.updated_at = datetime.now(UTC)

@@ -21,6 +21,23 @@ from app.models.customer_model import Customer, CustomerStatus
 from app.models.user_model import User, UserStatus
 
 
+def ensure_timezone_aware(dt: datetime) -> datetime:
+    """
+    Ensure a datetime object is timezone-aware (UTC).
+    
+    Args:
+        dt: Datetime object that may or may not have timezone info
+        
+    Returns:
+        Timezone-aware datetime object in UTC
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt
+
+
 class PawnTransactionError(Exception):
     """Base exception for pawn transaction operations"""
     pass
@@ -263,9 +280,10 @@ class PawnTransactionService:
         if as_of_date is None:
             as_of_date = datetime.now(UTC)
         
-        # Get all payments for this transaction
+        # Get all non-voided payments for this transaction
         payments = await Payment.find(
-            Payment.transaction_id == transaction_id
+            Payment.transaction_id == transaction_id,
+            Payment.is_voided != True  # Include payments where is_voided is False or doesn't exist
         ).sort(Payment.payment_date).to_list()
         
         # Calculate total due with interest accrual
@@ -282,10 +300,11 @@ class PawnTransactionService:
         current_balance = total_due - total_paid
         
         # Calculate interest portion
+        pawn_date_aware = ensure_timezone_aware(transaction.pawn_date)
         interest_due = transaction.monthly_interest_amount * max(1, min(3, 
-            ((as_of_date.year - transaction.pawn_date.year) * 12 + 
-             (as_of_date.month - transaction.pawn_date.month)) + 
-            (1 if as_of_date.day > transaction.pawn_date.day else 0)
+            ((as_of_date.year - pawn_date_aware.year) * 12 + 
+             (as_of_date.month - pawn_date_aware.month)) + 
+            (1 if as_of_date.day > pawn_date_aware.day else 0)
         ))
         
         principal_due = transaction.loan_amount
@@ -316,12 +335,12 @@ class PawnTransactionService:
             "interest_balance": interest_due - interest_paid,
             "payment_count": len(payments),
             "status": transaction.status,
-            "pawn_date": transaction.pawn_date.isoformat(),
-            "maturity_date": transaction.maturity_date.isoformat(),
-            "grace_period_end": transaction.grace_period_end.isoformat(),
-            "is_overdue": as_of_date > transaction.maturity_date,
-            "is_in_grace_period": transaction.maturity_date < as_of_date <= transaction.grace_period_end,
-            "days_until_forfeiture": (transaction.grace_period_end - as_of_date).days if as_of_date < transaction.grace_period_end else 0
+            "pawn_date": ensure_timezone_aware(transaction.pawn_date).isoformat(),
+            "maturity_date": ensure_timezone_aware(transaction.maturity_date).isoformat(),
+            "grace_period_end": ensure_timezone_aware(transaction.grace_period_end).isoformat(),
+            "is_overdue": as_of_date > ensure_timezone_aware(transaction.maturity_date),
+            "is_in_grace_period": ensure_timezone_aware(transaction.maturity_date) < as_of_date <= ensure_timezone_aware(transaction.grace_period_end),
+            "days_until_forfeiture": (ensure_timezone_aware(transaction.grace_period_end) - as_of_date).days if as_of_date < ensure_timezone_aware(transaction.grace_period_end) else 0
         }
     
     @staticmethod
@@ -423,6 +442,8 @@ class PawnTransactionService:
         updated_counts = {"overdue": 0, "forfeited": 0}
         
         # Find transactions that should be marked overdue
+        # Note: MongoDB queries work with timezone-naive dates, so we don't need to convert here
+        # The comparison happens in MongoDB, not Python
         overdue_candidates = await PawnTransaction.find(
             PawnTransaction.status == TransactionStatus.ACTIVE,
             PawnTransaction.maturity_date < current_date,
@@ -582,17 +603,23 @@ class PawnTransactionService:
             
             # Calculate summary statistics
             current_date = datetime.now(UTC)
-            days_since_pawn = (current_date.date() - transaction.pawn_date.date()).days
-            days_to_maturity = (transaction.maturity_date.date() - current_date.date()).days
+            
+            # Ensure transaction dates are timezone-aware
+            pawn_date = ensure_timezone_aware(transaction.pawn_date)
+            maturity_date = ensure_timezone_aware(transaction.maturity_date)
+            grace_period_end = ensure_timezone_aware(transaction.grace_period_end)
+            
+            days_since_pawn = (current_date.date() - pawn_date.date()).days
+            days_to_maturity = (maturity_date.date() - current_date.date()).days
             
             summary_stats = {
                 "total_items": len(items),
                 "days_since_pawn": days_since_pawn,
                 "days_to_maturity": days_to_maturity,
-                "is_overdue": current_date > transaction.maturity_date,
+                "is_overdue": current_date > maturity_date,
                 "is_in_grace_period": (
-                    current_date > transaction.maturity_date and 
-                    current_date <= transaction.grace_period_end
+                    current_date > maturity_date and 
+                    current_date <= grace_period_end
                 ),
                 "loan_to_value_ratio": None,  # Could be calculated if item values were stored
                 "payment_count": 0,  # Will be updated when payment system is integrated

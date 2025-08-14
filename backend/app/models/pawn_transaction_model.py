@@ -146,10 +146,15 @@ class PawnTransaction(Document):
         Uses calendar month arithmetic (not fixed 30-day periods).
         """
         if not self.maturity_date:
+            # Ensure pawn_date is timezone-aware
+            pawn_date = self.pawn_date
+            if pawn_date.tzinfo is None:
+                pawn_date = pawn_date.replace(tzinfo=UTC)
+            
             # Maturity is 3 months from pawn date (calendar months, not days)
-            year = self.pawn_date.year
-            month = self.pawn_date.month + 3
-            day = self.pawn_date.day
+            year = pawn_date.year
+            month = pawn_date.month + 3
+            day = pawn_date.day
             
             # Handle month overflow
             if month > 12:
@@ -161,13 +166,13 @@ class PawnTransaction(Document):
             
             # Handle day overflow for shorter months
             try:
-                self.maturity_date = self.pawn_date.replace(year=year, month=month, day=day)
+                self.maturity_date = pawn_date.replace(year=year, month=month, day=day)
             except ValueError:
                 # Day doesn't exist in target month (e.g., Jan 31 -> Apr 31)
                 # Move to last day of the month
                 import calendar
                 last_day = calendar.monthrange(year, month)[1]
-                self.maturity_date = self.pawn_date.replace(year=year, month=month, day=last_day)
+                self.maturity_date = pawn_date.replace(year=year, month=month, day=last_day)
         
         if not self.grace_period_end:
             # Grace period is 7 days after maturity date
@@ -217,13 +222,18 @@ class PawnTransaction(Document):
         # Feb 23 → Mar 23 = 2 months completed (Mar is 2 months after Jan)  
         # Mar 23 → Apr 23 = 3 months completed (Apr is 3 months after Jan)
         
-        months_elapsed = ((as_of_date.year - self.pawn_date.year) * 12 + 
-                         (as_of_date.month - self.pawn_date.month))
+        # Ensure pawn_date is timezone-aware
+        pawn_date = self.pawn_date
+        if pawn_date.tzinfo is None:
+            pawn_date = pawn_date.replace(tzinfo=UTC)
+        
+        months_elapsed = ((as_of_date.year - pawn_date.year) * 12 + 
+                         (as_of_date.month - pawn_date.month))
         
         # Only add 1 if we've passed the pawn day (not on the exact day)
         # This handles partial months - if we're past the pawn day in the current month,
         # we've completed another month
-        if as_of_date.day > self.pawn_date.day:
+        if as_of_date.day > pawn_date.day:
             months_elapsed += 1
         
         # IMPORTANT: Cap at maturity period (3 months)
@@ -250,11 +260,20 @@ class PawnTransaction(Document):
                           TransactionStatus.FORFEITED, TransactionStatus.DAMAGED]:
             return
         
+        # Ensure dates are timezone-aware before comparison
+        grace_period_end = self.grace_period_end
+        if grace_period_end.tzinfo is None:
+            grace_period_end = grace_period_end.replace(tzinfo=UTC)
+            
+        maturity_date = self.maturity_date
+        if maturity_date.tzinfo is None:
+            maturity_date = maturity_date.replace(tzinfo=UTC)
+        
         # Check if forfeited (past grace period)
-        if current_date > self.grace_period_end:
+        if current_date > grace_period_end:
             self.status = TransactionStatus.FORFEITED
         # Check if overdue (past maturity but within grace period)
-        elif current_date > self.maturity_date:
+        elif current_date > maturity_date:
             self.status = TransactionStatus.OVERDUE
         # Otherwise keep current status (active, extended, hold)
     

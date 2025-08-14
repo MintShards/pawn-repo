@@ -35,6 +35,21 @@ class TransactionNotFoundError(ReceiptGenerationError):
     pass
 
 
+def get_enum_value(enum_field) -> str:
+    """
+    Helper to safely get enum value, handling both enum objects and strings.
+    
+    Args:
+        enum_field: Enum object or string
+        
+    Returns:
+        String value of the enum
+    """
+    if isinstance(enum_field, str):
+        return enum_field
+    return enum_field.value
+
+
 class ReceiptService:
     """
     Comprehensive receipt generation service for pawn transactions.
@@ -104,7 +119,7 @@ class ReceiptService:
                     "name": f"{customer.first_name} {customer.last_name}",
                     "phone": customer.phone_number,
                     "customer_id": customer.phone_number,
-                    "status": customer.status.value
+                    "status": get_enum_value(customer.status)
                 },
                 "items": [
                     {
@@ -127,7 +142,7 @@ class ReceiptService:
                 },
                 "staff_member": f"{staff.first_name} {staff.last_name}",
                 "staff_id": staff.user_id,
-                "transaction_status": transaction.status.value,
+                "transaction_status": get_enum_value(transaction.status),
                 "item_count": len(items),
                 "important_notes": [
                     "Pick up anytime within 97 days",
@@ -204,9 +219,9 @@ class ReceiptService:
                 balance_info = {
                     "current_balance": payment.balance_after_payment,
                     "loan_amount": transaction.loan_amount,
-                    "interest_accrued": transaction.total_due - transaction.loan_amount,
+                    "interest_due": transaction.total_due - transaction.loan_amount,
                     "extension_fees": 0,
-                    "total_payments": payment.payment_amount
+                    "total_paid": payment.payment_amount
                 }
             
             # Determine payment status
@@ -241,15 +256,15 @@ class ReceiptService:
                 },
                 "balance_breakdown": {
                     "original_loan": f"${balance_info['loan_amount']}.00",
-                    "interest_accrued": f"${balance_info['interest_accrued']}.00", 
-                    "extension_fees": f"${balance_info['extension_fees']}.00",
-                    "total_payments": f"${balance_info['total_payments']}.00",
+                    "interest_accrued": f"${balance_info.get('interest_due', 0)}.00", 
+                    "extension_fees": f"${balance_info.get('extension_fees', 0)}.00",
+                    "total_payments": f"${balance_info.get('total_paid', 0)}.00",
                     "current_balance": f"${balance_info['current_balance']}.00"
                 },
                 "staff_member": f"{staff.first_name} {staff.last_name}",
                 "staff_id": staff.user_id,
                 "item_count": len(items),
-                "transaction_status": "redeemed" if is_full_payment else transaction.status.value
+                "transaction_status": "redeemed" if is_full_payment else get_enum_value(transaction.status)
             }
             
             # Add appropriate next steps
@@ -362,7 +377,7 @@ class ReceiptService:
                 "staff_member": f"{staff.first_name} {staff.last_name}",
                 "staff_id": staff.user_id,
                 "item_count": len(items),
-                "transaction_status": transaction.status.value,
+                "transaction_status": get_enum_value(transaction.status),
                 "important_notes": [
                     f"Loan extended for {extension.extension_months} month{'s' if extension.extension_months > 1 else ''}",
                     f"New pickup deadline: {extension.new_maturity_date.strftime('%B %d, %Y')}",
@@ -521,7 +536,7 @@ Transaction Status: {receipt_data['transaction_status'].upper()}
                 "total_payments": len(payments),
                 "total_extensions": len(extensions), 
                 "item_count": len(items),
-                "transaction_status": transaction.status.value,
+                "transaction_status": get_enum_value(transaction.status),
                 "receipts_generated": {
                     "initial_pawn": True,  # Always available
                     "payments": len(payments),
