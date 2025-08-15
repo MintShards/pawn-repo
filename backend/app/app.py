@@ -17,6 +17,10 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from app.api.api_v1.router import router
 from app.core.config import settings
 from app.core.security_middleware import setup_security_middleware
+from app.core.csrf_protection import initialize_csrf_protection
+from app.core.database_indexes import create_database_indexes
+from app.core.redis_cache import initialize_cache_service
+from app.core.field_encryption import initialize_field_encryption, generate_master_key
 from app.models.customer_model import Customer
 from app.models.extension_model import Extension
 from app.models.pawn_item_model import PawnItem
@@ -50,6 +54,49 @@ async def lifespan(app: FastAPI):
         database=db_client,
         document_models=[User, Customer, PawnTransaction, PawnItem, Payment, Extension]
     )
+    
+    # Initialize Redis-based services
+    redis_client = None
+    try:
+        import redis
+        redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
+        redis_client.ping()  # Test connection
+        
+        # Initialize CSRF protection with Redis
+        initialize_csrf_protection(redis_client, settings.JWT_SECRET_KEY)
+        
+        # Initialize cache service with Redis
+        initialize_cache_service(redis_client, settings.REDIS_URL)
+        
+        print("Redis services initialized successfully")
+        
+    except Exception as e:
+        print(f"Redis unavailable, using fallback services: {e}")
+        # Fallback to in-memory services
+        initialize_csrf_protection(None, settings.JWT_SECRET_KEY)
+        initialize_cache_service(None, settings.REDIS_URL)
+    
+    # Initialize field encryption for sensitive data
+    try:
+        encryption_key = settings.FIELD_ENCRYPTION_KEY
+        if not encryption_key:
+            # Generate a warning about missing encryption key
+            print("WARNING: FIELD_ENCRYPTION_KEY not set. Generating temporary key for this session.")
+            print("For production, set FIELD_ENCRYPTION_KEY in environment variables.")
+            encryption_key = generate_master_key()
+            
+        initialize_field_encryption(encryption_key)
+        print("Field encryption initialized")
+        
+    except Exception as e:
+        print(f"Warning: Failed to initialize field encryption: {e}")
+    
+    # Create database indexes for optimal performance
+    try:
+        created_count, error_count = await create_database_indexes(db_client)
+        print(f"Database indexes: {created_count} created, {error_count} errors")
+    except Exception as e:
+        print(f"Warning: Failed to create database indexes: {e}")
     
     yield
     

@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 
 # Local imports
 from app.api.deps.user_deps import get_current_user, get_current_admin_user
+from app.core.csrf_protection import csrf_protect
 from app.models.customer_model import CustomerStatus
 from app.models.user_model import User
 from app.schemas.customer_schema import (
@@ -32,9 +33,11 @@ customer_router = APIRouter()
     status_code=status.HTTP_201_CREATED,
     summary="Create new customer",
     description="Create a new customer profile (Staff and Admin access)",
+    dependencies=[Depends(csrf_protect)],
     responses={
         201: {"description": "Customer created successfully"},
         400: {"description": "Bad request - Invalid data"},
+        403: {"description": "CSRF token required or invalid"},
         409: {"description": "Phone number already exists"},
         422: {"description": "Validation error"},
         500: {"description": "Internal server error"}
@@ -46,8 +49,10 @@ customer_router = APIRouter()
     status_code=status.HTTP_201_CREATED,
     summary="Create new customer (alias)",
     description="Create a new customer profile - alias for POST / (Staff and Admin access)",
+    dependencies=[Depends(csrf_protect)],
     responses={
         201: {"description": "Customer created successfully"},
+        403: {"description": "CSRF token required or invalid"},
         400: {"description": "Bad request - Invalid data"},
         409: {"description": "Phone number already exists"},
         422: {"description": "Validation error"},

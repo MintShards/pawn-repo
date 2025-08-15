@@ -17,6 +17,7 @@ from app.core.auth import (
     get_current_active_user, get_admin_user, require_admin,
     require_staff_or_admin, get_current_user_optional
 )
+from app.core.csrf_protection import generate_csrf_token
 from app.models.user_model import User, UserRole, UserStatus, InvalidCredentialsError, AccountLockedError
 from app.schemas.user_schema import (
     UserAuth, UserCreate, UserUpdate, UserPinChange,
@@ -59,6 +60,25 @@ async def logout(current_user: User = Depends(get_current_active_user)):
     current_user.active_sessions = []
     await current_user.save()
     return {"message": "Logged out successfully"}
+
+@user_router.get("/csrf-token",
+                 summary="Get CSRF token",
+                 description="Get a CSRF token for authenticated user (for state-changing operations)")
+async def get_csrf_token(current_user: User = Depends(get_current_active_user)):
+    """Get CSRF token for authenticated user"""
+    try:
+        csrf_token = generate_csrf_token(user_id=current_user.user_id)
+        return {
+            "csrf_token": csrf_token,
+            "expires_in": 3600,  # 1 hour
+            "header_name": "X-CSRF-Token",
+            "message": "Include this token in the X-CSRF-Token header for all POST/PUT/DELETE requests"
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate CSRF token: {str(e)}"
+        )
 
 # Admin-only user creation endpoint
 @user_router.post("/create",

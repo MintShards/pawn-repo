@@ -7,9 +7,29 @@ including transaction creation, updates, responses, and balance calculations.
 
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
+from enum import Enum
 
 from app.models.pawn_transaction_model import TransactionStatus
+
+
+class TransactionSortField(str, Enum):
+    """Allowed sort fields for transaction queries"""
+    PAWN_DATE = "pawn_date"
+    MATURITY_DATE = "maturity_date"
+    LOAN_AMOUNT = "loan_amount"
+    INTEREST_RATE = "interest_rate"
+    STATUS = "status"
+    STORAGE_LOCATION = "storage_location"
+    CUSTOMER_ID = "customer_id"
+    UPDATED_AT = "updated_at"
+    CREATED_AT = "created_at"
+
+
+class SortOrder(str, Enum):
+    """Sort order options"""
+    ASC = "asc"
+    DESC = "desc"
 
 
 class PawnItemBase(BaseModel):
@@ -29,7 +49,7 @@ class PawnItemBase(BaseModel):
 
 class PawnItemCreate(PawnItemBase):
     """Schema for creating a pawn item"""
-    pass
+    model_config = ConfigDict(extra='forbid')
 
 
 class PawnItemResponse(PawnItemBase):
@@ -213,8 +233,31 @@ class TransactionSearchFilters(BaseModel):
     # Pagination
     page: int = Field(1, ge=1, description="Page number (starts at 1)")
     page_size: int = Field(20, ge=1, le=100, description="Items per page (1-100)")
-    sort_by: str = Field("pawn_date", description="Sort field")
-    sort_order: str = Field("desc", description="Sort order: 'asc' or 'desc'")
+    sort_by: TransactionSortField = Field(TransactionSortField.PAWN_DATE, description="Sort field")
+    sort_order: SortOrder = Field(SortOrder.DESC, description="Sort order: 'asc' or 'desc'")
+    
+    @field_validator('sort_by')
+    @classmethod
+    def validate_sort_field(cls, v):
+        """Validate sort field is allowed"""
+        if isinstance(v, str):
+            # Convert string to enum if needed
+            try:
+                return TransactionSortField(v)
+            except ValueError:
+                raise ValueError(f"Invalid sort field '{v}'. Allowed fields: {[field.value for field in TransactionSortField]}")
+        return v
+    
+    @field_validator('sort_order')
+    @classmethod
+    def validate_sort_order(cls, v):
+        """Validate sort order"""
+        if isinstance(v, str):
+            try:
+                return SortOrder(v)
+            except ValueError:
+                raise ValueError(f"Invalid sort order '{v}'. Allowed values: {[order.value for order in SortOrder]}")
+        return v
 
 
 class BulkStatusUpdateRequest(BaseModel):

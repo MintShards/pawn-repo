@@ -50,15 +50,23 @@ class SecurityConfig:
     PROD_API_RATE_LIMIT = "30/minute"
     PROD_STRICT_RATE_LIMIT = "3/minute"
     
-    # Security headers
+    # Security headers - Enhanced based on security analysis recommendations
     SECURITY_HEADERS = {
         "X-Content-Type-Options": "nosniff",
         "X-Frame-Options": "DENY",
         "X-XSS-Protection": "1; mode=block",
-        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",  # 2 years + preload
         "Referrer-Policy": "strict-origin-when-cross-origin",
-        "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self'",
-        "Permissions-Policy": "geolocation=(), microphone=(), camera=()"
+        "Content-Security-Policy": "default-src 'none'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; media-src 'none'",
+        "Permissions-Policy": "geolocation=(), microphone=(), camera=(), fullscreen=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "Cross-Origin-Embedder-Policy": "require-corp",
+        "Cross-Origin-Opener-Policy": "same-origin",
+        "Cross-Origin-Resource-Policy": "same-origin",
+        "X-Permitted-Cross-Domain-Policies": "none",
+        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0",
+        "Server": "PawnShop-API/1.0"  # Custom server header (security through obscurity)
     }
 
 # Initialize Redis connection for rate limiting with enhanced configuration
@@ -85,9 +93,8 @@ def initialize_rate_limiter():
             strategy="fixed-window"
         )
         
-        # Test rate limiter functionality
-        test_key = "test_rate_limit"
-        limiter.reset(test_key)
+        # Test rate limiter functionality (reset clears all rate limit data)
+        limiter.reset()
         security_logger.info("Rate limiter initialized with Redis backend")
         
         return limiter, True

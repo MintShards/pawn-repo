@@ -524,10 +524,12 @@ class PawnTransactionService:
             # Get total count before pagination
             total_count = await query.count()
             
-            # Apply sorting
-            sort_direction = 1 if filters.sort_order == "asc" else -1
-            if hasattr(PawnTransaction, filters.sort_by):
-                sort_field = getattr(PawnTransaction, filters.sort_by)
+            # Apply sorting with enum value extraction
+            sort_direction = 1 if filters.sort_order.value == "asc" else -1
+            sort_field_name = filters.sort_by.value if hasattr(filters.sort_by, 'value') else str(filters.sort_by)
+            
+            if hasattr(PawnTransaction, sort_field_name):
+                sort_field = getattr(PawnTransaction, sort_field_name)
                 query = query.sort([(sort_field, sort_direction)])
             else:
                 # Default sort by pawn_date if field doesn't exist

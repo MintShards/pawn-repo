@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     # MongoDB settings
     MONGO_CONNECTION_STRING: str = config("MONGO_CONNECTION_STRING", cast=str)
     
+    # Field encryption settings
+    FIELD_ENCRYPTION_KEY: str = config("FIELD_ENCRYPTION_KEY", default="", cast=str)
+    
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     @classmethod
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> Union[List[str], str]:
