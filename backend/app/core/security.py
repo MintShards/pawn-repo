@@ -5,7 +5,11 @@ Centralized security functions for PIN hashing and verification using bcrypt.
 Provides a secure, salted hashing mechanism for user PINs.
 """
 
+import warnings
 from passlib.context import CryptContext
+
+# Suppress the bcrypt version warning
+warnings.filterwarnings("ignore", message=".*error reading bcrypt version.*")
 
 # Bcrypt context for PIN hashing
 pin_context = CryptContext(schemes=["bcrypt"], deprecated="auto")

@@ -1020,8 +1020,23 @@ class ExtensionService:
         if cancellation_reason:
             cancellation_note += f" Reason: {cancellation_reason}"
         
+        # Smart truncation to respect 500 character limit
         current_notes = transaction.internal_notes or ""
-        transaction.internal_notes = f"{current_notes}\n{cancellation_note}".strip()
+        new_notes = f"{current_notes}\n{cancellation_note}".strip()
+        
+        # Truncate if necessary (500 char limit)
+        if len(new_notes) > 500:
+            # Calculate how much space we have for existing notes
+            available_space = 500 - len(cancellation_note) - 1  # -1 for newline
+            if available_space > 0:
+                # Truncate existing notes and add ellipsis
+                truncated_current = current_notes[:available_space-3] + "..."
+                transaction.internal_notes = f"{truncated_current}\n{cancellation_note}".strip()
+            else:
+                # If cancellation note itself is too long, just use truncated cancellation note
+                transaction.internal_notes = cancellation_note[:500]
+        else:
+            transaction.internal_notes = new_notes
         
         # Mark extension as cancelled (we'll add these fields to the Extension model)
         extension.is_cancelled = True

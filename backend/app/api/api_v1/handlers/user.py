@@ -7,7 +7,7 @@ including user creation, authentication, profile management, and administration.
 
 # Standard library imports
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Union
 
 # Third-party imports  
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -198,15 +198,15 @@ async def health_check():
 
 # Parameterized routes (/{user_id}) - MUST come LAST to avoid capturing specific paths
 @user_router.get("/{user_id}",
-                response_model=UserDetailResponse,
-                summary="Get user by ID",
+                response_model=Union[UserResponse, UserDetailResponse],
+                summary="Get user by ID", 
                 description="Get user details by ID (Staff can see basic info, Admin can see all)",
                 dependencies=[Depends(require_staff_or_admin)])
 async def get_user_by_id(
     user_id: str,
     current_user: User = Depends(require_staff_or_admin)
-):
-    """Get user by ID"""
+) -> Union[UserResponse, UserDetailResponse]:
+    """Get user by ID with role-based response model"""
     return await UserService.get_user_by_id(user_id, current_user.role)
 
 @user_router.put("/{user_id}",

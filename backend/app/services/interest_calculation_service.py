@@ -8,12 +8,16 @@ and detailed interest progression tracking on pawn transactions.
 # Standard library imports
 from datetime import datetime, UTC
 from typing import Dict, List, Optional, Any
+import structlog
 
 # Local imports
 from app.models.pawn_transaction_model import PawnTransaction, TransactionStatus
 from app.models.payment_model import Payment
 from app.models.extension_model import Extension
 from app.models.user_model import User, UserStatus
+
+# Configure logger
+logger = structlog.get_logger("interest_calculation")
 
 
 class InterestCalculationError(Exception):
@@ -635,7 +639,11 @@ class InterestCalculationService:
         try:
             total_paid = sum(payment.payment_amount for payment in payments) if payments else 0
         except (AttributeError, TypeError) as e:
-            print(f"Warning: Error calculating total payments for transaction {transaction_id}: {e}")
+            logger.warning(
+                "Error calculating total payments for transaction",
+                transaction_id=transaction_id,
+                error=str(e)
+            )
             total_paid = 0
         
         # Calculate current balance
@@ -652,14 +660,27 @@ class InterestCalculationService:
         
         # Status checks (defensive programming)
         try:
-            is_overdue = as_of_date > transaction.maturity_date
+            # Ensure dates are timezone-aware for comparison
+            maturity_date = transaction.maturity_date
+            if maturity_date.tzinfo is None:
+                maturity_date = maturity_date.replace(tzinfo=UTC)
+            
+            grace_period_end = transaction.grace_period_end
+            if grace_period_end.tzinfo is None:
+                grace_period_end = grace_period_end.replace(tzinfo=UTC)
+            
+            is_overdue = as_of_date > maturity_date
             is_in_grace_period = (
-                as_of_date > transaction.maturity_date and 
-                as_of_date <= transaction.grace_period_end
+                as_of_date > maturity_date and 
+                as_of_date <= grace_period_end
             )
-            days_until_forfeiture = max(0, (transaction.grace_period_end - as_of_date).days)
+            days_until_forfeiture = max(0, (grace_period_end - as_of_date).days)
         except (AttributeError, TypeError) as e:
-            print(f"Warning: Error calculating date status for transaction {transaction_id}: {e}")
+            logger.warning(
+                "Error calculating date status for transaction",
+                transaction_id=transaction_id,
+                error=str(e)
+            )
             # Default to safe values
             is_overdue = False
             is_in_grace_period = False
@@ -689,9 +710,9 @@ class InterestCalculationService:
             status=transaction.status,
             
             # Date information
-            pawn_date=transaction.pawn_date.date().isoformat(),
-            maturity_date=transaction.maturity_date.date().isoformat(),
-            grace_period_end=transaction.grace_period_end.date().isoformat(),
+            pawn_date=transaction.pawn_date.date().isoformat() if transaction.pawn_date else None,
+            maturity_date=maturity_date.date().isoformat() if maturity_date else None,
+            grace_period_end=grace_period_end.date().isoformat() if grace_period_end else None,
             
             # Status flags
             is_overdue=is_overdue,

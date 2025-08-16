@@ -8,6 +8,7 @@ balance calculations, status updates, and transaction management.
 # Standard library imports
 from datetime import datetime, UTC
 from typing import List, Optional, Dict, Any
+import structlog
 
 # Third-party imports
 from beanie.operators import In
@@ -19,6 +20,9 @@ from app.models.payment_model import Payment
 from app.models.extension_model import Extension
 from app.models.customer_model import Customer, CustomerStatus
 from app.models.user_model import User, UserStatus
+
+# Configure logger
+logger = structlog.get_logger("pawn_transaction")
 
 
 def ensure_timezone_aware(dt: datetime) -> datetime:
@@ -293,7 +297,11 @@ class PawnTransactionService:
         try:
             total_paid = sum(payment.payment_amount for payment in payments) if payments else 0
         except (AttributeError, TypeError) as e:
-            print(f"Warning: Error calculating total payments for transaction {transaction_id}: {e}")
+            logger.warning(
+                "Error calculating total payments for transaction",
+                transaction_id=transaction_id,
+                error=str(e)
+            )
             total_paid = 0
         
         # Calculate current balance
@@ -773,3 +781,32 @@ class PawnTransactionService:
             updated_by_user_id=forfeited_by_user_id,
             notes=forfeit_notes
         )
+    
+    @staticmethod
+    async def get_voidable_transactions() -> List[PawnTransaction]:
+        """
+        Get transactions that can be voided.
+        
+        Returns:
+            List of transactions that can be voided (active, overdue, extended, hold)
+        """
+        voidable_statuses = [TransactionStatus.ACTIVE, TransactionStatus.OVERDUE, 
+                           TransactionStatus.EXTENDED, TransactionStatus.HOLD]
+        return await PawnTransaction.find(
+            In(PawnTransaction.status, voidable_statuses)
+        ).to_list()
+    
+    @staticmethod
+    async def get_cancelable_transactions() -> List[PawnTransaction]:
+        """
+        Get transactions that can be canceled (active, no payments, recent).
+        
+        Returns:
+            List of transactions that can be canceled (active status, created within 24 hours)
+        """
+        from datetime import timedelta
+        cutoff_date = datetime.utcnow() - timedelta(hours=24)
+        return await PawnTransaction.find(
+            PawnTransaction.status == TransactionStatus.ACTIVE,
+            PawnTransaction.created_at >= cutoff_date
+        ).to_list()

@@ -193,6 +193,9 @@ class PaymentService:
         payment_responses = []
         for payment in payments:
             payment_dict = payment.model_dump()
+            # Ensure payment_type is included
+            if 'payment_type' not in payment_dict:
+                payment_dict['payment_type'] = payment.payment_type
             payment_responses.append(PaymentResponse.model_validate(payment_dict))
         
         # Calculate totals
@@ -216,7 +219,7 @@ class PaymentService:
             last_payment_date=last_payment_date,
             total_principal_paid=balance_info.get("principal_paid", 0),
             total_interest_paid=balance_info.get("interest_paid", 0),
-            current_balance=balance_info["current_balance"],
+            current_balance=balance_info.get("current_balance", 0),
             principal_balance=balance_info.get("principal_balance", 0),
             interest_balance=balance_info.get("interest_balance", 0)
         )
@@ -293,7 +296,7 @@ class PaymentService:
             last_payment_date=last_payment_date,
             total_principal_paid=total_principal_paid,
             total_interest_paid=total_interest_paid,
-            current_balance=balance_info["current_balance"],
+            current_balance=balance_info.get("current_balance", 0),
             principal_balance=balance_info.get("principal_balance", 0),
             interest_balance=balance_info.get("interest_balance", 0)
         )
@@ -677,19 +680,25 @@ class PaymentService:
                 payment.transaction_id
             )
             
-            # Since we voided a payment, the balance is now positive again
-            new_balance = balance_info["current_balance"] + payment.payment_amount
+            # Since we voided a payment, the balance is now positive again  
+            new_balance = balance_info.get("current_balance", 0) + payment.payment_amount
             
             # Determine appropriate status
             import datetime
             current_date = datetime.datetime.now(datetime.UTC)
+            
+            # Ensure dates are timezone-aware
             grace_period_end = transaction.grace_period_end
             if grace_period_end.tzinfo is None:
                 grace_period_end = grace_period_end.replace(tzinfo=datetime.UTC)
             
+            maturity_date = transaction.maturity_date
+            if maturity_date.tzinfo is None:
+                maturity_date = maturity_date.replace(tzinfo=datetime.UTC)
+            
             if current_date <= grace_period_end:
                 # Still within grace period
-                if current_date <= transaction.maturity_date:
+                if current_date <= maturity_date:
                     new_status = TransactionStatus.ACTIVE
                 else:
                     new_status = TransactionStatus.OVERDUE

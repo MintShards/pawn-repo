@@ -11,6 +11,7 @@ from datetime import datetime
 
 # Third-party imports
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+import structlog
 
 # Local imports
 from app.api.deps.user_deps import get_staff_or_admin_user
@@ -22,8 +23,17 @@ from app.schemas.payment_schema import (
 )
 from app.services.payment_service import (
     PaymentService, PaymentError, PaymentValidationError, 
-    TransactionNotFoundError, StaffValidationError
+    TransactionNotFoundError as ServiceTransactionNotFoundError, StaffValidationError
 )
+from app.core.exceptions import (
+    ValidationError, BusinessRuleError, TransactionNotFoundError,
+    PaymentError as CorePaymentError, DatabaseError, AuthorizationError
+)
+from app.services.pawn_transaction_service import PawnTransactionService
+from app.services.interest_calculation_service import InterestCalculationService
+
+# Configure logger
+payment_logger = structlog.get_logger("payment_api")
 
 # Create router
 payment_router = APIRouter()
@@ -48,17 +58,106 @@ async def process_payment(
     current_user: User = Depends(get_staff_or_admin_user)
 ) -> PaymentResponse:
     """Process a cash payment with comprehensive error handling"""
+    
     try:
-        payment = await PaymentService.process_payment(
+        # Input validation
+        if not payment_data.transaction_id or not payment_data.transaction_id.strip():
+            raise ValidationError(
+                "Transaction ID is required",
+                error_code="MISSING_TRANSACTION_ID"
+            )
+        
+        if payment_data.payment_amount <= 0:
+            raise ValidationError(
+                "Payment amount must be greater than zero",
+                error_code="INVALID_PAYMENT_AMOUNT",
+                details={"payment_amount": payment_data.payment_amount}
+            )
+        
+        # Verify transaction exists and is valid for payments
+        try:
+            transaction = await PawnTransactionService.get_transaction_by_id(payment_data.transaction_id.strip())
+            if not transaction:
+                raise TransactionNotFoundError(
+                    payment_data.transaction_id,
+                    error_code="TRANSACTION_NOT_FOUND"
+                )
+        except Exception as e:
+            if isinstance(e, TransactionNotFoundError):
+                raise
+            raise DatabaseError(
+                "Failed to verify transaction information",
+                error_code="DATABASE_ERROR"
+            )
+        
+        # Business rule validation
+        invalid_statuses = ["redeemed", "forfeited", "sold"]
+        if transaction.status.value if hasattr(transaction.status, 'value') else str(transaction.status) in invalid_statuses:
+            raise BusinessRuleError(
+                f"Cannot process payment - transaction status is '{transaction.status}'",
+                error_code="INVALID_TRANSACTION_STATUS",
+                details={
+                    "current_status": str(transaction.status),
+                    "allowed_statuses": ["active", "overdue", "extended", "hold"]
+                }
+            )
+        
+        # Validate payment amount against current balance
+        try:
+            balance_response = await InterestCalculationService.calculate_current_balance(payment_data.transaction_id)
+            # balance_response is a BalanceResponse object, not a dict
+            current_balance_amount = balance_response.current_balance
+            max_allowed_payment = current_balance_amount + 100  # Allow $1 overpayment
+            
+            if payment_data.payment_amount > max_allowed_payment:
+                raise BusinessRuleError(
+                    "Payment amount exceeds current balance plus allowable overpayment",
+                    error_code="EXCESSIVE_PAYMENT",
+                    details={
+                        "current_balance": current_balance_amount,
+                        "payment_amount": payment_data.payment_amount,
+                        "max_allowed": max_allowed_payment
+                    }
+                )
+        except BusinessRuleError:
+            raise
+        except Exception as e:
+            payment_logger.warning(
+                "Could not validate payment amount against balance",
+                transaction_id=payment_data.transaction_id,
+                error=str(e)
+            )
+        
+        # Log payment processing
+        payment_logger.info(
+            "Processing payment",
             transaction_id=payment_data.transaction_id,
             payment_amount=payment_data.payment_amount,
+            processed_by=current_user.user_id
+        )
+        
+        # Process payment
+        payment = await PaymentService.process_payment(
+            transaction_id=payment_data.transaction_id.strip(),
+            payment_amount=payment_data.payment_amount,
             processed_by_user_id=current_user.user_id,
-            receipt_number=payment_data.receipt_number,
-            internal_notes=payment_data.internal_notes
+            receipt_number=payment_data.receipt_number.strip() if payment_data.receipt_number else None,
+            internal_notes=payment_data.internal_notes.strip() if payment_data.internal_notes else None
+        )
+        
+        payment_logger.info(
+            "Payment processed successfully",
+            payment_id=payment.payment_id,
+            transaction_id=payment_data.transaction_id,
+            amount=payment_data.payment_amount
         )
         
         # Convert payment to dict and ensure all required fields are present
         payment_dict = payment.model_dump()
+        
+        # Ensure payment_type is included (Payment model uses payment_method)
+        if 'payment_type' not in payment_dict:
+            payment_dict['payment_type'] = payment.payment_type  # Uses the property
         
         # Ensure void fields have default values if missing (new payments won't be voided)
         if 'is_voided' not in payment_dict:
@@ -71,37 +170,29 @@ async def process_payment(
             payment_dict['void_reason'] = None
         
         return PaymentResponse.model_validate(payment_dict)
-    
-    except HTTPException:
-        # Re-raise HTTP exceptions from service layer
+        
+    except (ValidationError, BusinessRuleError, TransactionNotFoundError, CorePaymentError, DatabaseError):
+        # Re-raise known exceptions to be handled by global handlers
         raise
-    except TransactionNotFoundError as e:
-        # Handle transaction not found
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
-        )
-    except (PaymentValidationError, StaffValidationError) as e:
-        # Handle validation errors
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
-    except ValueError as e:
-        # Handle other validation errors
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+    except (PaymentValidationError, StaffValidationError, ServiceTransactionNotFoundError, PaymentError) as e:
+        # Convert legacy service exceptions to new exception types
+        if isinstance(e, ServiceTransactionNotFoundError):
+            raise TransactionNotFoundError(payment_data.transaction_id)
+        elif isinstance(e, PaymentValidationError):
+            raise ValidationError(str(e), error_code="PAYMENT_VALIDATION_ERROR")
+        elif isinstance(e, StaffValidationError):
+            raise AuthorizationError(f"Staff validation error: {str(e)}")
+        else:
+            raise CorePaymentError(str(e), error_code="PAYMENT_PROCESSING_ERROR")
     except Exception as e:
-        # Log unexpected errors for debugging
-        import traceback
-        print(f"Unexpected error in process_payment: {e}")
-        print(f"Traceback: {traceback.format_exc()}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to process payment: {str(e)}"
+        payment_logger.error(
+            "Unexpected error processing payment",
+            transaction_id=payment_data.transaction_id,
+            payment_amount=payment_data.payment_amount,
+            error=str(e),
+            exc_info=True
         )
+        raise CorePaymentError("Failed to process payment due to unexpected error")
 
 
 @payment_router.get(
@@ -134,9 +225,12 @@ async def get_payment_history(
         )
     except Exception as e:
         # Log unexpected errors for debugging
-        import traceback
-        print(f"Unexpected error in get_payment_history: {e}")
-        print(f"Traceback: {traceback.format_exc()}")
+        payment_logger.error(
+            "Unexpected error in get_payment_history",
+            transaction_id=transaction_id,
+            error=str(e),
+            exc_info=True
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve payment history: {str(e)}"
@@ -173,9 +267,12 @@ async def get_payment_summary(
         )
     except Exception as e:
         # Log unexpected errors for debugging
-        import traceback
-        print(f"Unexpected error in get_payment_summary: {e}")
-        print(f"Traceback: {traceback.format_exc()}")
+        payment_logger.error(
+            "Unexpected error in get_payment_summary",
+            transaction_id=transaction_id,
+            error=str(e),
+            exc_info=True
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve payment summary: {str(e)}"
@@ -233,9 +330,12 @@ async def get_payment_by_id(
         raise
     except Exception as e:
         # Log unexpected errors for debugging
-        import traceback
-        print(f"Unexpected error in get_payment_by_id: {e}")
-        print(f"Traceback: {traceback.format_exc()}")
+        payment_logger.error(
+            "Unexpected error in get_payment_by_id",
+            payment_id=payment_id,
+            error=str(e),
+            exc_info=True
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve payment: {str(e)}"
@@ -328,9 +428,12 @@ async def get_payment_receipt(
         raise
     except Exception as e:
         # Log unexpected errors for debugging
-        import traceback
-        print(f"Unexpected error in get_payment_receipt: {e}")
-        print(f"Traceback: {traceback.format_exc()}")
+        payment_logger.error(
+            "Unexpected error in get_payment_receipt",
+            payment_id=payment_id,
+            error=str(e),
+            exc_info=True
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate payment receipt: {str(e)}"
@@ -457,24 +560,52 @@ async def void_payment(
         # Convert payment to dict and ensure all required fields are present
         payment_dict = payment.model_dump()
         
+        # Ensure payment_type is included (Payment model uses payment_method)
+        if 'payment_type' not in payment_dict:
+            payment_dict['payment_type'] = getattr(payment, 'payment_method', 'cash')
+        
         # Ensure backward compatibility for older fields
         if 'principal_portion' not in payment_dict or payment_dict['principal_portion'] is None:
-            payment_dict['principal_portion'] = 0
+            payment_dict['principal_portion'] = getattr(payment, 'principal_portion', 0)
         if 'interest_portion' not in payment_dict or payment_dict['interest_portion'] is None:
-            payment_dict['interest_portion'] = 0
-        if 'payment_type' not in payment_dict:
-            payment_dict['payment_type'] = payment_dict.get('payment_method', 'cash')
+            payment_dict['interest_portion'] = getattr(payment, 'interest_portion', 0)
+        
+        # Ensure void fields have values (they should be set after voiding)
+        if 'is_voided' not in payment_dict:
+            payment_dict['is_voided'] = getattr(payment, 'is_voided', False)
+        if 'voided_date' not in payment_dict:
+            payment_dict['voided_date'] = getattr(payment, 'voided_date', None)
+        if 'voided_by_user_id' not in payment_dict:
+            payment_dict['voided_by_user_id'] = getattr(payment, 'voided_by_user_id', None)
+        if 'void_reason' not in payment_dict:
+            payment_dict['void_reason'] = getattr(payment, 'void_reason', None)
         
         return PaymentResponse.model_validate(payment_dict)
         
     except HTTPException:
         raise
+    except (PaymentError, StaffValidationError, PaymentValidationError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except Exception as e:
+        # Log the actual error for debugging
+        import traceback
+        import structlog
+        logger = structlog.get_logger("payment_void")
+        logger.error(
+            "Unexpected error in void_payment",
+            payment_id=payment_id,
+            user_id=current_user.user_id,
+            error=str(e),
+            exc_info=True
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to void payment. Please try again later."

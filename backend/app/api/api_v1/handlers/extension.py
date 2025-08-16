@@ -11,6 +11,7 @@ from datetime import datetime
 
 # Third-party imports
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+import structlog
 
 # Local imports
 from app.api.deps.user_deps import get_staff_or_admin_user
@@ -25,6 +26,9 @@ from app.services.extension_service import (
     ExtensionService, ExtensionError, ExtensionValidationError, 
     TransactionNotFoundError, StaffValidationError, ExtensionNotAllowedError
 )
+
+# Configure logger
+extension_logger = structlog.get_logger("extension_api")
 
 # Create router
 extension_router = APIRouter()
@@ -84,9 +88,12 @@ async def process_extension(
         )
     except Exception as e:
         # Log unexpected errors for debugging
-        import traceback
-        print(f"Unexpected error in process_extension: {e}")
-        print(f"Traceback: {traceback.format_exc()}")
+        extension_logger.error(
+            "Unexpected error in process_extension",
+            transaction_id=extension_data.transaction_id,
+            error=str(e),
+            exc_info=True
+        )
         
         # Include the actual error in development
         error_detail = str(e) if str(e) else "Failed to process extension. Please try again later."
@@ -125,9 +132,12 @@ async def get_extension_history(
         )
     except Exception as e:
         # Log unexpected errors for debugging
-        import traceback
-        print(f"Unexpected error in get_extension_history: {e}")
-        print(f"Traceback: {traceback.format_exc()}")
+        extension_logger.error(
+            "Unexpected error in get_extension_history",
+            transaction_id=transaction_id,
+            error=str(e),
+            exc_info=True
+        )
         
         # Include the actual error in development
         error_detail = str(e) if str(e) else "Failed to retrieve extension history. Please try again later."
@@ -166,9 +176,12 @@ async def get_extension_summary(
         )
     except Exception as e:
         # Log unexpected errors for debugging
-        import traceback
-        print(f"Unexpected error in get_extension_summary: {e}")
-        print(f"Traceback: {traceback.format_exc()}")
+        extension_logger.error(
+            "Unexpected error in get_extension_summary",
+            transaction_id=transaction_id,
+            error=str(e),
+            exc_info=True
+        )
         
         # Include the actual error in development
         error_detail = str(e) if str(e) else "Failed to retrieve extension summary. Please try again later."
@@ -210,9 +223,12 @@ async def check_extension_eligibility(
         )
     except Exception as e:
         # Log unexpected errors for debugging
-        import traceback
-        print(f"Unexpected error in check_extension_eligibility: {e}")
-        print(f"Traceback: {traceback.format_exc()}")
+        extension_logger.error(
+            "Unexpected error in check_extension_eligibility",
+            transaction_id=transaction_id,
+            error=str(e),
+            exc_info=True
+        )
         
         # Include the actual error in development
         error_detail = str(e) if str(e) else "Failed to check extension eligibility. Please try again later."
@@ -419,9 +435,12 @@ async def cancel_extension(
         )
     except Exception as e:
         # Log unexpected errors for debugging
-        import traceback
-        print(f"Unexpected error in cancel_extension: {e}")
-        print(f"Traceback: {traceback.format_exc()}")
+        extension_logger.error(
+            "Unexpected error in cancel_extension",
+            extension_id=extension_id,
+            error=str(e),
+            exc_info=True
+        )
         
         # Include the actual error in development
         error_detail = str(e) if str(e) else "Failed to cancel extension. Please try again later."

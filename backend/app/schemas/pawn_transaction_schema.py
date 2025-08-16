@@ -284,3 +284,85 @@ class BulkStatusUpdateResponse(BaseModel):
     
     successful_updates: List[str] = Field(..., description="Transaction IDs that were updated")
     failed_updates: List[Dict[str, str]] = Field(..., description="Failed updates with error messages")
+
+
+class TransactionVoidRequest(BaseModel):
+    """Schema for voiding a transaction (Admin only)"""
+    void_reason: str = Field(
+        ..., 
+        min_length=1, 
+        max_length=500,
+        description="Reason for voiding transaction (required for audit trail)"
+    )
+    admin_notes: Optional[str] = Field(
+        None,
+        max_length=1000,
+        description="Additional admin notes about the void operation"
+    )
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "void_reason": "Customer changed mind, items not received",
+                "admin_notes": "Called customer to confirm cancellation"
+            }
+        }
+    )
+
+
+class TransactionCancelRequest(BaseModel):
+    """Schema for canceling a transaction (Staff access)"""
+    cancel_reason: str = Field(
+        ..., 
+        min_length=1, 
+        max_length=500,
+        description="Reason for canceling transaction (required for audit trail)"
+    )
+    staff_notes: Optional[str] = Field(
+        None,
+        max_length=1000,
+        description="Additional staff notes about the cancellation"
+    )
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "cancel_reason": "Customer changed mind before items were stored",
+                "staff_notes": "Items rejected during inspection"
+            }
+        }
+    )
+
+
+class TransactionVoidResponse(BaseModel):
+    """Schema for void/cancel transaction response"""
+    transaction_id: str = Field(..., description="Transaction identifier")
+    original_status: str = Field(..., description="Status before void/cancel operation")
+    new_status: str = Field(..., description="Status after void/cancel operation")
+    operation_type: str = Field(..., description="Type of operation (void or cancel)")
+    performed_by: str = Field(..., description="User ID who performed the operation")
+    reason: str = Field(..., description="Reason for the operation")
+    operation_date: datetime = Field(..., description="When the operation was performed")
+    audit_trail: Dict[str, Any] = Field(..., description="Complete audit information")
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "transaction_id": "550e8400-e29b-41d4-a716-446655440000",
+                "original_status": "active",
+                "new_status": "voided",
+                "operation_type": "void",
+                "performed_by": "69",
+                "reason": "Customer changed mind, items not received",
+                "operation_date": "2025-08-15T16:30:00Z",
+                "audit_trail": {
+                    "performed_by_user_id": "69",
+                    "operation_date": "2025-08-15T16:30:00Z",
+                    "original_status": "active",
+                    "reason": "Customer changed mind, items not received",
+                    "admin_notes": "Called customer to confirm cancellation",
+                    "total_payments_at_operation": 0
+                }
+            }
+        }
+    )

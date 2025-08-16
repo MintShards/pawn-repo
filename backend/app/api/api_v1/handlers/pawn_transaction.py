@@ -7,20 +7,22 @@ CRUD operations, payment processing, extensions, and financial calculations.
 
 # Standard library imports
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, UTC
 
 # Third-party imports
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+import structlog
 
 # Local imports
-from app.api.deps.user_deps import get_current_user, get_staff_or_admin_user
+from app.api.deps.user_deps import get_current_user, get_staff_or_admin_user, get_admin_user
 from app.models.user_model import User
 from app.models.pawn_transaction_model import TransactionStatus
 from app.schemas.pawn_transaction_schema import (
     PawnTransactionCreate, PawnTransactionResponse, PawnTransactionListResponse,
     TransactionStatusUpdate, BalanceResponse, InterestBreakdownResponse,
     PayoffAmountResponse, TransactionSummaryResponse, TransactionSearchFilters,
-    BulkStatusUpdateRequest, BulkStatusUpdateResponse
+    BulkStatusUpdateRequest, BulkStatusUpdateResponse, TransactionVoidRequest,
+    TransactionCancelRequest, TransactionVoidResponse
 )
 from app.schemas.receipt_schema import (
     InitialPawnReceiptResponse, PaymentReceiptResponse, ExtensionReceiptResponse,
@@ -30,10 +32,19 @@ from app.services.pawn_transaction_service import (
     PawnTransactionService, PawnTransactionError, 
     CustomerValidationError, StaffValidationError, TransactionStateError
 )
+from app.services.payment_service import PaymentService
 from app.services.interest_calculation_service import (
     InterestCalculationService, TransactionNotFoundError, InterestCalculationError
 )
 from app.services.receipt_service import ReceiptService, ReceiptGenerationError
+from app.core.exceptions import (
+    ValidationError, BusinessRuleError, TransactionNotFoundError,
+    CustomerNotFoundError, DatabaseError, AuthorizationError
+)
+from app.models.customer_model import Customer
+
+# Configure logger
+transaction_logger = structlog.get_logger("pawn_transaction_api")
 
 # Create router
 pawn_transaction_router = APIRouter()
@@ -58,64 +69,116 @@ async def create_pawn_transaction(
     current_user: User = Depends(get_staff_or_admin_user)
 ) -> PawnTransactionResponse:
     """Create a new pawn transaction with comprehensive error handling"""
+    
     try:
-        # Extract items data for service call
-        items_data = [item.model_dump() for item in transaction_data.items]
+        # Input validation
+        if not transaction_data.items:
+            raise ValidationError(
+                "At least one item is required for pawn transaction",
+                error_code="NO_ITEMS_PROVIDED"
+            )
         
+        if len(transaction_data.items) > 10:
+            raise ValidationError(
+                "Maximum 10 items allowed per transaction",
+                error_code="TOO_MANY_ITEMS",
+                details={"max_items": 10, "provided_items": len(transaction_data.items)}
+            )
+        
+        # Business rule validation
+        if transaction_data.loan_amount <= 0:
+            raise BusinessRuleError(
+                "Loan amount must be greater than zero",
+                error_code="INVALID_LOAN_AMOUNT"
+            )
+        
+        if transaction_data.monthly_interest_amount < 0:
+            raise BusinessRuleError(
+                "Interest amount cannot be negative",
+                error_code="INVALID_INTEREST_AMOUNT"
+            )
+        
+        # Verify customer exists
+        try:
+            customer = await Customer.find_one(Customer.phone_number == transaction_data.customer_id)
+            if not customer:
+                raise CustomerNotFoundError(
+                    transaction_data.customer_id,
+                    error_code="CUSTOMER_NOT_FOUND"
+                )
+        except Exception as e:
+            if isinstance(e, CustomerNotFoundError):
+                raise
+            raise DatabaseError(
+                "Failed to verify customer information",
+                error_code="DATABASE_ERROR"
+            )
+        
+        # Validate items
+        items_data = []
+        for idx, item in enumerate(transaction_data.items, 1):
+            if not item.description or not item.description.strip():
+                raise ValidationError(
+                    f"Item {idx} description is required",
+                    error_code="MISSING_ITEM_DESCRIPTION",
+                    details={"item_number": idx}
+                )
+            
+            items_data.append({
+                "description": item.description.strip(),
+                "serial_number": item.serial_number.strip() if item.serial_number else None
+            })
+        
+        # Log transaction creation
+        transaction_logger.info(
+            "Creating pawn transaction",
+            customer_id=transaction_data.customer_id,
+            loan_amount=transaction_data.loan_amount,
+            items_count=len(items_data),
+            created_by=current_user.user_id
+        )
+        
+        # Create transaction
         transaction = await PawnTransactionService.create_transaction(
             customer_phone=transaction_data.customer_id,
             created_by_user_id=current_user.user_id,
             loan_amount=transaction_data.loan_amount,
             monthly_interest_amount=transaction_data.monthly_interest_amount,
-            storage_location=transaction_data.storage_location,
+            storage_location=transaction_data.storage_location.strip() if transaction_data.storage_location else None,
             items=items_data,
-            internal_notes=transaction_data.internal_notes
+            internal_notes=transaction_data.internal_notes.strip() if transaction_data.internal_notes else None
+        )
+        
+        transaction_logger.info(
+            "Pawn transaction created successfully",
+            transaction_id=transaction.transaction_id,
+            customer_id=transaction_data.customer_id
         )
         
         return PawnTransactionResponse.model_validate(transaction.model_dump())
-    
-    except HTTPException:
-        # Re-raise HTTP exceptions from service layer
+        
+    except (ValidationError, BusinessRuleError, CustomerNotFoundError, DatabaseError):
+        # Re-raise known exceptions to be handled by global handlers
         raise
-    except CustomerValidationError as e:
-        # Customer-related validation errors (404 or 400)
-        if "not found" in str(e).lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=str(e)
-            )
+    except (CustomerValidationError, StaffValidationError, PawnTransactionError) as e:
+        # Convert legacy service exceptions to new exception types
+        if isinstance(e, CustomerValidationError):
+            if "not found" in str(e).lower():
+                raise CustomerNotFoundError(transaction_data.customer_id)
+            else:
+                raise ValidationError(str(e), error_code="CUSTOMER_VALIDATION_ERROR")
+        elif isinstance(e, StaffValidationError):
+            raise AuthorizationError(f"Staff validation error: {str(e)}")
         else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(e)
-            )
-    except StaffValidationError as e:
-        # Staff user validation errors
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Staff validation error: {str(e)}"
-        )
-    except PawnTransactionError as e:
-        # General transaction business logic errors
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
-    except ValueError as e:
-        # Handle validation errors
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+            raise BusinessRuleError(str(e), error_code="TRANSACTION_ERROR")
     except Exception as e:
-        # Log unexpected errors for debugging
-        import traceback
-        print(f"Unexpected error in create_pawn_transaction: {e}")
-        print(f"Traceback: {traceback.format_exc()}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create pawn transaction: {str(e)}"
+        transaction_logger.error(
+            "Unexpected error creating pawn transaction",
+            customer_id=transaction_data.customer_id,
+            error=str(e),
+            exc_info=True
         )
+        raise DatabaseError("Failed to create pawn transaction due to unexpected error")
 
 
 @pawn_transaction_router.get(
@@ -1017,3 +1080,324 @@ async def get_receipt_summary(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get receipt summary: {str(e)}"
         )
+
+
+@pawn_transaction_router.post(
+    "/{transaction_id}/void",
+    response_model=TransactionVoidResponse,
+    summary="Void pawn transaction",
+    description="Void a pawn transaction (Admin only - for data entry mistakes and corrections)",
+    responses={
+        200: {"description": "Transaction voided successfully"},
+        400: {"description": "Bad request - Cannot void transaction"},
+        403: {"description": "Admin access required"},
+        404: {"description": "Transaction not found"},
+        500: {"description": "Internal server error"}
+    }
+)
+async def void_transaction(
+    transaction_id: str,
+    void_request: TransactionVoidRequest,
+    current_user: User = Depends(get_admin_user)
+) -> TransactionVoidResponse:
+    """
+    Void a pawn transaction (Admin only).
+    
+    Use Cases:
+    - Data entry mistakes
+    - Customer changed mind immediately  
+    - Items not actually accepted
+    - Admin corrections
+    
+    Business Rules:
+    - Only active, overdue, or extended transactions can be voided
+    - Cannot void redeemed, forfeited, or sold transactions
+    - Must provide void reason for audit trail
+    - Admin access required
+    - Cannot void transactions with payments (must handle refunds separately)
+    
+    Example Request:
+    {
+        "void_reason": "Customer changed mind, items not received",
+        "admin_notes": "Called customer to confirm cancellation"
+    }
+    """
+    try:
+        # Verify transaction exists
+        transaction = await PawnTransactionService.get_transaction_by_id(transaction_id)
+        if not transaction:
+            raise TransactionNotFoundError(
+                transaction_id,
+                error_code="TRANSACTION_NOT_FOUND"
+            )
+        
+        # Validate void eligibility
+        voidable_statuses = [TransactionStatus.ACTIVE, TransactionStatus.OVERDUE, 
+                           TransactionStatus.EXTENDED, TransactionStatus.HOLD]
+        if transaction.status not in voidable_statuses:
+            raise BusinessRuleError(
+                f"Cannot void transaction with status '{transaction.status}'. Only {[s.value for s in voidable_statuses]} transactions can be voided.",
+                error_code="INVALID_TRANSACTION_STATUS_FOR_VOID"
+            )
+        
+        # Check if any payments made (special handling needed)
+        try:
+            payment_summary = await PaymentService.get_payment_summary(transaction_id)
+            total_payments = payment_summary.total_paid if payment_summary else 0
+        except Exception:
+            # If payment check fails, assume no payments for safety
+            total_payments = 0
+            
+        if total_payments > 0:
+            raise BusinessRuleError(
+                f"Cannot void transaction with payments made (${total_payments:.2f}). Contact administrator for refund processing.",
+                error_code="CANNOT_VOID_WITH_PAYMENTS",
+                details={"total_payments": total_payments}
+            )
+        
+        # Log void operation
+        transaction_logger.info(
+            "Voiding transaction",
+            transaction_id=transaction_id,
+            original_status=transaction.status,
+            voided_by=current_user.user_id,
+            void_reason=void_request.void_reason
+        )
+        
+        # Process void
+        original_status = transaction.status
+        transaction.status = TransactionStatus.VOIDED
+        transaction.updated_at = datetime.now(UTC)
+        
+        # Add void information to internal notes (handle 500 char limit)
+        void_info = f"\n--- VOIDED by {current_user.user_id} on {datetime.now(UTC).strftime('%Y-%m-%d %H:%M')} ---\nReason: {void_request.void_reason}"
+        if void_request.admin_notes:
+            void_info += f"\nAdmin notes: {void_request.admin_notes}"
+        
+        # Ensure we don't exceed 500 character limit
+        if transaction.internal_notes:
+            combined_notes = transaction.internal_notes + void_info
+            if len(combined_notes) > 500:
+                # Truncate original notes to make room for void info
+                max_original_length = 500 - len(void_info) - 10  # Leave buffer
+                if max_original_length > 0:
+                    transaction.internal_notes = transaction.internal_notes[:max_original_length] + "..." + void_info
+                else:
+                    # Void info is too long, use shortened version
+                    short_void_info = f"\n--- VOIDED by {current_user.user_id} ---\nReason: {void_request.void_reason[:200]}..."
+                    transaction.internal_notes = short_void_info[:500]
+            else:
+                transaction.internal_notes = combined_notes
+        else:
+            transaction.internal_notes = void_info.strip()[:500]
+        
+        await transaction.save()
+        
+        # Create audit trail
+        operation_datetime = datetime.now(UTC)
+        original_status_str = original_status.value if hasattr(original_status, 'value') else str(original_status)
+        audit_trail = {
+            "performed_by_user_id": current_user.user_id,
+            "operation_date": operation_datetime.isoformat(),
+            "original_status": original_status_str,
+            "void_reason": void_request.void_reason,
+            "admin_notes": void_request.admin_notes,
+            "total_payments_at_void": total_payments,
+            "operation_type": "void"
+        }
+        
+        transaction_logger.info(
+            "Transaction voided successfully",
+            transaction_id=transaction_id,
+            original_status=original_status,
+            voided_by=current_user.user_id
+        )
+        
+        return TransactionVoidResponse(
+            transaction_id=transaction_id,
+            original_status=original_status_str,
+            new_status=TransactionStatus.VOIDED.value,
+            operation_type="void",
+            performed_by=current_user.user_id,
+            reason=void_request.void_reason,
+            operation_date=operation_datetime,
+            audit_trail=audit_trail
+        )
+        
+    except (ValidationError, BusinessRuleError, TransactionNotFoundError) as e:
+        # Re-raise known exceptions to be handled by global handlers
+        raise
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        transaction_logger.error(
+            "Unexpected error voiding transaction",
+            transaction_id=transaction_id,
+            error=str(e),
+            exc_info=True
+        )
+        raise DatabaseError("Failed to void transaction due to unexpected error")
+
+
+@pawn_transaction_router.post(
+    "/{transaction_id}/cancel",
+    response_model=TransactionVoidResponse,
+    summary="Cancel pawn transaction",
+    description="Cancel a pawn transaction before processing is complete (Staff access)",
+    responses={
+        200: {"description": "Transaction canceled successfully"},
+        400: {"description": "Bad request - Cannot cancel transaction"},
+        404: {"description": "Transaction not found"},
+        500: {"description": "Internal server error"}
+    }
+)
+async def cancel_transaction(
+    transaction_id: str,
+    cancel_request: TransactionCancelRequest,
+    current_user: User = Depends(get_current_user)
+) -> TransactionVoidResponse:
+    """
+    Cancel a pawn transaction before processing is complete.
+    
+    Difference from Void:
+    - Cancel: Transaction never fully processed (no payments, immediate reversal)
+    - Void: Transaction was processed but needs administrative reversal
+    
+    Use Cases:
+    - Customer changes mind before items stored
+    - Data entry error caught immediately
+    - Items rejected during inspection
+    
+    Business Rules:
+    - Only active transactions with no payments can be canceled
+    - Must be within same day as creation (configurable)
+    - Regular staff can perform cancellations
+    """
+    try:
+        # Verify transaction exists
+        transaction = await PawnTransactionService.get_transaction_by_id(transaction_id)
+        if not transaction:
+            raise TransactionNotFoundError(
+                transaction_id,
+                error_code="TRANSACTION_NOT_FOUND"
+            )
+        
+        # Validate cancel eligibility
+        if transaction.status != TransactionStatus.ACTIVE:
+            raise BusinessRuleError(
+                f"Can only cancel active transactions. Current status: {transaction.status}",
+                error_code="INVALID_TRANSACTION_STATUS_FOR_CANCEL"
+            )
+        
+        # Check no payments made
+        try:
+            payment_summary = await PaymentService.get_payment_summary(transaction_id)
+            total_payments = payment_summary.total_paid if payment_summary else 0
+        except Exception:
+            # If payment check fails, assume no payments for safety
+            total_payments = 0
+            
+        if total_payments > 0:
+            raise BusinessRuleError(
+                "Cannot cancel transaction with payments. Use void instead.",
+                error_code="CANNOT_CANCEL_WITH_PAYMENTS",
+                details={"total_payments": total_payments}
+            )
+        
+        # Check if within cancellation window (24 hours)
+        creation_time = transaction.created_at
+        if creation_time.tzinfo is None:
+            creation_time = creation_time.replace(tzinfo=UTC)
+        hours_since_creation = (datetime.now(UTC) - creation_time).total_seconds() / 3600
+        if hours_since_creation > 24:  # 24 hour window
+            raise BusinessRuleError(
+                f"Cannot cancel transaction older than 24 hours ({hours_since_creation:.1f} hours old). Use void instead.",
+                error_code="TRANSACTION_TOO_OLD_FOR_CANCEL",
+                details={"hours_since_creation": hours_since_creation, "max_hours": 24}
+            )
+        
+        # Log cancel operation
+        transaction_logger.info(
+            "Canceling transaction",
+            transaction_id=transaction_id,
+            original_status=transaction.status,
+            canceled_by=current_user.user_id,
+            cancel_reason=cancel_request.cancel_reason,
+            hours_since_creation=hours_since_creation
+        )
+        
+        # Process cancellation
+        original_status = transaction.status
+        transaction.status = TransactionStatus.CANCELED
+        transaction.updated_at = datetime.now(UTC)
+        
+        # Add cancellation info (handle 500 char limit)
+        cancel_info = f"\n--- CANCELED by {current_user.user_id} on {datetime.now(UTC).strftime('%Y-%m-%d %H:%M')} ---\nReason: {cancel_request.cancel_reason}"
+        if cancel_request.staff_notes:
+            cancel_info += f"\nStaff notes: {cancel_request.staff_notes}"
+        
+        # Ensure we don't exceed 500 character limit
+        if transaction.internal_notes:
+            combined_notes = transaction.internal_notes + cancel_info
+            if len(combined_notes) > 500:
+                # Truncate original notes to make room for cancel info
+                max_original_length = 500 - len(cancel_info) - 10  # Leave buffer
+                if max_original_length > 0:
+                    transaction.internal_notes = transaction.internal_notes[:max_original_length] + "..." + cancel_info
+                else:
+                    # Cancel info is too long, use shortened version
+                    short_cancel_info = f"\n--- CANCELED by {current_user.user_id} ---\nReason: {cancel_request.cancel_reason[:200]}..."
+                    transaction.internal_notes = short_cancel_info[:500]
+            else:
+                transaction.internal_notes = combined_notes
+        else:
+            transaction.internal_notes = cancel_info.strip()[:500]
+        
+        await transaction.save()
+        
+        operation_datetime = datetime.now(UTC)
+        original_status_str = original_status.value if hasattr(original_status, 'value') else str(original_status)
+        audit_trail = {
+            "performed_by_user_id": current_user.user_id,
+            "operation_date": operation_datetime.isoformat(),
+            "original_status": original_status_str,
+            "cancel_reason": cancel_request.cancel_reason,
+            "staff_notes": cancel_request.staff_notes,
+            "hours_since_creation": hours_since_creation,
+            "total_payments_at_cancel": total_payments,
+            "operation_type": "cancel"
+        }
+        
+        transaction_logger.info(
+            "Transaction canceled successfully",
+            transaction_id=transaction_id,
+            original_status=original_status,
+            canceled_by=current_user.user_id
+        )
+        
+        return TransactionVoidResponse(
+            transaction_id=transaction_id,
+            original_status=original_status_str,
+            new_status=TransactionStatus.CANCELED.value,
+            operation_type="cancel",
+            performed_by=current_user.user_id,
+            reason=cancel_request.cancel_reason,
+            operation_date=operation_datetime,
+            audit_trail=audit_trail
+        )
+        
+    except (ValidationError, BusinessRuleError, TransactionNotFoundError) as e:
+        # Re-raise known exceptions to be handled by global handlers
+        raise
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        transaction_logger.error(
+            "Unexpected error canceling transaction",
+            transaction_id=transaction_id,
+            error=str(e),
+            exc_info=True
+        )
+        raise DatabaseError("Failed to cancel transaction due to unexpected error")

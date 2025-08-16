@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional, List, Union
 from datetime import datetime, timedelta
 import secrets
 
@@ -136,7 +136,7 @@ class UserService:
             )
     
     @staticmethod
-    async def get_user_by_id(user_id: str, requester_role: UserRole = None) -> UserDetailResponse:
+    async def get_user_by_id(user_id: str, requester_role: UserRole = None) -> Union[UserResponse, UserDetailResponse]:
         """Get user by ID with role-based access control"""
         user = await User.find_one(User.user_id == user_id)
         if not user:
