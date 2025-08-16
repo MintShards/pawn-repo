@@ -49,3 +49,4 @@ npm-debug.log*
 htmlcov/
 *.cover
 .hypothesis/
+mcp-servers/shadcn-ui-mcp-server/
