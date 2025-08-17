@@ -11,17 +11,21 @@ export const useTheme = () => {
 };
 
 export const ThemeProvider = ({ children }) => {
-  const [theme, setTheme] = useState('light');
+  const [theme, setTheme] = useState('dark');
 
   useEffect(() => {
-    // Get theme from localStorage or default to system preference
-    const savedTheme = localStorage.getItem('pawn_shop_theme');
+    // Get theme from localStorage or default to dark mode
+    const savedTheme = localStorage.getItem('pawn_repo_theme') || localStorage.getItem('pawn_shop_theme');
     if (savedTheme) {
       setTheme(savedTheme);
+      // If we found old theme, migrate it and remove old key
+      if (localStorage.getItem('pawn_shop_theme') && !localStorage.getItem('pawn_repo_theme')) {
+        localStorage.setItem('pawn_repo_theme', savedTheme);
+        localStorage.removeItem('pawn_shop_theme');
+      }
     } else {
-      // Check system preference
-      const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-      setTheme(systemTheme);
+      // Default to dark mode instead of system preference
+      setTheme('dark');
     }
   }, []);
 
@@ -35,7 +39,7 @@ export const ThemeProvider = ({ children }) => {
     }
     
     // Save theme to localStorage
-    localStorage.setItem('pawn_shop_theme', theme);
+    localStorage.setItem('pawn_repo_theme', theme);
   }, [theme]);
 
   const toggleTheme = () => {

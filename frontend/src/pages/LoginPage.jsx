@@ -45,7 +45,7 @@ const LoginPage = () => {
             </svg>
           </div>
           <h1 className="text-3xl font-bold text-slate-800 dark:text-slate-200 mb-2 transition-colors duration-300">
-            Pawn Shop Management
+            Pawn Repo Management
           </h1>
           <p className="text-slate-600 dark:text-slate-400 transition-colors duration-300">
             Secure staff access to transaction management

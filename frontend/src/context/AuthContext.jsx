@@ -1,5 +1,7 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import authService from '../services/authService';
+import useInactivityTimer from '../hooks/useInactivityTimer';
+import InactivityWarningModal from '../components/common/InactivityWarningModal';
 
 const AuthContext = createContext({});
 
@@ -15,29 +17,126 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [lastActivity, setLastActivity] = useState(Date.now());
 
+  // Security: Inactivity timer for automatic logout
+  const handleInactivityTimeout = () => {
+    console.warn('🔒 Security: Automatic logout due to 2 hours + 1 minute of inactivity');
+    logout('inactivity_timeout');
+  };
+
+  const handleInactivityWarning = () => {
+    console.warn('🔒 Security: Inactivity warning - automatic logout in 60 seconds');
+  };
+
+  const handleUserActivity = () => {
+    
+    // Update last activity time for token refresh logic
+    setLastActivity(Date.now());
+  };
+
+  const {
+    showWarning,
+    timeRemainingSeconds,
+    startTimer,
+    stopTimer,
+    extendSession
+  } = useInactivityTimer({
+    timeoutDuration: 7260000, // 2 hours + 1 minute (7,200,000ms + 60,000ms)
+    warningTime: 60000, // 60 seconds (1 minute) warning countdown
+    onTimeout: handleInactivityTimeout,
+    onWarning: handleInactivityWarning,
+    onActivity: handleUserActivity,
+    enabled: isAuthenticated
+  });
+
+  // Automatic token refresh - check every 5 minutes for proactive refresh
   useEffect(() => {
-    initializeAuth();
-  }, []);
+    if (!isAuthenticated) return;
 
-  const initializeAuth = async () => {
+    const refreshInterval = setInterval(async () => {
+      const currentToken = authService.getToken();
+      if (!currentToken) return;
+
+      // Check if token is expiring soon (within 5 minutes)
+      if (authService.isTokenExpiringSoon(currentToken)) {
+        try {
+          const refreshSuccess = await authService.refreshAccessToken();
+          if (refreshSuccess) {
+            console.log('🔒 Token: Auto-refreshed successfully');
+          } else {
+            console.warn('🔒 Token: Auto-refresh failed - user may need to re-login');
+          }
+        } catch (error) {
+          console.error('🔒 Token: Auto-refresh error:', error);
+        }
+      }
+    }, 5 * 60 * 1000); // Check every 5 minutes for proactive refresh
+
+    return () => clearInterval(refreshInterval);
+  }, [isAuthenticated]);
+
+  const initializeAuth = useCallback(async () => {
     try {
-      const isValidToken = await authService.verifyToken();
+      // Initialize authentication state
+      const hasToken = !!authService.getToken();
+      const hasRefreshToken = !!localStorage.getItem('pawn_repo_refresh_token');
       
-      if (isValidToken) {
-        const userData = await authService.getCurrentUser();
-        if (userData) {
-          setUser(userData);
-          setIsAuthenticated(true);
-        } else {
-          // Token is valid but couldn't get user data
+      if (!hasToken) {
+        // No access token found
+        setIsAuthenticated(false);
+        setLoading(false);
+        return;
+      }
+      
+      // Skip verification if we have both tokens - just get user data
+      // The automatic refresh interval will handle token validation
+      if (hasToken && hasRefreshToken) {
+        try {
+          const userData = await authService.getCurrentUser();
+          if (userData) {
+            setUser(userData);
+            setIsAuthenticated(true);
+            
+            // Start security timer for existing session
+            // Use setTimeout to avoid race condition during initialization
+            setTimeout(() => startTimer(), 200);
+          } else {
+            // Failed to get user data - tokens might be invalid
+            authService.logout();
+            setIsAuthenticated(false);
+          }
+        } catch (error) {
+          // Failed to get user data - clear session
           authService.logout();
           setIsAuthenticated(false);
         }
-      } else {
-        // Invalid token
-        authService.logout();
-        setIsAuthenticated(false);
+        setLoading(false);
+        return;
+      }
+      
+      // For sessions without refresh token, verify once
+      if (!hasRefreshToken) {
+        try {
+          const isValidToken = await authService.verifyToken();
+          if (isValidToken) {
+            const userData = await authService.getCurrentUser();
+            if (userData) {
+              setUser(userData);
+              setIsAuthenticated(true);
+              setTimeout(() => startTimer(), 200);
+            } else {
+              authService.logout();
+              setIsAuthenticated(false);
+            }
+          } else {
+            authService.logout();
+            setIsAuthenticated(false);
+          }
+        } catch (error) {
+          authService.logout();
+          setIsAuthenticated(false);
+        }
       }
     } catch (error) {
       console.error('Auth initialization error:', error);
@@ -46,18 +145,35 @@ export const AuthProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    initializeAuth();
+  }, [initializeAuth]);
 
   const login = async (credentials) => {
     try {
       setLoading(true);
       const response = await authService.login(credentials);
       
-      if (response.user) {
-        setUser(response.user);
+      // Handle both response formats: login-with-refresh returns user as dict, regular login returns user object
+      const userData = response.user;
+      if (userData) {
+        setUser(userData);
         setIsAuthenticated(true);
-        return { success: true, user: response.user };
+        setLastActivity(Date.now()); // Initialize activity tracking
+        
+        console.log('🔒 Login successful for user:', userData.user_id);
+        
+        // Start security inactivity timer
+        // Use setTimeout to avoid race condition during login
+        setTimeout(() => {
+          startTimer();
+        }, 200);
+        
+        return { success: true, user: userData };
       } else {
+        console.error('🔒 Login response missing user data:', response);
         throw new Error('No user data received');
       }
     } catch (error) {
@@ -71,10 +187,29 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const logout = () => {
+  const logout = (reason = 'manual') => {
+    // Log security event
+    if (reason === 'inactivity_timeout') {
+      console.warn('🔒 Security: User logged out due to inactivity timeout');
+    }
+    
+    // Stop inactivity monitoring
+    stopTimer();
+    
+    // Clear authentication state
     authService.logout();
     setUser(null);
     setIsAuthenticated(false);
+    setLastActivity(Date.now()); // Reset activity tracking
+  };
+
+  // Handle warning modal actions
+  const handleExtendSession = () => {
+    extendSession();
+  };
+
+  const handleLogoutNow = () => {
+    logout('manual_from_warning');
   };
 
   const value = {
@@ -84,11 +219,24 @@ export const AuthProvider = ({ children }) => {
     login,
     logout,
     refreshUser: initializeAuth,
+    // Security features
+    inactivityWarning: showWarning,
+    timeRemainingSeconds,
+    lastActivity
   };
 
   return (
     <AuthContext.Provider value={value}>
       {children}
+      
+      {/* Security: Inactivity Warning Modal */}
+      <InactivityWarningModal
+        isOpen={showWarning}
+        timeRemainingSeconds={timeRemainingSeconds}
+        warningDuration={60} // 60 seconds (1 minute) warning countdown
+        onExtendSession={handleExtendSession}
+        onLogoutNow={handleLogoutNow}
+      />
     </AuthContext.Provider>
   );
 };

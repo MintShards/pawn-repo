@@ -5,6 +5,7 @@ import { ThemeProvider } from './context/ThemeContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
+import CustomersPage from './pages/CustomersPage';
 
 function App() {
   return (
@@ -26,12 +27,22 @@ function App() {
                 } 
               />
               
+              <Route 
+                path="/customers" 
+                element={
+                  <ProtectedRoute>
+                    <CustomersPage />
+                  </ProtectedRoute>
+                } 
+              />
+              
               {/* Redirect root to dashboard */}
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               
               {/* Catch all route - redirect to dashboard */}
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
+            
           </div>
         </Router>
       </AuthProvider>

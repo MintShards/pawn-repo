@@ -1,7 +1,7 @@
 """Authentication schema definitions for JWT and refresh token functionality."""
 
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Dict, Any
 
 
 class TokenSchema(BaseModel):
@@ -68,6 +68,32 @@ class AccessTokenResponse(BaseModel):
                 "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
                 "token_type": "bearer",
                 "expires_in": 900
+            }
+        }
+
+
+class LoginWithRefreshResponse(BaseModel):
+    """Schema for login with refresh token response including user data"""
+    access_token: str = Field(..., description="JWT access token")
+    refresh_token: str = Field(..., description="JWT refresh token")
+    token_type: str = Field(default="bearer", description="Token type")
+    expires_in: int = Field(..., description="Access token expiration in seconds")
+    user: Dict[str, Any] = Field(..., description="User data")
+    session_id: str = Field(..., description="Session ID")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+                "refresh_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+                "token_type": "bearer",
+                "expires_in": 1800,
+                "user": {
+                    "user_id": "69",
+                    "role": "admin",
+                    "status": "active"
+                },
+                "session_id": "sess_12345"
             }
         }
 

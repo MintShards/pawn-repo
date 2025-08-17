@@ -13,7 +13,6 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 
 # Local imports
 from app.api.deps.user_deps import get_current_user, get_current_admin_user
-from app.core.csrf_protection import csrf_protect
 from app.models.customer_model import CustomerStatus
 from app.models.user_model import User
 from app.schemas.customer_schema import (
@@ -138,16 +137,16 @@ async def get_customers_list(
     "/stats",
     response_model=CustomerStatsResponse,
     summary="Get customer statistics",
-    description="Get customer statistics for admin dashboard (Admin only)",
+    description="Get customer statistics for dashboard (Staff and Admin access)",
     responses={
         200: {"description": "Customer statistics retrieved successfully"},
-        403: {"description": "Admin access required"}
+        403: {"description": "Authentication required"}
     }
 )
 async def get_customer_statistics(
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(get_current_user)
 ) -> CustomerStatsResponse:
-    """Get customer statistics for admin dashboard"""
+    """Get customer statistics for dashboard"""
     return await CustomerService.get_customer_statistics()
 
 

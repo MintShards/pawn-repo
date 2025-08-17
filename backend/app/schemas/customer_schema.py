@@ -200,7 +200,7 @@ class CustomerStatsResponse(BaseModel):
     total_customers: int = Field(..., description="Total number of customers")
     active_customers: int = Field(..., description="Number of active customers")
     suspended_customers: int = Field(..., description="Number of suspended customers")
-    banned_customers: int = Field(..., description="Number of banned customers")
+    archived_customers: int = Field(..., description="Number of archived customers")
     customers_created_today: int = Field(..., description="Customers created today")
     avg_transactions_per_customer: float = Field(..., description="Average transactions per customer")
     
@@ -210,7 +210,7 @@ class CustomerStatsResponse(BaseModel):
                 "total_customers": 125,
                 "active_customers": 118,
                 "suspended_customers": 5,
-                "banned_customers": 2,
+                "archived_customers": 2,
                 "customers_created_today": 3,
                 "avg_transactions_per_customer": 8.5
             }
@@ -231,7 +231,7 @@ class CustomerStatusUpdate(BaseModel):
         json_schema_extra={
             "example": {
                 "status": "suspended",
-                "reason": "Multiple failed payment attempts"
+                "reason": "Account suspended due to multiple failed payment attempts"
             }
         }
     )

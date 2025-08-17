@@ -142,19 +142,59 @@ class CustomerService:
             if status:
                 filters["status"] = status.value
             
-            # Apply search filter using text search or advanced name search
+            # Apply search filter with improved logic
             if search:
-                # Check if search is exactly 3 characters for advanced name search
-                if len(search) == 3 and search.isalpha():
+                search = search.strip()
+                if not search:
+                    # Empty search after stripping, skip search filter
+                    pass
+                elif search.isdigit() and len(search) >= 10:
+                    # Phone number search (exact match)
+                    filters["phone_number"] = search
+                elif search.isdigit() and len(search) < 10:
+                    # Partial phone number search
+                    filters["phone_number"] = {"$regex": f".*{search}.*"}
+                elif "@" in search:
+                    # Email search
+                    filters["email"] = {"$regex": search, "$options": "i"}
+                elif len(search) == 3 and search.isalpha():
                     # Advanced search: first 3 letters of first or last name
                     regex_pattern = f"^{search}"
                     filters["$or"] = [
                         {"first_name": {"$regex": regex_pattern, "$options": "i"}},
                         {"last_name": {"$regex": regex_pattern, "$options": "i"}}
                     ]
+                elif " " in search:
+                    # Full name search (first + last)
+                    name_parts = search.split()
+                    if len(name_parts) == 2:
+                        first_name, last_name = name_parts
+                        filters["$and"] = [
+                            {"first_name": {"$regex": first_name, "$options": "i"}},
+                            {"last_name": {"$regex": last_name, "$options": "i"}}
+                        ]
+                    else:
+                        # Multiple words, try text search or fallback to general search
+                        try:
+                            filters["$text"] = {"$search": search}
+                        except:
+                            # Text index not available, use general regex search
+                            regex_pattern = f".*{search}.*"
+                            filters["$or"] = [
+                                {"first_name": {"$regex": regex_pattern, "$options": "i"}},
+                                {"last_name": {"$regex": regex_pattern, "$options": "i"}}
+                            ]
                 else:
-                    # Use MongoDB text search for general searching
-                    filters["$text"] = {"$search": search}
+                    # Single word search - check first name, last name, or use text search
+                    try:
+                        filters["$text"] = {"$search": search}
+                    except:
+                        # Text index not available, use general regex search
+                        regex_pattern = f".*{search}.*"
+                        filters["$or"] = [
+                            {"first_name": {"$regex": regex_pattern, "$options": "i"}},
+                            {"last_name": {"$regex": regex_pattern, "$options": "i"}}
+                        ]
             
             # Create query
             if filters:
@@ -194,24 +234,51 @@ class CustomerService:
             )
             
         except Exception as e:
-            # Fallback to simple search if text search fails
-            if search and "text index" in str(e):
-                # Use regex search as fallback
+            # Fallback to regex search if text search fails
+            if search and ("text index" in str(e) or "$text" in str(e)):
+                # Rebuild filters for regex fallback
                 filters = {}
                 if status:
                     filters["status"] = status.value
                     
-                # Build regex query for search
+                # Apply the same improved search logic but with regex fallback
                 if search:
-                    if len(search) == 3 and search.isalpha():
+                    search = search.strip()
+                    if search.isdigit() and len(search) >= 10:
+                        # Phone number search
+                        filters["phone_number"] = search
+                    elif search.isdigit() and len(search) < 10:
+                        # Partial phone number search
+                        filters["phone_number"] = {"$regex": f".*{search}.*"}
+                    elif "@" in search:
+                        # Email search
+                        filters["email"] = {"$regex": search, "$options": "i"}
+                    elif len(search) == 3 and search.isalpha():
                         # Advanced search: first 3 letters of first or last name
                         regex_pattern = f"^{search}"
                         filters["$or"] = [
                             {"first_name": {"$regex": regex_pattern, "$options": "i"}},
                             {"last_name": {"$regex": regex_pattern, "$options": "i"}}
                         ]
+                    elif " " in search:
+                        # Full name search
+                        name_parts = search.split()
+                        if len(name_parts) == 2:
+                            first_name, last_name = name_parts
+                            filters["$and"] = [
+                                {"first_name": {"$regex": first_name, "$options": "i"}},
+                                {"last_name": {"$regex": last_name, "$options": "i"}}
+                            ]
+                        else:
+                            # General regex search for multiple words
+                            regex_pattern = f".*{search}.*"
+                            filters["$or"] = [
+                                {"first_name": {"$regex": regex_pattern, "$options": "i"}},
+                                {"last_name": {"$regex": regex_pattern, "$options": "i"}},
+                                {"phone_number": {"$regex": regex_pattern}}
+                            ]
                     else:
-                        # General search across all fields
+                        # Single word - general search
                         regex_pattern = f".*{search}.*"
                         filters["$or"] = [
                             {"first_name": {"$regex": regex_pattern, "$options": "i"}},
@@ -333,8 +400,8 @@ class CustomerService:
         suspended_customers = await Customer.find(
             Customer.status == CustomerStatus.SUSPENDED
         ).count()
-        banned_customers = await Customer.find(
-            Customer.status == CustomerStatus.BANNED
+        archived_customers = await Customer.find(
+            Customer.status == CustomerStatus.ARCHIVED
         ).count()
         
         # Get customers created today
@@ -357,7 +424,7 @@ class CustomerService:
             total_customers=total_customers,
             active_customers=active_customers,
             suspended_customers=suspended_customers,
-            banned_customers=banned_customers,
+            archived_customers=archived_customers,
             customers_created_today=customers_created_today,
             avg_transactions_per_customer=round(avg_transactions, 2)
         )

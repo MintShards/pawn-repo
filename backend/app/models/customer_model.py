@@ -19,11 +19,9 @@ from bson import Decimal128
 
 class CustomerStatus(str, Enum):
     """Customer account status options"""
-    ACTIVE = "active"
-    SUSPENDED = "suspended"
-    BANNED = "banned"
-    DEACTIVATED = "deactivated"  # Customer requested account closure
-    ARCHIVED = "archived"        # Long-term inactive, preserved for compliance
+    ACTIVE = "active"      # Normal operating customers
+    SUSPENDED = "suspended"  # Temporarily restricted customers
+    ARCHIVED = "archived"    # Permanently inactive customers (includes banned/deactivated)
 
 
 class Customer(Document):
@@ -235,9 +233,9 @@ class Customer(Document):
         self.suspended_at = datetime.utcnow()
     
     def ban(self, reason: str, banned_by: str):
-        """Ban customer account"""
-        self.status = CustomerStatus.BANNED
-        self.suspended_reason = reason  # Reuse suspension fields for ban
+        """Ban customer account (now archived)"""
+        self.status = CustomerStatus.ARCHIVED
+        self.suspended_reason = reason  # Reuse suspension fields for archive
         self.suspended_by = banned_by
         self.suspended_at = datetime.utcnow()
     
@@ -249,8 +247,8 @@ class Customer(Document):
         self.suspended_at = None
     
     def deactivate(self, reason: str, deactivated_by: str):
-        """Deactivate customer account (customer-requested closure)"""
-        self.status = CustomerStatus.DEACTIVATED
+        """Deactivate customer account (customer-requested closure, now archived)"""
+        self.status = CustomerStatus.ARCHIVED
         self.suspended_reason = reason
         self.suspended_by = deactivated_by
         self.suspended_at = datetime.utcnow()

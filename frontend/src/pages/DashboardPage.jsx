@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/button';
 import { ThemeToggle } from '../components/ui/theme-toggle';
@@ -12,6 +13,7 @@ import {
 
 const DashboardPage = () => {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
 
   const handleLogout = () => {
     logout();
@@ -25,7 +27,7 @@ const DashboardPage = () => {
         <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
           <div>
             <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-200 transition-colors duration-300">
-              Pawn Shop Management System
+              Pawn Repo Management System
             </h1>
             <p className="text-slate-600 dark:text-slate-400 transition-colors duration-300">Welcome back, {user?.first_name || 'User'}</p>
           </div>
@@ -55,8 +57,12 @@ const DashboardPage = () => {
               <Button className="w-full" variant="outline">
                 New Pawn Transaction
               </Button>
-              <Button className="w-full" variant="outline">
-                Customer Lookup
+              <Button 
+                className="w-full" 
+                variant="outline"
+                onClick={() => navigate('/customers')}
+              >
+                Customer Management
               </Button>
               <Button className="w-full" variant="outline">
                 Process Payment
@@ -126,7 +132,7 @@ const DashboardPage = () => {
         <Card className="mt-8">
           <CardHeader>
             <CardTitle>Recent Transactions</CardTitle>
-            <CardDescription>Latest pawn shop activity</CardDescription>
+            <CardDescription>Latest pawn repo activity</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="text-center py-8 text-slate-500">

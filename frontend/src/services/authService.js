@@ -2,12 +2,16 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 class AuthService {
   constructor() {
-    this.token = localStorage.getItem('pawn_shop_token');
+    this.token = localStorage.getItem('pawn_repo_token');
+    this.refreshToken = localStorage.getItem('pawn_repo_refresh_token');
+    this.lastVerifyCall = 0;
+    this.verifyThrottleMs = 30000; // Only allow verify calls every 30 seconds
   }
 
   async login(userCredentials) {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/auth/jwt/login`, {
+      // Use login-with-refresh endpoint for proper token management
+      const response = await fetch(`${API_BASE_URL}/api/v1/auth/jwt/login-with-refresh`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -22,9 +26,20 @@ class AuthService {
 
       const data = await response.json();
       
+      console.log('🔒 Login response data:', data);
+      
       if (data.access_token) {
-        localStorage.setItem('pawn_shop_token', data.access_token);
+        localStorage.setItem('pawn_repo_token', data.access_token);
         this.token = data.access_token;
+        console.log('🔒 Access token stored successfully');
+      }
+      
+      if (data.refresh_token) {
+        localStorage.setItem('pawn_repo_refresh_token', data.refresh_token);
+        this.refreshToken = data.refresh_token;
+        console.log('🔒 Refresh token stored successfully');
+      } else {
+        console.warn('🔒 No refresh token received from login endpoint');
       }
 
       return data;
@@ -34,10 +49,99 @@ class AuthService {
     }
   }
 
+  async refreshAccessToken() {
+    if (!this.refreshToken) {
+      console.warn('🔒 No refresh token available - user needs to login again');
+      return false;
+    }
+
+    try {
+      console.log('🔒 Attempting token refresh...');
+      const response = await fetch(`${API_BASE_URL}/api/v1/auth/jwt/refresh`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          refresh_token: this.refreshToken
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('🔒 Token refresh failed:', response.status, errorData);
+        
+        if (response.status === 401) {
+          // Refresh token expired, clear everything and force re-login
+          console.warn('🔒 Refresh token expired - clearing session');
+          this.logout();
+          // Force page reload to redirect to login
+          window.location.reload();
+        }
+        return false;
+      }
+
+      const data = await response.json();
+      
+      if (data.access_token) {
+        localStorage.setItem('pawn_repo_token', data.access_token);
+        this.token = data.access_token;
+        console.log('🔒 Access token refreshed successfully');
+      }
+      
+      // Backend only returns new access token, refresh token stays the same
+      if (data.refresh_token) {
+        localStorage.setItem('pawn_repo_refresh_token', data.refresh_token);
+        this.refreshToken = data.refresh_token;
+        console.log('🔒 Refresh token updated');
+      }
+
+      return true;
+    } catch (error) {
+      console.error('🔒 Token refresh network error:', error);
+      // On network error, don't clear tokens - user might be temporarily offline
+      return false;
+    }
+  }
+
+  isTokenExpiringSoon(token) {
+    try {
+      // Decode JWT token to check expiration
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      const expiryTime = payload.exp * 1000; // Convert to milliseconds
+      const currentTime = Date.now();
+      const timeUntilExpiry = expiryTime - currentTime;
+      
+      // Consider token expiring soon if less than 5 minutes left
+      return timeUntilExpiry < 5 * 60 * 1000;
+    } catch (error) {
+      // If we can't decode the token, assume it needs refresh
+      return true;
+    }
+  }
+
   async verifyToken() {
     if (!this.token) return false;
 
+    // Throttle verify calls to prevent rate limiting
+    const now = Date.now();
+    if (now - this.lastVerifyCall < this.verifyThrottleMs) {
+      // Skip verification if called recently - assume token is still valid
+      return true;
+    }
+
+    // Check if token is expiring soon and proactively refresh
+    if (this.refreshToken && this.isTokenExpiringSoon(this.token)) {
+      const refreshSuccess = await this.refreshAccessToken();
+      if (refreshSuccess) {
+        return true;
+      }
+    }
+
     try {
+      // Update timestamp before making the call
+      this.lastVerifyCall = now;
+      
       const response = await fetch(`${API_BASE_URL}/api/v1/auth/jwt/verify`, {
         method: 'GET',
         headers: {
@@ -46,7 +150,22 @@ class AuthService {
         },
       });
 
-      return response.ok;
+      if (response.ok) {
+        return true;
+      }
+
+      // If token verification fails, try to refresh if we have a refresh token
+      if (response.status === 422 || response.status === 401) {
+        if (this.refreshToken) {
+          const refreshSuccess = await this.refreshAccessToken();
+          if (refreshSuccess) {
+            return true;
+          }
+        } else {
+        }
+      }
+
+      return false;
     } catch (error) {
       console.error('Token verification error:', error);
       return false;
@@ -77,8 +196,10 @@ class AuthService {
   }
 
   logout() {
-    localStorage.removeItem('pawn_shop_token');
+    localStorage.removeItem('pawn_repo_token');
+    localStorage.removeItem('pawn_repo_refresh_token');
     this.token = null;
+    this.refreshToken = null;
   }
 
   isAuthenticated() {
@@ -91,6 +212,11 @@ class AuthService {
 
   // Helper method for making authenticated API requests
   async apiRequest(endpoint, options = {}) {
+    // Proactively refresh token if it's expiring soon
+    if (this.token && this.refreshToken && this.isTokenExpiringSoon(this.token)) {
+      await this.refreshAccessToken();
+    }
+
     const url = `${API_BASE_URL}${endpoint}`;
     const config = {
       headers: {
@@ -101,7 +227,29 @@ class AuthService {
       ...options,
     };
 
-    const response = await fetch(url, config);
+    let response = await fetch(url, config);
+    
+    // If we get a 401/422 (token expired), try to refresh and retry once (only if we have refresh token)
+    if ((response.status === 401 || response.status === 422) && this.refreshToken) {
+      console.log('🔒 API request failed with 401/422 - attempting token refresh');
+      const refreshSuccess = await this.refreshAccessToken();
+      
+      if (refreshSuccess) {
+        // Retry the request with the new token
+        config.headers.Authorization = `Bearer ${this.token}`;
+        response = await fetch(url, config);
+        console.log('🔒 API request retried after token refresh');
+      } else {
+        console.error('🔒 Token refresh failed - user needs to login again');
+        // The refreshAccessToken method will have already triggered logout/reload
+        throw new Error('Authentication failed - please login again');
+      }
+    } else if ((response.status === 401 || response.status === 422) && !this.refreshToken) {
+      console.warn('🔒 API request failed with auth error and no refresh token - forcing logout');
+      this.logout();
+      window.location.reload();
+      throw new Error('Authentication failed - please login again');
+    }
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));

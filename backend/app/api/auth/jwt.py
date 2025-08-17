@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, status, Request
 # Local imports
 from app.core.security_middleware import auth_rate_limit, api_rate_limit
 from app.models.user_model import AuthenticationError, AccountLockedError, InvalidCredentialsError
-from app.schemas.auth_schema import TokenSchema, RefreshTokenRequest, AccessTokenResponse, TokenVerificationResponse
+from app.schemas.auth_schema import TokenSchema, RefreshTokenRequest, AccessTokenResponse, TokenVerificationResponse, LoginWithRefreshResponse
 from app.schemas.user_schema import UserAuth, LoginResponse
 from app.services.user_service import UserService
 
@@ -129,11 +129,11 @@ async def get_token(request: Request, auth_data: UserAuth) -> LoginResponse:
     return await jwt_login(request, auth_data)
 
 @auth_router.post("/login-with-refresh",
-                 response_model=TokenSchema,
+                 response_model=LoginWithRefreshResponse,
                  summary="JWT Login with Refresh Token",
-                 description="Authenticate user and return both access and refresh tokens")
+                 description="Authenticate user and return both access and refresh tokens with user data")
 @auth_rate_limit()
-async def jwt_login_with_refresh(request: Request, auth_data: UserAuth) -> TokenSchema:
+async def jwt_login_with_refresh(request: Request, auth_data: UserAuth) -> LoginWithRefreshResponse:
     """
     JWT-based user authentication with refresh token support.
     
@@ -141,14 +141,14 @@ async def jwt_login_with_refresh(request: Request, auth_data: UserAuth) -> Token
         auth_data: UserAuth containing user_id and pin
         
     Returns:
-        TokenSchema with both access and refresh tokens
+        LoginWithRefreshResponse with both access and refresh tokens plus user data
     """
     client_ip, user_agent = _extract_client_info(request)
     
     try:
         result = await UserService.authenticate_user_with_refresh(auth_data)
         _log_successful_auth(auth_data, client_ip, user_agent, "with refresh")
-        return TokenSchema(**result)
+        return LoginWithRefreshResponse(**result)
         
     except Exception as e:
         raise _handle_auth_exception(e, auth_data, client_ip, user_agent, "with refresh")
@@ -158,18 +158,19 @@ async def jwt_login_with_refresh(request: Request, auth_data: UserAuth) -> Token
                  summary="Refresh Access Token",
                  description="Generate new access token using refresh token")
 @api_rate_limit()
-async def refresh_access_token(request: RefreshTokenRequest) -> AccessTokenResponse:
+async def refresh_access_token(request: Request, refresh_request: RefreshTokenRequest) -> AccessTokenResponse:
     """
     Generate new access token from refresh token.
     
     Args:
-        request: RefreshTokenRequest containing refresh token
+        request: FastAPI request object
+        refresh_request: RefreshTokenRequest containing refresh token
         
     Returns:
         AccessTokenResponse with new access token
     """
     try:
-        result = await UserService.refresh_access_token(request.refresh_token)
+        result = await UserService.refresh_access_token(refresh_request.refresh_token)
         return AccessTokenResponse(**result)
     except HTTPException:
         raise
@@ -185,17 +186,27 @@ async def refresh_access_token(request: RefreshTokenRequest) -> AccessTokenRespo
                 summary="Verify JWT Token",
                 description="Verify the validity of a JWT token")
 @api_rate_limit()
-async def verify_token(request: Request, token: str) -> TokenVerificationResponse:
+async def verify_token(request: Request) -> TokenVerificationResponse:
     """
     Verify JWT token validity.
     
     Args:
-        token: JWT token string to verify
+        request: FastAPI request containing Authorization header
         
     Returns:
         TokenVerificationResponse containing token validity and payload information
     """
     try:
+        # Extract token from Authorization header
+        authorization = request.headers.get("Authorization")
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Missing or invalid authorization header",
+                headers={"WWW-Authenticate": "Bearer"}
+            )
+        
+        token = authorization.split(" ")[1]
         payload = UserService.decode_token(token)
         return TokenVerificationResponse(
             valid=True,
