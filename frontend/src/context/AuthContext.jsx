@@ -89,54 +89,25 @@ export const AuthProvider = ({ children }) => {
         return;
       }
       
-      // Skip verification if we have both tokens - just get user data
-      // The automatic refresh interval will handle token validation
+      // EMERGENCY FIX: Skip user data fetch during initialization to prevent request storm
+      // Login response already contains user data, no need to fetch during init
       if (hasToken && hasRefreshToken) {
-        try {
-          const userData = await authService.getCurrentUser();
-          if (userData) {
-            setUser(userData);
-            setIsAuthenticated(true);
-            
-            // Start security timer for existing session
-            // Use setTimeout to avoid race condition during initialization
-            setTimeout(() => startTimer(), 200);
-          } else {
-            // Failed to get user data - tokens might be invalid
-            authService.logout();
-            setIsAuthenticated(false);
-          }
-        } catch (error) {
-          // Failed to get user data - clear session
-          authService.logout();
-          setIsAuthenticated(false);
-        }
+        // Trust the stored tokens and set authenticated state
+        // Note: User data will be fetched lazily when needed to prevent API spam
+        setIsAuthenticated(true);
+        
+        // Start security timer for existing session without user data fetch
+        setTimeout(() => startTimer(), 200);
         setLoading(false);
         return;
       }
       
-      // For sessions without refresh token, verify once
+      // EMERGENCY FIX: Don't fetch user data during initialization
+      // Sessions without refresh token are considered invalid - require re-login
       if (!hasRefreshToken) {
-        try {
-          const isValidToken = await authService.verifyToken();
-          if (isValidToken) {
-            const userData = await authService.getCurrentUser();
-            if (userData) {
-              setUser(userData);
-              setIsAuthenticated(true);
-              setTimeout(() => startTimer(), 200);
-            } else {
-              authService.logout();
-              setIsAuthenticated(false);
-            }
-          } else {
-            authService.logout();
-            setIsAuthenticated(false);
-          }
-        } catch (error) {
-          authService.logout();
-          setIsAuthenticated(false);
-        }
+        console.log('🔒 No refresh token - requiring fresh login');
+        authService.logout();
+        setIsAuthenticated(false);
       }
     } catch (error) {
       console.error('Auth initialization error:', error);
@@ -145,7 +116,7 @@ export const AuthProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [startTimer]);
 
   useEffect(() => {
     initializeAuth();
@@ -212,6 +183,23 @@ export const AuthProvider = ({ children }) => {
     logout('manual_from_warning');
   };
 
+  // EMERGENCY: Lazy user data fetch to prevent request storms
+  const fetchUserDataIfNeeded = async () => {
+    if (!user && isAuthenticated) {
+      try {
+        const userData = await authService.getCurrentUser();
+        if (userData) {
+          setUser(userData);
+          return userData;
+        }
+      } catch (error) {
+        console.error('Failed to fetch user data:', error);
+        // Don't logout automatically - just leave user data empty
+      }
+    }
+    return user;
+  };
+
   const value = {
     user,
     isAuthenticated,
@@ -219,6 +207,7 @@ export const AuthProvider = ({ children }) => {
     login,
     logout,
     refreshUser: initializeAuth,
+    fetchUserDataIfNeeded,
     // Security features
     inactivityWarning: showWarning,
     timeRemainingSeconds,

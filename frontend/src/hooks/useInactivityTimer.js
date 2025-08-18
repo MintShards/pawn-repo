@@ -344,7 +344,8 @@ const useInactivityTimer = ({
         }
       }
     };
-  }, [isActive, isInitialized, activityEvents]); // Removed showWarning to prevent clearing interval
+  }, [isActive, isInitialized, activityEvents]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Note: showWarning intentionally excluded to prevent clearing interval during warning state
 
   // Return hook interface
   return {

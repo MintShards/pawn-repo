@@ -428,10 +428,35 @@ const EnhancedCustomerManagement = () => {
       
     } catch (error) {
       console.error('Failed to load customers:', error);
-      setCustomerListError(error.message || 'Failed to load customers');
+      
+      // Enhanced error handling for different error types
+      let errorMessage = 'Failed to load customers';
+      let userMessage = 'Failed to load customers';
+      
+      if (error.message?.includes('Rate limit') || error.message?.includes('429')) {
+        errorMessage = 'Rate limit exceeded - too many requests';
+        userMessage = 'System is busy. Please wait a moment and try again.';
+        
+        // Auto-retry after rate limit delay with current parameters
+        setTimeout(() => {
+          console.log('🔄 Auto-retrying after rate limit...');
+          loadCustomerList(page, search, status);
+        }, 3000);
+      } else if (error.message?.includes('Authentication')) {
+        errorMessage = 'Authentication error';
+        userMessage = 'Session expired. Please log in again.';
+      } else if (error.message?.includes('Network')) {
+        errorMessage = 'Network connection error';
+        userMessage = 'Connection problem. Check your internet and try again.';
+      } else {
+        errorMessage = error.message || 'Unknown error';
+        userMessage = 'Unable to load customer data. Please try again.';
+      }
+      
+      setCustomerListError(errorMessage);
       toast({
-        title: 'Error',
-        description: error.message?.includes('Rate limit') ? 'Too many requests. Please wait a moment and try again.' : 'Failed to load customers',
+        title: 'Error Loading Customers',
+        description: userMessage,
         variant: 'destructive'
       });
     } finally {
@@ -458,54 +483,74 @@ const EnhancedCustomerManagement = () => {
 
 
 
-  // Load customer stats on mount
+  // EMERGENCY FIX: Single consolidated useEffect to prevent rate limit errors
+  const hasInitialLoadRef = useRef(false);
+  const lastRequestRef = useRef('');
+  
   useEffect(() => {
-    loadCustomerStats();
-  }, [loadCustomerStats]);
-
-  // Load customers when page, search, or filters change (using debounced values)
-  useEffect(() => {
-    // Determine the search term based on what's been entered
+    // Build search term
     let searchTerm = '';
     
     if (debouncedSearchQuery) {
-      // Use primary search query if provided
       searchTerm = debouncedSearchQuery.trim();
     } else if (debouncedSearchFields.phone && debouncedSearchFields.phone.trim()) {
-      // Use phone number search if provided
       searchTerm = debouncedSearchFields.phone.trim();
     } else {
-      // Combine name fields for advanced search
       const firstName = debouncedSearchFields.firstName?.trim() || '';
       const lastName = debouncedSearchFields.lastName?.trim() || '';
       const email = debouncedSearchFields.email?.trim() || '';
       
       if (firstName && lastName) {
-        // Both first and last name provided
         searchTerm = `${firstName} ${lastName}`;
       } else if (firstName) {
-        // Only first name provided
         searchTerm = firstName;
       } else if (lastName) {
-        // Only last name provided
         searchTerm = lastName;
       } else if (email) {
-        // Email search
         searchTerm = email;
       }
     }
     
-    loadCustomerList(currentPage, searchTerm, statusFilter);
-  }, [currentPage, debouncedSearchQuery, debouncedSearchFields, statusFilter, sortField, sortOrder, loadCustomerList]);
+    // Create request signature to prevent duplicate requests
+    const requestSignature = `${currentPage}-${searchTerm}-${statusFilter}-${sortField}-${sortOrder}`;
+    
+    // Prevent duplicate API calls
+    if (lastRequestRef.current === requestSignature) {
+      return;
+    }
+    
+    lastRequestRef.current = requestSignature;
+    
+    // Throttle API calls - only allow one every 500ms
+    const now = Date.now();
+    const lastCallTime = lastRequestRef.lastCall || 0;
+    const timeSinceLastCall = now - lastCallTime;
+    
+    const makeRequest = () => {
+      lastRequestRef.lastCall = Date.now();
+      
+      if (!hasInitialLoadRef.current) {
+        // First load - get both stats and customers
+        hasInitialLoadRef.current = true;
+        loadCustomers(currentPage, searchTerm, statusFilter);
+      } else {
+        // Subsequent loads - only get customer list
+        loadCustomerList(currentPage, searchTerm, statusFilter);
+      }
+    };
+    
+    if (timeSinceLastCall >= 500) {
+      makeRequest();
+    } else {
+      // Debounce rapid requests
+      const timeoutId = setTimeout(makeRequest, 500 - timeSinceLastCall);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [currentPage, debouncedSearchQuery, debouncedSearchFields, statusFilter, sortField, sortOrder, loadCustomers, loadCustomerList]);
 
   // For server-side pagination, we don't need client-side filtering
   const totalPages = Math.ceil(totalCustomers / customersPerPage);
   const currentCustomers = customers; // Use the loaded customers directly
-
-  // Initial data loading on component mount
-  useEffect(() => {
-    loadCustomers(1, '', 'all');
-  }, [loadCustomers]);
 
   // Reset to page 1 when search or filters change (immediate response for UI)
   useEffect(() => {

@@ -6,6 +6,14 @@ class AuthService {
     this.refreshToken = localStorage.getItem('pawn_repo_refresh_token');
     this.lastVerifyCall = 0;
     this.verifyThrottleMs = 30000; // Only allow verify calls every 30 seconds
+    
+    // EMERGENCY: Rate limit protection
+    this.requestQueue = new Map(); // Track ongoing requests
+    this.requestCache = new Map(); // Cache recent responses
+    this.lastRequestTime = 0;
+    this.minRequestInterval = 100; // Minimum 100ms between requests
+    this.rateLimitRetryDelay = 2000; // 2 second delay for rate limit retries
+    this.cacheExpiry = 30000; // 30 second cache for GET requests
   }
 
   async login(userCredentials) {
@@ -200,6 +208,34 @@ class AuthService {
     localStorage.removeItem('pawn_repo_refresh_token');
     this.token = null;
     this.refreshToken = null;
+    // Clear caches on logout
+    this.clearCache();
+  }
+  
+  // EMERGENCY: Cache management utilities
+  clearCache(pattern = null) {
+    if (pattern) {
+      // Clear specific cache entries matching pattern
+      for (const key of this.requestCache.keys()) {
+        if (key.includes(pattern)) {
+          this.requestCache.delete(key);
+        }
+      }
+      console.log(`🧹 Cleared cache entries matching: ${pattern}`);
+    } else {
+      // Clear all cache
+      this.requestCache.clear();
+      console.log('🧹 Cleared all request cache');
+    }
+  }
+  
+  getCacheStats() {
+    return {
+      cacheSize: this.requestCache.size,
+      queueSize: this.requestQueue.size,
+      cacheExpiry: this.cacheExpiry,
+      minRequestInterval: this.minRequestInterval
+    };
   }
 
   isAuthenticated() {
@@ -210,8 +246,54 @@ class AuthService {
     return this.token;
   }
 
-  // Helper method for making authenticated API requests
+  // EMERGENCY: Enhanced API request method with rate limiting and caching
   async apiRequest(endpoint, options = {}) {
+    const method = options.method || 'GET';
+    const cacheKey = `${method}:${endpoint}:${JSON.stringify(options.body || {})}`;
+    
+    // Check cache for GET requests
+    if (method === 'GET' && this.requestCache.has(cacheKey)) {
+      const cached = this.requestCache.get(cacheKey);
+      if (Date.now() - cached.timestamp < this.cacheExpiry) {
+        console.log('🚀 Returning cached response for:', endpoint);
+        return cached.data;
+      } else {
+        this.requestCache.delete(cacheKey);
+      }
+    }
+    
+    // Check if identical request is already in progress
+    if (this.requestQueue.has(cacheKey)) {
+      console.log('🚀 Waiting for existing request:', endpoint);
+      return await this.requestQueue.get(cacheKey);
+    }
+    
+    // Rate limiting - ensure minimum interval between requests
+    const now = Date.now();
+    const timeSinceLastRequest = now - this.lastRequestTime;
+    if (timeSinceLastRequest < this.minRequestInterval) {
+      await new Promise(resolve => setTimeout(resolve, this.minRequestInterval - timeSinceLastRequest));
+    }
+    this.lastRequestTime = Date.now();
+    
+    // Create the request promise
+    const requestPromise = this.executeApiRequest(endpoint, options, cacheKey);
+    
+    // Store in queue to prevent duplicates
+    this.requestQueue.set(cacheKey, requestPromise);
+    
+    try {
+      const result = await requestPromise;
+      return result;
+    } finally {
+      // Remove from queue when done
+      this.requestQueue.delete(cacheKey);
+    }
+  }
+  
+  async executeApiRequest(endpoint, options, cacheKey) {
+    const method = options.method || 'GET';
+    
     // Proactively refresh token if it's expiring soon
     if (this.token && this.refreshToken && this.isTokenExpiringSoon(this.token)) {
       await this.refreshAccessToken();
@@ -229,19 +311,33 @@ class AuthService {
 
     let response = await fetch(url, config);
     
-    // If we get a 401/422 (token expired), try to refresh and retry once (only if we have refresh token)
+    // Handle rate limiting with exponential backoff
+    if (response.status === 429) {
+      console.warn('🚨 Rate limit hit, retrying after delay...');
+      const retryAfter = response.headers.get('Retry-After');
+      const delay = retryAfter ? parseInt(retryAfter) * 1000 : this.rateLimitRetryDelay;
+      
+      await new Promise(resolve => setTimeout(resolve, delay));
+      
+      // Retry the request once
+      response = await fetch(url, config);
+      
+      if (response.status === 429) {
+        throw new Error('Rate limit exceeded. Please wait and try again.');
+      }
+    }
+    
+    // If we get a 401/422 (token expired), try to refresh and retry once
     if ((response.status === 401 || response.status === 422) && this.refreshToken) {
       console.log('🔒 API request failed with 401/422 - attempting token refresh');
       const refreshSuccess = await this.refreshAccessToken();
       
       if (refreshSuccess) {
-        // Retry the request with the new token
         config.headers.Authorization = `Bearer ${this.token}`;
         response = await fetch(url, config);
         console.log('🔒 API request retried after token refresh');
       } else {
         console.error('🔒 Token refresh failed - user needs to login again');
-        // The refreshAccessToken method will have already triggered logout/reload
         throw new Error('Authentication failed - please login again');
       }
     } else if ((response.status === 401 || response.status === 422) && !this.refreshToken) {
@@ -256,7 +352,17 @@ class AuthService {
       throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
     }
 
-    return response.json();
+    const data = await response.json();
+    
+    // Cache GET requests
+    if (method === 'GET') {
+      this.requestCache.set(cacheKey, {
+        data,
+        timestamp: Date.now()
+      });
+    }
+    
+    return data;
   }
 }
 
