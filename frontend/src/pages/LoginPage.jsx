@@ -9,6 +9,16 @@ import {
 } from '../components/ui/card';
 import { ThemeToggle } from '../components/ui/theme-toggle';
 import LoginForm from '../components/auth/LoginForm';
+import { 
+  Sparkles, 
+  Shield, 
+  Lock, 
+  Users, 
+  TrendingUp, 
+  Database,
+  AlertTriangle,
+  Headphones
+} from 'lucide-react';
 
 const LoginPage = () => {
   const navigate = useNavigate();
@@ -19,142 +29,187 @@ const LoginPage = () => {
   };
 
   return (
-    <div className="min-h-screen flex">
-      {/* Left Side - Hero Section with Dark Slate Pattern */}
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 relative overflow-hidden">
-        {/* Geometric Pattern Overlay */}
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute inset-0" style={{
-            backgroundImage: `
-              linear-gradient(45deg, transparent 25%, rgba(255,215,0,0.1) 25%, rgba(255,215,0,0.1) 50%, transparent 50%, transparent 75%, rgba(255,215,0,0.1) 75%),
-              linear-gradient(-45deg, transparent 25%, rgba(255,215,0,0.1) 25%, rgba(255,215,0,0.1) 50%, transparent 50%, transparent 75%, rgba(255,215,0,0.1) 75%)
-            `,
-            backgroundSize: '60px 60px'
-          }} />
-        </div>
-        
-        {/* Content */}
-        <div className="relative z-10 flex flex-col justify-center px-12 text-white">
-          <div className="mb-8">
-            <div className="flex items-center gap-4 mb-6">
-              <div className="w-16 h-16 bg-gradient-to-br from-amber-400 to-amber-600 rounded-lg flex items-center justify-center shadow-lg">
-                <span className="text-3xl">💰</span>
-              </div>
-              <div>
-                <h1 className="text-4xl font-bold bg-gradient-to-r from-white to-amber-200 bg-clip-text text-transparent">
-                  PAWN REPO
-                </h1>
-                <p className="text-amber-400 font-semibold text-lg tracking-wide">
-                  MANAGEMENT SYSTEM
-                </p>
-              </div>
-            </div>
-            
-            <div className="space-y-4 text-slate-300">
-              <div className="flex items-center gap-3">
-                <div className="w-2 h-2 bg-amber-400 rounded-full"></div>
-                <span className="text-lg">Secure Transaction Processing</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="w-2 h-2 bg-amber-400 rounded-full"></div>
-                <span className="text-lg">Real-time Inventory Management</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="w-2 h-2 bg-amber-400 rounded-full"></div>
-                <span className="text-lg">Professional Staff Dashboard</span>
-              </div>
-            </div>
-          </div>
-          
-          <div className="border-l-4 border-amber-400 pl-6">
-            <p className="text-slate-400 italic text-lg leading-relaxed">
-              "Professional tools for serious business. Streamlined operations with enterprise-grade security."
-            </p>
-          </div>
-        </div>
-        
-        {/* Bottom accent */}
-        <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600"></div>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/40 dark:from-slate-950 dark:via-slate-900 dark:to-slate-800 relative overflow-hidden">
+      {/* Floating geometric elements */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-br from-amber-400/20 to-orange-500/20 rounded-full blur-3xl"></div>
+        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-gradient-to-tr from-blue-400/20 to-indigo-500/20 rounded-full blur-3xl"></div>
+        <div className="absolute top-1/4 left-1/4 w-32 h-32 bg-gradient-to-tr from-violet-400/10 to-purple-500/10 rounded-full blur-2xl"></div>
       </div>
 
-      {/* Right Side - Login Form */}
-      <div className="flex-1 flex flex-col justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 relative">
-        {/* Theme Toggle - Positioned in top-right */}
-        <div className="absolute top-6 right-6">
-          <ThemeToggle />
-        </div>
+      {/* Theme Toggle - Top Right */}
+      <div className="absolute top-6 right-6 z-50">
+        <ThemeToggle />
+      </div>
 
-        <div className="w-full max-w-lg mx-auto px-8 py-12">
-          {/* Mobile Logo - Only shown on small screens */}
-          <div className="lg:hidden text-center mb-12">
-            <div className="mx-auto w-20 h-20 bg-gradient-to-br from-amber-400 to-amber-600 rounded-xl flex items-center justify-center mb-4 shadow-xl">
-              <span className="text-3xl">💰</span>
-            </div>
-            <h1 className="text-3xl font-bold text-slate-800 dark:text-slate-200 mb-2">
-              PAWN REPO
-            </h1>
-            <p className="text-amber-600 dark:text-amber-400 font-semibold tracking-wide">
-              MANAGEMENT SYSTEM
-            </p>
-          </div>
-
-          {/* Welcome Message */}
-          <div className="mb-8">
-            <h2 className="text-3xl font-bold text-slate-800 dark:text-slate-200 mb-3">
-              Welcome Back
-            </h2>
-            <p className="text-slate-600 dark:text-slate-400 text-lg">
-              Sign in to access your dashboard
-            </p>
-          </div>
-
-          {/* Login Card */}
-          <Card className="shadow-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 relative overflow-hidden">
-            {/* Gold accent line */}
-            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600"></div>
-            
-            <CardHeader className="pb-6 pt-8">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-8 h-8 bg-gradient-to-br from-amber-400 to-amber-600 rounded-lg flex items-center justify-center">
-                  <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
-                  </svg>
+      {/* Main Content */}
+      <div className="relative z-10 min-h-screen flex items-center justify-center p-4">
+        <div className="w-full max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-16 items-center">
+          
+          {/* Left Side - Brand & Features */}
+          <div className="order-2 lg:order-1 text-center lg:text-left space-y-8">
+            {/* Modern Brand Section */}
+            <div className="space-y-6">
+              <div className="flex items-center justify-center lg:justify-start space-x-4">
+                <div className="relative">
+                  {/* Vault-style Logo */}
+                  <div className="w-20 h-20 relative">
+                    {/* Corner brackets */}
+                    <div className="absolute -top-2 -left-2 w-6 h-6 border-l-3 border-t-3 border-amber-500 rounded-tl-lg"></div>
+                    <div className="absolute -top-2 -right-2 w-6 h-6 border-r-3 border-t-3 border-amber-500 rounded-tr-lg"></div>
+                    <div className="absolute -bottom-2 -left-2 w-6 h-6 border-l-3 border-b-3 border-amber-500 rounded-bl-lg"></div>
+                    <div className="absolute -bottom-2 -right-2 w-6 h-6 border-r-3 border-b-3 border-amber-500 rounded-br-lg"></div>
+                    
+                    {/* Outer vault ring */}
+                    <div className="w-20 h-20 rounded-full border-4 border-amber-500 bg-gradient-to-br from-slate-700 to-slate-800 shadow-2xl flex items-center justify-center relative">
+                      {/* Inner vault door */}
+                      <div className="w-12 h-12 rounded-full border-3 border-amber-400 bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-inner">
+                        {/* Center square (vault handle) */}
+                        <div className="w-6 h-6 bg-gradient-to-br from-orange-500 to-red-600 rounded-sm shadow-lg"></div>
+                      </div>
+                      
+                      {/* Small indicator dots */}
+                      <div className="absolute top-3 right-3 w-2 h-2 bg-amber-400 rounded-full"></div>
+                      <div className="absolute bottom-4 left-4 w-1.5 h-1.5 bg-amber-300 rounded-full"></div>
+                    </div>
+                  </div>
                 </div>
-                <CardTitle className="text-2xl font-bold text-slate-800 dark:text-slate-200">
-                  Staff Access
-                </CardTitle>
+                <div>
+                  <h1 className="text-4xl lg:text-5xl font-bold bg-gradient-to-r from-slate-900 via-slate-700 to-amber-600 dark:from-white dark:via-slate-200 dark:to-amber-400 bg-clip-text text-transparent">
+                    PawnRepo
+                  </h1>
+                  <p className="text-amber-600 dark:text-amber-400 font-semibold text-lg tracking-wide">
+                    Management Hub
+                  </p>
+                </div>
               </div>
-              <CardDescription className="text-slate-600 dark:text-slate-400 text-base">
-                Enter your credentials to access the management system
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="pt-0 pb-8">
-              <LoginForm onLoginSuccess={handleLoginSuccess} />
-            </CardContent>
-          </Card>
+              
+              <p className="text-xl text-slate-600 dark:text-slate-300 leading-relaxed max-w-lg mx-auto lg:mx-0">
+                Professional pawn shop management system with enterprise-grade security and real-time operations.
+              </p>
+            </div>
 
-          {/* Security Notice */}
-          <div className="mt-8 p-4 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
-            <div className="flex items-start gap-3">
-              <div className="w-5 h-5 text-amber-600 dark:text-amber-400 mt-0.5">
-                <svg fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                </svg>
+            {/* Feature Highlights */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl mx-auto lg:mx-0">
+              <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-2xl p-4 border border-white/20 dark:border-slate-700/50">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center">
+                    <Shield className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-slate-900 dark:text-slate-100">Secure Transactions</h3>
+                    <p className="text-sm text-slate-600 dark:text-slate-400">End-to-end encryption</p>
+                  </div>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-1">
-                  Authorized Personnel Only
-                </p>
-                <p className="text-sm text-slate-600 dark:text-slate-400">
-                  This system is restricted to authorized staff members. All access attempts are logged and monitored.
-                </p>
+
+              <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-2xl p-4 border border-white/20 dark:border-slate-700/50">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl flex items-center justify-center">
+                    <Users className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-slate-900 dark:text-slate-100">Customer Hub</h3>
+                    <p className="text-sm text-slate-600 dark:text-slate-400">Centralized management</p>
+                  </div>
+                </div>
               </div>
+
+              <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-2xl p-4 border border-white/20 dark:border-slate-700/50">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 bg-gradient-to-br from-violet-500 to-purple-600 rounded-xl flex items-center justify-center">
+                    <TrendingUp className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-slate-900 dark:text-slate-100">Analytics</h3>
+                    <p className="text-sm text-slate-600 dark:text-slate-400">Real-time insights</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-2xl p-4 border border-white/20 dark:border-slate-700/50">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-red-600 rounded-xl flex items-center justify-center">
+                    <Database className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-slate-900 dark:text-slate-100">Inventory</h3>
+                    <p className="text-sm text-slate-600 dark:text-slate-400">Live tracking</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Quote */}
+            <div className="relative">
+              <div className="absolute left-0 top-0 w-1 h-full bg-gradient-to-b from-amber-400 to-orange-500 rounded-full"></div>
+              <blockquote className="pl-6 text-slate-600 dark:text-slate-400 italic text-lg">
+                "Streamlined operations with professional-grade tools designed for serious business."
+              </blockquote>
             </div>
           </div>
 
-          {/* Support Info */}
-          <div className="text-center mt-6 text-sm text-slate-500 dark:text-slate-400">
-            <p>Technical support: Contact your system administrator</p>
+          {/* Right Side - Login Form */}
+          <div className="order-1 lg:order-2 w-full max-w-md mx-auto">
+            {/* Floating Login Card */}
+            <Card className="border-0 shadow-2xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl relative overflow-hidden">
+              {/* Gradient accent */}
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-500 via-orange-500 to-red-500"></div>
+              
+              <CardHeader className="pb-6 pt-8 text-center">
+                <div className="mx-auto mb-4 w-16 h-16 relative">
+                  {/* Mini Vault Logo for Login Card */}
+                  <div className="w-16 h-16 rounded-full border-3 border-amber-500 bg-gradient-to-br from-slate-700 to-slate-800 dark:from-slate-600 dark:to-slate-700 shadow-xl flex items-center justify-center relative">
+                    {/* Inner vault door */}
+                    <div className="w-9 h-9 rounded-full border-2 border-amber-400 bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-inner">
+                      {/* Center square (vault handle) */}
+                      <div className="w-4 h-4 bg-gradient-to-br from-orange-500 to-red-600 rounded-sm shadow-lg"></div>
+                    </div>
+                    
+                    {/* Small indicator dots */}
+                    <div className="absolute top-2 right-2 w-1.5 h-1.5 bg-amber-400 rounded-full"></div>
+                    <div className="absolute bottom-2.5 left-2.5 w-1 h-1 bg-amber-300 rounded-full"></div>
+                  </div>
+                </div>
+                <CardTitle className="text-2xl font-bold text-slate-900 dark:text-slate-100">
+                  Staff Portal
+                </CardTitle>
+                <CardDescription className="text-slate-600 dark:text-slate-400 text-base mt-2">
+                  Enter your credentials to access the management system
+                </CardDescription>
+              </CardHeader>
+              
+              <CardContent className="pt-0 pb-8">
+                <LoginForm onLoginSuccess={handleLoginSuccess} />
+              </CardContent>
+            </Card>
+
+            {/* Security Notice */}
+            <div className="mt-6 p-4 bg-white/40 dark:bg-slate-800/40 backdrop-blur-sm rounded-2xl border border-white/20 dark:border-slate-700/30">
+              <div className="flex items-start space-x-3">
+                <div className="w-5 h-5 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    Authorized Personnel Only
+                  </p>
+                  <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                    This system is restricted to authorized staff. All access attempts are logged and monitored for security.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Support Info */}
+            <div className="mt-4 text-center">
+              <div className="inline-flex items-center gap-2 px-4 py-2 bg-white/20 dark:bg-slate-800/20 backdrop-blur-sm rounded-full border border-white/10 dark:border-slate-700/20">
+                <Headphones className="w-4 h-4 text-slate-500 dark:text-slate-400" />
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Support: Contact system administrator
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </div>

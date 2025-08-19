@@ -6,6 +6,7 @@ import {
   Eye, 
   Edit2, 
   User, 
+  Users,
   TrendingUp,
   ChevronUp,
   ChevronDown,
@@ -20,10 +21,16 @@ import {
   Calendar,
   TrendingDown,
   Banknote,
-  Loader2
+  Loader2,
+  DollarSign,
+  FileText,
+  RefreshCw,
+  Calculator
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
+import { StatusBadge, RiskBadge, LoanActivityBadge } from '../ui/enhanced-badge';
+import { CustomerTableSkeleton, StatsCardSkeleton, SearchSkeleton } from '../ui/skeleton';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import {
   Table,
@@ -74,6 +81,8 @@ import CustomerDialog from './CustomerDialog';
 import LoanEligibilityManager from './LoanEligibilityManager';
 import { useToast } from '../ui/toast';
 import { useAuth } from '../../context/AuthContext';
+import { isAdmin as isAdminRole } from '../../utils/roleUtils';
+import CustomerCard from './CustomerCard';
 
 const EnhancedCustomerManagement = () => {
   const { toast } = useToast();
@@ -111,6 +120,7 @@ const EnhancedCustomerManagement = () => {
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
   const [sortField, setSortField] = useState('created_at');
   const [sortOrder, setSortOrder] = useState('desc');
   const [currentPage, setCurrentPage] = useState(1);
@@ -126,12 +136,25 @@ const EnhancedCustomerManagement = () => {
   const [showSuspendDialog, setShowSuspendDialog] = useState(false);
   const [showArchiveDialog, setShowArchiveDialog] = useState(false);
   const [archiveConfirmation, setArchiveConfirmation] = useState('');
+  const [showBulkStatusDialog, setShowBulkStatusDialog] = useState(false);
   const [showBulkActivateDialog, setShowBulkActivateDialog] = useState(false);
   const [showBulkSuspendDialog, setShowBulkSuspendDialog] = useState(false);
   const [showBulkArchiveDialog, setShowBulkArchiveDialog] = useState(false);
   const [bulkConfirmation, setBulkConfirmation] = useState('');
+  const [isMobile, setIsMobile] = useState(false);
 
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = isAdminRole(user);
+
+  // Responsive detection
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // Debounce search query (500ms delay)
   useEffect(() => {
@@ -638,7 +661,7 @@ const EnhancedCustomerManagement = () => {
   };
 
   const handleEditCustomer = (customer) => {
-    if (user?.role === 'admin') {
+    if (isAdminRole(user)) {
       // For admins, use the tabbed interface
       setSelectedCustomer(customer);
       setShowDetails(true);
@@ -727,21 +750,26 @@ const EnhancedCustomerManagement = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background">
-        <div className="border-b">
-          <div className="p-6">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h1 className="text-3xl font-bold">Customer Management</h1>
-                <p className="text-muted-foreground">Manage your customer base and relationships</p>
-              </div>
-            </div>
+      <div className="bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 transition-colors duration-300">
+        <div className="p-6">
+          {/* Action Button Skeleton */}
+          <div className="flex justify-end mb-6">
+            <div className="h-11 w-[140px] bg-slate-200 dark:bg-slate-700 rounded-lg animate-pulse"></div>
           </div>
-        </div>
-        <div className="flex items-center justify-center h-64">
-          <div className="text-center">
-            <div className="w-8 h-8 border-2 border-muted-foreground border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-            <p className="text-sm text-muted-foreground">Loading customers...</p>
+
+          {/* Customer Stats Cards Skeleton */}
+          <div className={`grid grid-cols-1 gap-4 mb-6 ${isAdmin ? 'md:grid-cols-5' : 'md:grid-cols-4'}`}>
+            {Array.from({ length: isAdmin ? 5 : 4 }).map((_, i) => (
+              <StatsCardSkeleton key={i} />
+            ))}
+          </div>
+
+          {/* Search Section Skeleton */}
+          <SearchSkeleton />
+
+          {/* Table Skeleton */}
+          <div className="mt-6">
+            <CustomerTableSkeleton rows={8} />
           </div>
         </div>
       </div>
@@ -749,165 +777,202 @@ const EnhancedCustomerManagement = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Enhanced Header with Statistics */}
-      <div className="border-b bg-background">
-        <div className="p-6">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h1 className="text-3xl font-bold">Customer Management</h1>
-              <p className="text-muted-foreground">Manage your customer base and relationships</p>
+    <div className="space-y-8">
+      {/* Page Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-100">
+            Customer Management
+          </h1>
+          <p className="text-slate-600 dark:text-slate-400 mt-1">
+            Manage customer records and track loan eligibility
+          </p>
+        </div>
+        <Button 
+          onClick={() => {
+            setEditingCustomer(null);
+            setShowAddDialog(true);
+          }}
+          className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg shadow-blue-500/25 border-0"
+        >
+          <Plus className="h-4 w-4 mr-2" />
+          Add Customer
+        </Button>
+      </div>
+
+      {/* Modern Stats Grid */}
+      <div className={`grid gap-6 ${isAdmin ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-5' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'}`}>
+        {/* Active/Eligible Customers */}
+        <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/50 dark:to-teal-950/50">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
+                  Active Customers
+                </p>
+                <p className="text-2xl font-bold text-emerald-900 dark:text-emerald-100">
+                  {customerStats.active}
+                </p>
+              </div>
+              <div className="w-12 h-12 bg-emerald-500/10 dark:bg-emerald-400/10 rounded-xl flex items-center justify-center">
+                <CheckCircle className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
+              </div>
             </div>
-            <Button 
-              size="lg"
-              onClick={() => {
-                setEditingCustomer(null);
-                setShowAddDialog(true);
-              }}
-              className="gap-2"
-            >
-              <Plus className="h-4 w-4" />
-              Add Customer
-            </Button>
+            <div className="absolute top-0 right-0 w-20 h-20 bg-emerald-500/5 dark:bg-emerald-400/5 rounded-full -mr-10 -mt-10"></div>
+          </CardContent>
+        </Card>
+
+        {/* Due Today */}
+        <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/50 dark:to-orange-950/50">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
+                  Due Today
+                </p>
+                <p className="text-2xl font-bold text-amber-900 dark:text-amber-100">
+                  3
+                </p>
+              </div>
+              <div className="w-12 h-12 bg-amber-500/10 dark:bg-amber-400/10 rounded-xl flex items-center justify-center">
+                <Calendar className="w-6 h-6 text-amber-600 dark:text-amber-400" />
+              </div>
+            </div>
+            <div className="absolute top-0 right-0 w-20 h-20 bg-amber-500/5 dark:bg-amber-400/5 rounded-full -mr-10 -mt-10"></div>
+          </CardContent>
+        </Card>
+
+        {/* Overdue */}
+        <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-r from-red-50 to-rose-50 dark:from-red-950/50 dark:to-rose-950/50">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-red-700 dark:text-red-300">
+                  Overdue
+                </p>
+                <p className="text-2xl font-bold text-red-900 dark:text-red-100">
+                  7
+                </p>
+              </div>
+              <div className="w-12 h-12 bg-red-500/10 dark:bg-red-400/10 rounded-xl flex items-center justify-center">
+                <AlertCircle className="w-6 h-6 text-red-600 dark:text-red-400" />
+              </div>
+            </div>
+            <div className="absolute top-0 right-0 w-20 h-20 bg-red-500/5 dark:bg-red-400/5 rounded-full -mr-10 -mt-10"></div>
+          </CardContent>
+        </Card>
+
+        {/* Collections */}
+        <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-r from-blue-50 to-cyan-50 dark:from-blue-950/50 dark:to-cyan-950/50">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                  Collections
+                </p>
+                <p className="text-2xl font-bold text-blue-900 dark:text-blue-100">
+                  $2,450
+                </p>
+              </div>
+              <div className="w-12 h-12 bg-blue-500/10 dark:bg-blue-400/10 rounded-xl flex items-center justify-center">
+                <Banknote className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+              </div>
+            </div>
+            <div className="absolute top-0 right-0 w-20 h-20 bg-blue-500/5 dark:bg-blue-400/5 rounded-full -mr-10 -mt-10"></div>
+          </CardContent>
+        </Card>
+
+        {/* Admin-only At Risk */}
+        {isAdmin && (
+          <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-r from-purple-50 to-violet-50 dark:from-purple-950/50 dark:to-violet-950/50">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-purple-700 dark:text-purple-300">
+                    At Risk
+                  </p>
+                  <p className="text-2xl font-bold text-purple-900 dark:text-purple-100">
+                    5
+                  </p>
+                </div>
+                <div className="w-12 h-12 bg-purple-500/10 dark:bg-purple-400/10 rounded-xl flex items-center justify-center">
+                  <TrendingUp className="w-6 h-6 text-purple-600 dark:text-purple-400" />
+                </div>
+              </div>
+              <div className="absolute top-0 right-0 w-20 h-20 bg-purple-500/5 dark:bg-purple-400/5 rounded-full -mr-10 -mt-10"></div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+
+      {/* Modern Search & Filter Section */}
+      <Card className="border-0 shadow-sm bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+        <CardContent className="p-6 space-y-6">
+          {/* Search Header */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                Search & Filter
+              </h2>
+              <p className="text-sm text-slate-600 dark:text-slate-400">
+                Find customers by name, phone, or email
+              </p>
+            </div>
           </div>
 
-          {/* Customer Stats Cards */}
-          <div className={`grid grid-cols-1 gap-4 mb-6 ${isAdmin ? 'md:grid-cols-5' : 'md:grid-cols-4'}`}>
-            <Card className="transition-all hover:shadow-md">
-              <CardContent className="p-4">
-                <div className="flex items-center">
-                  <div className="p-2 bg-green-100 dark:bg-green-900/20 rounded-lg">
-                    <CreditCard className="h-4 w-4 text-green-600 dark:text-green-400" />
+          {/* Search Controls */}
+          <div className="flex flex-col sm:flex-row gap-4">
+            {/* Main Search Input */}
+            <div className="flex-1">
+              <div className="relative">
+                <Command className="rounded-xl border-0 bg-slate-100/50 dark:bg-slate-700/50">
+                  <CommandInput 
+                    placeholder="Search customers by name, phone, or email..." 
+                    value={searchQuery}
+                    onValueChange={setSearchQuery}
+                    className="h-12 text-base"
+                  />
+                </Command>
+                {searchLoading && (
+                  <div className="absolute right-4 top-1/2 transform -translate-y-1/2">
+                    <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
                   </div>
-                  <div className="ml-3">
-                    <p className="text-sm font-medium text-muted-foreground">Eligible for Loans</p>
-                    <p className="text-2xl font-bold text-green-600 dark:text-green-400">{customerStats.active}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+                )}
+              </div>
+            </div>
             
-            <Card className="transition-all hover:shadow-md">
-              <CardContent className="p-4">
-                <div className="flex items-center">
-                  <div className="p-2 bg-blue-100 dark:bg-blue-900/20 rounded-lg">
-                    <Calendar className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                  </div>
-                  <div className="ml-3">
-                    <p className="text-sm font-medium text-muted-foreground">Due Today</p>
-                    <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">3</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            
-            <Card className="transition-all hover:shadow-md">
-              <CardContent className="p-4">
-                <div className="flex items-center">
-                  <div className="p-2 bg-red-100 dark:bg-red-900/20 rounded-lg">
-                    <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
-                  </div>
-                  <div className="ml-3">
-                    <p className="text-sm font-medium text-muted-foreground">Overdue</p>
-                    <p className="text-2xl font-bold text-red-600 dark:text-red-400">7</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            
-            <Card className="transition-all hover:shadow-md">
-              <CardContent className="p-4">
-                <div className="flex items-center">
-                  <div className="p-2 bg-purple-100 dark:bg-purple-900/20 rounded-lg">
-                    <Banknote className="h-4 w-4 text-purple-600 dark:text-purple-400" />
-                  </div>
-                  <div className="ml-3">
-                    <p className="text-sm font-medium text-muted-foreground">Collections</p>
-                    <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">$2,450</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            {/* Status Filter */}
+            <div className="sm:w-48">
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="h-12 rounded-xl border-0 bg-slate-100/50 dark:bg-slate-700/50">
+                  <SelectValue placeholder="All Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="active">✅ Active</SelectItem>
+                  <SelectItem value="suspended">⏸️ Suspended</SelectItem>
+                  <SelectItem value="archived">📦 Archived</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-            {/* Admin-only operational stats */}
-            {isAdmin && (
-              <>
-                <Card className="transition-all hover:shadow-md">
-                  <CardContent className="p-4">
-                    <div className="flex items-center">
-                      <div className="p-2 bg-yellow-100 dark:bg-yellow-900/20 rounded-lg">
-                        <TrendingDown className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
-                      </div>
-                      <div className="ml-3">
-                        <p className="text-sm font-medium text-muted-foreground">At Risk</p>
-                        <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">5</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-                
-              </>
-            )}
-          </div>
-
-          {/* Search & Filter Section */}
-          <Card className="border-0 shadow-sm">
-            <CardContent className="p-4 space-y-4">
-              {/* Main Search Row */}
-              <div className="flex flex-col lg:flex-row gap-4">
-                {/* Primary Search */}
-                <div className="flex-1">
-                  <div className="space-y-1">
-                    <div className="relative">
-                      <Command className="rounded-lg border h-10">
-                        <CommandInput 
-                          placeholder="🔍 Search by name, phone, or email..." 
-                          value={searchQuery}
-                          onValueChange={setSearchQuery}
-                          className="h-10 pr-10"
-                        />
-                      </Command>
-                      {searchLoading && (
-                        <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Status Filter */}
-                <div className="lg:w-48">
-                  <Select value={statusFilter} onValueChange={setStatusFilter}>
-                    <SelectTrigger className="h-10">
-                      <SelectValue placeholder="All Customers" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Customers</SelectItem>
-                      <SelectItem value="active">Active</SelectItem>
-                      <SelectItem value="suspended">Suspended</SelectItem>
-                      <SelectItem value="archived">Archived</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Actions */}
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={clearSearchFields}
-                    className="h-10 px-4"
-                    disabled={!searchQuery && !isAdvancedSearchActive() && statusFilter === 'all'}
-                  >
-                    {searchQuery || isAdvancedSearchActive() || statusFilter !== 'all' ? 'Clear All' : 'Clear'}
+            {/* Action Buttons */}
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={clearSearchFields}
+                disabled={!searchQuery && !isAdvancedSearchActive() && statusFilter === 'all'}
+                className="h-12 px-4 rounded-xl border-slate-200 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700"
+              >
+                Clear
+              </Button>
+              <Sheet open={showFilters} onOpenChange={setShowFilters}>
+                <SheetTrigger asChild>
+                  <Button variant="outline" className="h-12 px-4 gap-2 rounded-xl border-slate-200 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700">
+                    <Filter className="h-4 w-4" />
+                    Filters
                   </Button>
-                  <Sheet open={showFilters} onOpenChange={setShowFilters}>
-                    <SheetTrigger asChild>
-                      <Button variant="outline" className="h-10 px-4 gap-2">
-                        <Filter className="h-4 w-4" />
-                        Filters
-                      </Button>
-                    </SheetTrigger>
+                </SheetTrigger>
                     <SheetContent>
                       <SheetHeader>
                         <SheetTitle>Quick Filters</SheetTitle>
@@ -1010,56 +1075,93 @@ const EnhancedCustomerManagement = () => {
                 </div>
               </div>
 
-              {/* Advanced Search Fields (Collapsible) */}
-              <div className="border-t pt-4">
-                <h3 className="text-sm font-medium text-muted-foreground mb-3">Advanced Search</h3>
-                <div className="space-y-3">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div>
+              {/* Advanced Search Toggle */}
+              <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowAdvancedSearch(!showAdvancedSearch)}
+                  className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 h-8 px-2"
+                >
+                  <Settings className="w-4 h-4 mr-2" />
+                  Advanced Search
+                  {showAdvancedSearch ? (
+                    <ChevronUp className="w-4 h-4 ml-2" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4 ml-2" />
+                  )}
+                  {(searchFields.firstName || searchFields.lastName || searchFields.phone || searchFields.email) && (
+                    <div className="w-2 h-2 bg-blue-500 rounded-full ml-2"></div>
+                  )}
+                </Button>
+              </div>
+
+              {/* Advanced Search Section - Collapsible */}
+              {showAdvancedSearch && (
+                <div className="pt-4 space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-xs font-medium text-slate-500 dark:text-slate-400">First Name</Label>
                       <Input
-                        placeholder="👤 First name..."
+                        placeholder="Search by first name..."
                         value={searchFields.firstName}
                         onChange={(e) => setSearchFields(prev => ({ ...prev, firstName: e.target.value }))}
-                        className="h-10 text-sm"
+                        className="h-9 rounded-lg border-0 bg-slate-100/50 dark:bg-slate-700/50"
                       />
                     </div>
-                    <div>
+                    <div className="space-y-2">
+                      <Label className="text-xs font-medium text-slate-500 dark:text-slate-400">Last Name</Label>
                       <Input
-                        placeholder="👤 Last name..."
+                        placeholder="Search by last name..."
                         value={searchFields.lastName}
                         onChange={(e) => setSearchFields(prev => ({ ...prev, lastName: e.target.value }))}
-                        className="h-10 text-sm"
+                        className="h-9 rounded-lg border-0 bg-slate-100/50 dark:bg-slate-700/50"
                       />
                     </div>
-                    <div>
+                    <div className="space-y-2">
+                      <Label className="text-xs font-medium text-slate-500 dark:text-slate-400">Phone Number</Label>
                       <Input
-                        placeholder="📞 Phone number..."
+                        placeholder="Search by phone..."
                         value={searchFields.phone}
                         onChange={(e) => setSearchFields(prev => ({ ...prev, phone: e.target.value }))}
-                        className="h-10 text-sm"
+                        className="h-9 rounded-lg border-0 bg-slate-100/50 dark:bg-slate-700/50"
                       />
                     </div>
-                    <div>
+                    <div className="space-y-2">
+                      <Label className="text-xs font-medium text-slate-500 dark:text-slate-400">Email Address</Label>
                       <Input
-                        placeholder="📧 Email address..."
+                        placeholder="Search by email..."
                         value={searchFields.email}
                         onChange={(e) => setSearchFields(prev => ({ ...prev, email: e.target.value }))}
-                        className="h-10 text-sm"
+                        className="h-9 rounded-lg border-0 bg-slate-100/50 dark:bg-slate-700/50"
                       />
                     </div>
                   </div>
+                  
+                  {(searchFields.firstName || searchFields.lastName || searchFields.phone || searchFields.email) && (
+                    <div className="flex items-center justify-between pt-2">
+                      <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                        <CheckCircle className="w-3 h-3" />
+                        Advanced search active
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSearchFields({ firstName: '', lastName: '', phone: '', email: '' })}
+                        className="h-7 px-2 text-xs text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                      >
+                        Clear advanced filters
+                      </Button>
+                    </div>
+                  )}
                 </div>
-              </div>
+              )}
             </CardContent>
           </Card>
 
-        </div>
-      </div>
-
       {/* Enhanced Customer Table */}
-      <div className="p-6">
-        {/* Bulk Actions Bar */}
-        {selectedCustomerIds.length > 0 && (
+      {/* Bulk Actions Bar */}
+      {selectedCustomerIds.length > 0 && (
           <Card className="mb-4 p-4 bg-muted/50">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
@@ -1112,61 +1214,125 @@ const EnhancedCustomerManagement = () => {
           </Card>
         )}
 
-        <Card>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[50px]">
-                  <Checkbox
-                    checked={currentCustomers.length > 0 && selectedCustomerIds.length === currentCustomers.length}
-                    onCheckedChange={handleSelectAll}
-                    aria-label="Select all customers"
+        {/* Responsive Customer Display */}
+        {isMobile ? (
+          /* Mobile Card View */
+          <div className="space-y-4">
+            {customerListLoading ? (
+              <CustomerTableSkeleton rows={6} />
+            ) : customerListError ? (
+              <Card className="p-8 text-center">
+                <div className="flex flex-col items-center gap-2">
+                  <AlertTriangle className="h-8 w-8 text-orange-500" />
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium text-red-600">Failed to load customers</p>
+                    <p className="text-xs text-muted-foreground">
+                      {customerListError.includes('Rate limit') ? 'Too many requests. Please wait a moment and try again.' : customerListError}
+                    </p>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => loadCustomerList(currentPage, getCurrentSearchTerm(), statusFilter)}
+                      className="mt-2"
+                    >
+                      Try Again
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+            ) : currentCustomers.length === 0 ? (
+              <Card className="p-8 text-center">
+                <div className="flex flex-col items-center gap-2">
+                  <User className="h-8 w-8 text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">
+                    {searchQuery || statusFilter !== 'all' ? 'No customers found' : 'No customers yet'}
+                  </p>
+                </div>
+              </Card>
+            ) : (
+              <div className="space-y-3">
+                {currentCustomers.map((customer) => (
+                  <CustomerCard
+                    key={customer.phone_number}
+                    customer={customer}
+                    isSelected={selectedCustomerIds.includes(customer.phone_number)}
+                    onSelect={handleSelectCustomer}
+                    onView={handleViewCustomer}
+                    onEdit={handleEditCustomer}
+                    onViewTransactions={(customer) => {
+                      handleViewCustomer(customer);
+                      setTimeout(() => setActiveTab('transactions'), 100);
+                    }}
+                    onManageEligibility={(customer) => {
+                      handleViewCustomer(customer);
+                      setTimeout(() => setActiveTab('overview'), 100);
+                    }}
                   />
-                </TableHead>
-                <TableHead className="w-[300px]">
-                  <button 
-                    className="flex items-center gap-2 hover:text-foreground"
-                    onClick={() => handleSort('customer')}
-                  >
-                    Customer {getSortIcon('customer')}
-                  </button>
-                </TableHead>
-                <TableHead>
-                  <button 
-                    className="flex items-center gap-2 hover:text-foreground"
-                    onClick={() => handleSort('contact')}
-                  >
-                    Contact {getSortIcon('contact')}
-                  </button>
-                </TableHead>
-                <TableHead>
-                  <button 
-                    className="flex items-center gap-2 hover:text-foreground"
-                    onClick={() => handleSort('status')}
-                  >
-                    Status {getSortIcon('status')}
-                  </button>
-                </TableHead>
-                <TableHead>
-                  <button 
-                    className="flex items-center gap-2 hover:text-foreground"
-                    onClick={() => handleSort('loan_activity')}
-                  >
-                    Loan Activity {getSortIcon('loan_activity')}
-                  </button>
-                </TableHead>
-                <TableHead>
-                  <button 
-                    className="flex items-center gap-2 hover:text-foreground"
-                    onClick={() => handleSort('last_visit')}
-                  >
-                    Last Visit {getSortIcon('last_visit')}
-                  </button>
-                </TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          /* Desktop Table View */
+          <Card className="shadow-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 relative overflow-hidden">
+            {/* Gold accent line matching login page */}
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600"></div>
+            
+            <Table>
+              <TableHeader>
+                <TableRow className="border-slate-200 dark:border-slate-700">
+                  <TableHead className="w-[50px] pt-6">
+                    <Checkbox
+                      checked={currentCustomers.length > 0 && selectedCustomerIds.length === currentCustomers.length}
+                      onCheckedChange={handleSelectAll}
+                      aria-label="Select all customers"
+                      className="border-slate-300 dark:border-slate-600"
+                    />
+                  </TableHead>
+                  <TableHead className="w-[300px] pt-6">
+                    <button 
+                      className="flex items-center gap-2 hover:text-amber-600 dark:hover:text-amber-400 transition-colors font-medium"
+                      onClick={() => handleSort('customer')}
+                    >
+                      Customer {getSortIcon('customer')}
+                    </button>
+                  </TableHead>
+                  <TableHead className="pt-6">
+                    <button 
+                      className="flex items-center gap-2 hover:text-amber-600 dark:hover:text-amber-400 transition-colors font-medium"
+                      onClick={() => handleSort('contact')}
+                    >
+                      Contact {getSortIcon('contact')}
+                    </button>
+                  </TableHead>
+                  <TableHead className="pt-6">
+                    <button 
+                      className="flex items-center gap-2 hover:text-amber-600 dark:hover:text-amber-400 transition-colors font-medium"
+                      onClick={() => handleSort('status')}
+                    >
+                      Status {getSortIcon('status')}
+                    </button>
+                  </TableHead>
+                  <TableHead className="pt-6">
+                    <button 
+                      className="flex items-center gap-2 hover:text-amber-600 dark:hover:text-amber-400 transition-colors font-medium"
+                      onClick={() => handleSort('loan_activity')}
+                    >
+                      Activity {getSortIcon('loan_activity')}
+                    </button>
+                  </TableHead>
+                  <TableHead className="pt-6">
+                    <button 
+                      className="flex items-center gap-2 hover:text-amber-600 dark:hover:text-amber-400 transition-colors font-medium"
+                      onClick={() => handleSort('last_visit')}
+                    >
+                      Last Visit {getSortIcon('last_visit')}
+                    </button>
+                  </TableHead>
+                  <TableHead className="text-right pt-6 font-medium">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
               {customerListLoading ? (
                 <TableRow>
                   <TableCell colSpan={7} className="h-32 text-center">
@@ -1261,33 +1427,38 @@ const EnhancedCustomerManagement = () => {
                       onClick={() => handleViewCustomer(customer)}
                     >
                       <div className="flex items-center space-x-2">
-                        <Badge variant={getStatusVariant(customer.status)}>
-                          {customer.status}
-                        </Badge>
+                        <StatusBadge status={customer.status} />
                         {customer.status === 'active' && (
                           <HoverCard>
                             <HoverCardTrigger>
-                              <div className={`w-3 h-3 rounded-full cursor-help ${
-                                customer.risk_level === 'high' ? 'bg-red-500' :
-                                customer.risk_level === 'medium' ? 'bg-yellow-500' :
-                                'bg-green-500'
-                              }`} />
+                              <RiskBadge level={customer.risk_level} className="text-xs cursor-pointer" />
                             </HoverCardTrigger>
-                            <HoverCardContent>
-                              <div className="space-y-2">
-                                <p className="font-medium">Loan Risk Assessment</p>
-                                <p className="text-sm">
-                                  Risk Level: <span className="font-medium">
-                                    {customer.risk_level === 'high' ? 'High Risk' :
-                                     customer.risk_level === 'medium' ? 'Medium Risk' :
-                                     'Low Risk'}
-                                  </span>
+                            <HoverCardContent className="w-72">
+                              <div className="space-y-3">
+                                <p className="font-medium flex items-center gap-2">
+                                  <TrendingUp className="h-4 w-4 text-amber-600" />
+                                  Loan Risk Assessment
                                 </p>
-                                <p className="text-sm">Credit Limit: ${(customer.credit_limit || 1000).toLocaleString()}</p>
-                                <p className="text-sm">Payment Score: {customer.payment_history_score || 80}/100</p>
-                                <p className="text-sm">Defaults: {customer.default_count || 0}</p>
-                                <p className="text-sm text-muted-foreground">
-                                  Risk based on payment history and default count
+                                <div className="grid grid-cols-2 gap-3 text-sm">
+                                  <div className="space-y-1">
+                                    <span className="text-muted-foreground">Credit Limit:</span>
+                                    <p className="font-medium text-amber-600">${(customer.credit_limit || 1000).toLocaleString()}</p>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <span className="text-muted-foreground">Payment Score:</span>
+                                    <p className="font-medium">{customer.payment_history_score || 80}/100</p>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <span className="text-muted-foreground">Defaults:</span>
+                                    <p className="font-medium">{customer.default_count || 0}</p>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <span className="text-muted-foreground">Risk Level:</span>
+                                    <RiskBadge level={customer.risk_level} className="text-xs" />
+                                  </div>
+                                </div>
+                                <p className="text-xs text-muted-foreground border-t pt-2">
+                                  Assessment based on payment history and default count
                                 </p>
                               </div>
                             </HoverCardContent>
@@ -1409,9 +1580,10 @@ const EnhancedCustomerManagement = () => {
                   </TableRow>
                 ))
               )}
-            </TableBody>
-          </Table>
-        </Card>
+              </TableBody>
+            </Table>
+          </Card>
+        )}
 
         {/* Results Summary and Pagination */}
         <div className="mt-4 flex items-center justify-between">
@@ -1471,459 +1643,777 @@ const EnhancedCustomerManagement = () => {
             </div>
           )}
         </div>
-      </div>
 
-      {/* Enhanced Customer Details Sheet */}
+        {/* Modern Customer Details Sidebar */}
       <Sheet open={showDetails} onOpenChange={setShowDetails}>
-        <SheetContent className="w-full sm:w-[600px] sm:max-w-[600px] max-w-full">
-          <SheetHeader>
-            <div className="flex items-center space-x-3">
-              <Avatar className="h-12 w-12">
-                <AvatarImage 
-                  src={selectedCustomer && getCustomerAvatarUrl(selectedCustomer)} 
-                  alt={selectedCustomer && customerService.getCustomerFullName(selectedCustomer)}
-                />
-                <AvatarFallback className="bg-primary text-primary-foreground">
-                  {selectedCustomer && getCustomerInitials(selectedCustomer)}
-                </AvatarFallback>
-              </Avatar>
-              <div>
-                <SheetTitle>
-                  {selectedCustomer && customerService.getCustomerFullName(selectedCustomer)}
-                </SheetTitle>
-                <p className="text-muted-foreground">
-                  {selectedCustomer && customerService.formatPhoneNumber(selectedCustomer.phone_number)}
-                </p>
+        <SheetContent side="right" className="w-[50vw] min-w-[600px] max-w-[800px] bg-gradient-to-br from-slate-50/95 via-blue-50/30 to-indigo-50/40 dark:from-slate-950/95 dark:via-slate-900/95 dark:to-slate-800/95 backdrop-blur-xl border-0">
+          <div className="h-full flex flex-col">
+            {/* Modern Header with Glass Effect */}
+            <SheetHeader className="flex-shrink-0 pb-6 border-b border-slate-200/50 dark:border-slate-700/50 bg-white/60 dark:bg-slate-900/60 backdrop-blur-lg -mx-6 -mt-6 px-6 pt-6">
+              <div className="flex items-center space-x-4">
+                <div className="relative">
+                  <Avatar className="h-16 w-16 shadow-xl ring-4 ring-white/20 dark:ring-slate-700/20">
+                    <AvatarImage 
+                      src={selectedCustomer && getCustomerAvatarUrl(selectedCustomer)} 
+                      alt={selectedCustomer && customerService.getCustomerFullName(selectedCustomer)}
+                    />
+                    <AvatarFallback className="bg-gradient-to-br from-amber-500 to-orange-600 text-white font-bold text-lg">
+                      {selectedCustomer && getCustomerInitials(selectedCustomer)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-emerald-500 rounded-full border-3 border-white dark:border-slate-900 flex items-center justify-center">
+                    <CheckCircle className="w-3 h-3 text-white" />
+                  </div>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <SheetTitle className="text-2xl font-bold text-slate-900 dark:text-slate-100 truncate mb-1">
+                    {selectedCustomer && customerService.getCustomerFullName(selectedCustomer)}
+                  </SheetTitle>
+                  <p className="text-slate-600 dark:text-slate-400 font-mono text-lg mb-2">
+                    {selectedCustomer && customerService.formatPhoneNumber(selectedCustomer.phone_number)}
+                  </p>
+                  {selectedCustomer && (
+                    <StatusBadge status={selectedCustomer.status} className="shadow-sm" />
+                  )}
+                </div>
               </div>
-            </div>
-          </SheetHeader>
+            </SheetHeader>
+            
+            <div className="flex-1 overflow-y-auto py-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
 
           {selectedCustomer && (
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-6">
-              <TabsList className={`grid w-full ${isAdmin ? 'grid-cols-4' : 'grid-cols-3'}`}>
-                <TabsTrigger value="overview" className="text-xs sm:text-sm font-semibold">
-                  Overview & Eligibility
-                </TabsTrigger>
-                <TabsTrigger value="transactions" className="text-xs sm:text-sm">Transactions</TabsTrigger>
-                <TabsTrigger value="notes" className="text-xs sm:text-sm">Notes</TabsTrigger>
-                {isAdmin && (
-                  <TabsTrigger value="admin" className="text-xs sm:text-sm">Admin</TabsTrigger>
-                )}
-              </TabsList>
+            <div>
+              {/* Modern Navigation Pills */}
+              <div className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-lg rounded-2xl p-3 mb-6 shadow-lg border border-white/20 dark:border-slate-700/20">
+                <div className={`grid w-full ${isAdmin ? 'grid-cols-4' : 'grid-cols-3'} gap-3`}>
+                  <button
+                    onClick={() => setActiveTab('overview')}
+                    className={`flex items-center justify-center space-x-2 px-3 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
+                      activeTab === 'overview' 
+                        ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-lg shadow-blue-500/25' 
+                        : 'text-slate-600 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-100'
+                    }`}
+                  >
+                    <TrendingUp className="w-4 h-4" />
+                    <span className="hidden sm:inline">Overview</span>
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('transactions')}
+                    className={`flex items-center justify-center space-x-2 px-3 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
+                      activeTab === 'transactions' 
+                        ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/25' 
+                        : 'text-slate-600 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-100'
+                    }`}
+                  >
+                    <CreditCard className="w-4 h-4" />
+                    <span className="hidden sm:inline">Transactions</span>
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('notes')}
+                    className={`flex items-center justify-center space-x-2 px-3 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
+                      activeTab === 'notes' 
+                        ? 'bg-gradient-to-r from-violet-500 to-purple-600 text-white shadow-lg shadow-violet-500/25' 
+                        : 'text-slate-600 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-100'
+                    }`}
+                  >
+                    <FileText className="w-4 h-4" />
+                    <span className="hidden sm:inline">Notes</span>
+                  </button>
+                  {isAdmin && (
+                    <button
+                      onClick={() => setActiveTab('admin')}
+                      className={`flex items-center justify-center space-x-2 px-3 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
+                        activeTab === 'admin' 
+                          ? 'bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-lg shadow-amber-500/25' 
+                          : 'text-slate-600 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-100'
+                    }`}
+                    >
+                      <Settings className="w-4 h-4" />
+                      <span className="hidden sm:inline">Admin</span>
+                    </button>
+                  )}
+                </div>
+              </div>
 
-              <TabsContent value="overview" className="space-y-6 mt-6">
-                {/* Customer Summary Cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Card>
-                    <CardContent className="p-4">
-                      <div className="text-center">
-                        <p className="text-2xl font-bold text-blue-600">{selectedCustomer.active_loans || 0}</p>
-                        <p className="text-sm text-muted-foreground">Active Loans</p>
+              {/* Overview Tab Content */}
+              {activeTab === 'overview' && (
+                <div className="space-y-6">
+                  {/* Modern Stats Cards */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <Card className="border-0 shadow-lg bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/50 dark:to-indigo-950/50 relative overflow-hidden">
+                      <div className="absolute top-0 right-0 w-16 h-16 bg-blue-500/10 rounded-full -mr-8 -mt-8"></div>
+                      <CardContent className="p-6">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-blue-600 dark:text-blue-400">Active Loans</p>
+                            <p className="text-3xl font-bold text-blue-900 dark:text-blue-100">{selectedCustomer.active_loans || 0}</p>
+                          </div>
+                          <div className="w-12 h-12 bg-blue-500/20 rounded-xl flex items-center justify-center">
+                            <CreditCard className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card className="border-0 shadow-lg bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-950/50 dark:to-teal-950/50 relative overflow-hidden">
+                      <div className="absolute top-0 right-0 w-16 h-16 bg-emerald-500/10 rounded-full -mr-8 -mt-8"></div>
+                      <CardContent className="p-6">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">Total Paid</p>
+                            <p className="text-3xl font-bold text-emerald-900 dark:text-emerald-100">${(selectedCustomer.total_paid || 0).toLocaleString()}</p>
+                          </div>
+                          <div className="w-12 h-12 bg-emerald-500/20 rounded-xl flex items-center justify-center">
+                            <DollarSign className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  {/* Contact Information Card */}
+                  <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
+                    <CardHeader>
+                      <CardTitle className="text-lg flex items-center gap-3">
+                        <div className="w-10 h-10 bg-gradient-to-br from-slate-500 to-slate-700 rounded-xl flex items-center justify-center">
+                          <User className="w-5 h-5 text-white" />
+                        </div>
+                        Contact Information
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="flex items-center justify-between p-3 bg-slate-50/50 dark:bg-slate-800/50 rounded-xl">
+                        <div className="flex items-center gap-3 min-w-0 shrink-0">
+                          <Phone className="w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0" />
+                          <span className="text-slate-600 dark:text-slate-400">Phone:</span>
+                        </div>
+                        <span className="font-mono font-medium break-all text-right">{customerService.formatPhoneNumber(selectedCustomer.phone_number)}</span>
+                      </div>
+                      
+                      {selectedCustomer.email && (
+                        <div className="flex items-center justify-between p-3 bg-slate-50/50 dark:bg-slate-800/50 rounded-xl">
+                          <div className="flex items-center gap-3 min-w-0 shrink-0">
+                            <Mail className="w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0" />
+                            <span className="text-slate-600 dark:text-slate-400">Email:</span>
+                          </div>
+                          <span className="font-medium break-all text-right min-w-0">{selectedCustomer.email}</span>
+                        </div>
+                      )}
+                      
+                      <div className="flex items-center justify-between p-3 bg-slate-50/50 dark:bg-slate-800/50 rounded-xl">
+                        <div className="flex items-center gap-3">
+                          <Calendar className="w-4 h-4 text-slate-500 dark:text-slate-400" />
+                          <span className="text-slate-600 dark:text-slate-400">Member Since:</span>
+                        </div>
+                        <span className="font-medium">{formatDate(selectedCustomer.created_at)}</span>
+                      </div>
+                      
+                      <div className="flex items-center justify-between p-3 bg-slate-50/50 dark:bg-slate-800/50 rounded-xl">
+                        <div className="flex items-center gap-3">
+                          <CheckCircle className="w-4 h-4 text-slate-500 dark:text-slate-400" />
+                          <span className="text-slate-600 dark:text-slate-400">Status:</span>
+                        </div>
+                        <StatusBadge status={selectedCustomer.status} />
                       </div>
                     </CardContent>
                   </Card>
-                  <Card>
-                    <CardContent className="p-4">
-                      <div className="text-center">
-                        <p className="text-2xl font-bold text-green-600">${(selectedCustomer.total_paid || 0).toLocaleString()}</p>
-                        <p className="text-sm text-muted-foreground">Total Paid</p>
+
+                  {/* Loan Eligibility Section */}
+                  <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-lg flex items-center gap-3">
+                          <div className="w-10 h-10 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl flex items-center justify-center">
+                            <TrendingUp className="w-5 h-5 text-white" />
+                          </div>
+                          Loan Eligibility
+                        </CardTitle>
+                        <Button variant="outline" size="sm" className="text-xs">
+                          <RefreshCw className="w-3 h-3 mr-2" />
+                          Refresh
+                        </Button>
                       </div>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                      {/* Eligibility Status */}
+                      <div className="flex items-center justify-between p-4 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/50 dark:to-teal-950/50 rounded-xl border border-emerald-200 dark:border-emerald-800">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 bg-emerald-500 rounded-full flex items-center justify-center">
+                            <CheckCircle className="w-4 h-4 text-white" />
+                          </div>
+                          <div>
+                            <p className="font-semibold text-emerald-900 dark:text-emerald-100">ELIGIBLE</p>
+                            <p className="text-sm text-emerald-600 dark:text-emerald-400">Ready for new loans</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-medium text-amber-600 dark:text-amber-400">MEDIUM RISK</p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">Standard terms apply</p>
+                        </div>
+                      </div>
+
+                      {/* Credit Information Grid */}
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="p-4 bg-slate-50/50 dark:bg-slate-800/50 rounded-xl">
+                          <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">Credit Limit</p>
+                          <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">$1,000</p>
+                        </div>
+                        
+                        <div className="p-4 bg-slate-50/50 dark:bg-slate-800/50 rounded-xl">
+                          <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">Available Credit</p>
+                          <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">$1,000</p>
+                        </div>
+                        
+                        <div className="p-4 bg-slate-50/50 dark:bg-slate-800/50 rounded-xl col-span-2">
+                          <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">Active Loans</p>
+                          <div className="flex items-center justify-between">
+                            <span className="text-lg font-bold text-slate-900 dark:text-slate-100">0 / 5</span>
+                            <div className="w-20 h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                              <div className="h-full bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full" style={{width: '0%'}}></div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Loan Calculator */}
+                      <div className="p-4 bg-gradient-to-br from-violet-50 to-purple-50 dark:from-violet-950/50 dark:to-purple-950/50 rounded-xl border border-violet-200 dark:border-violet-800">
+                        <h4 className="font-semibold text-violet-900 dark:text-violet-100 mb-3 flex items-center gap-2">
+                          <Calculator className="w-4 h-4" />
+                          Loan Amount Calculator
+                        </h4>
+                        <div className="space-y-3">
+                          <div>
+                            <Label className="text-sm text-violet-700 dark:text-violet-300">Test Loan Amount</Label>
+                            <Input 
+                              placeholder="Enter amount to test" 
+                              className="mt-1 bg-white/50 dark:bg-slate-800/50 border-violet-200 dark:border-violet-700"
+                            />
+                          </div>
+                          <Button className="w-full bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 text-white shadow-lg shadow-violet-500/25">
+                            <CheckCircle className="w-4 h-4 mr-2" />
+                            Check
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Admin Controls */}
+                      {isAdmin && (
+                        <div className="p-4 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/50 dark:to-orange-950/50 rounded-xl border border-amber-200 dark:border-amber-800">
+                          <h4 className="font-semibold text-amber-900 dark:text-amber-100 mb-3 flex items-center gap-2">
+                            <Settings className="w-4 h-4" />
+                            Admin Controls
+                          </h4>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <Button variant="outline" size="sm" className="justify-start">
+                              <TrendingUp className="w-4 h-4 mr-2" />
+                              Update Credit Limit
+                            </Button>
+                            <Button variant="outline" size="sm" className="justify-start">
+                              <Eye className="w-4 h-4 mr-2" />
+                              View Detailed Information
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 </div>
+              )}
 
-                {/* Contact Information */}
-                <Card>
+              {/* Transactions Tab Content */}
+              {activeTab === 'transactions' && (
+                <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
                   <CardHeader>
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <User className="h-5 w-5" />
-                      Contact Information
+                    <CardTitle className="text-lg flex items-center gap-3">
+                      <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl flex items-center justify-center">
+                        <CreditCard className="w-5 h-5 text-white" />
+                      </div>
+                      Transaction History
                     </CardTitle>
                   </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Phone className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-muted-foreground">Phone:</span>
-                      </div>
-                      <span className="font-mono">{customerService.formatPhoneNumber(selectedCustomer.phone_number)}</span>
-                    </div>
-                    {selectedCustomer.email && (
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Mail className="h-4 w-4 text-muted-foreground" />
-                          <span className="text-muted-foreground">Email:</span>
-                        </div>
-                        <span>{selectedCustomer.email}</span>
-                      </div>
-                    )}
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Member Since:</span>
-                      <span>{formatDate(selectedCustomer.created_at)}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Status:</span>
-                      <Badge variant={getStatusVariant(selectedCustomer.status)}>
-                        {selectedCustomer.status}
-                      </Badge>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Comprehensive Loan Eligibility Management */}
-                <LoanEligibilityManager 
-                  customer={selectedCustomer}
-                  onEligibilityUpdate={(eligibilityData) => {
-                    // Update only the selected customer data, don't reload entire list
-                    setSelectedCustomer(prev => ({
-                      ...prev,
-                      credit_limit: eligibilityData.credit_limit,
-                      available_credit: eligibilityData.available_credit
-                    }));
-                  }}
-                />
-              </TabsContent>
-
-              <TabsContent value="transactions" className="mt-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Transaction History</CardTitle>
-                  </CardHeader>
                   <CardContent>
-                    <div className="text-center py-8 text-muted-foreground">
-                      <CreditCard className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                      <p>Transaction history will be displayed here</p>
-                      <p className="text-sm">This feature is coming soon</p>
+                    <div className="text-center py-12">
+                      <div className="w-20 h-20 bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-700 dark:to-slate-600 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-inner">
+                        <CreditCard className="w-10 h-10 text-slate-400 dark:text-slate-500" />
+                      </div>
+                      <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">
+                        No Transactions Yet
+                      </h3>
+                      <p className="text-slate-500 dark:text-slate-400 mb-6 max-w-sm mx-auto">
+                        Transaction history will appear here once the customer completes their first pawn transaction.
+                      </p>
+                      <Button className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white shadow-lg shadow-emerald-500/25">
+                        <Plus className="w-4 h-4 mr-2" />
+                        Create First Transaction
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>
-              </TabsContent>
+              )}
 
-              <TabsContent value="notes" className="mt-6">
-                <Card>
+              {/* Notes Tab Content */}
+              {activeTab === 'notes' && (
+                <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
                   <CardHeader>
-                    <CardTitle>Customer Notes</CardTitle>
+                    <CardTitle className="text-lg flex items-center gap-3">
+                      <div className="w-10 h-10 bg-gradient-to-br from-violet-500 to-purple-600 rounded-xl flex items-center justify-center">
+                        <FileText className="w-5 h-5 text-white" />
+                      </div>
+                      Customer Notes
+                    </CardTitle>
                   </CardHeader>
                   <CardContent>
                     {selectedCustomer.notes ? (
-                      <div className="space-y-4">
-                        <div className="whitespace-pre-wrap text-sm leading-relaxed p-4 bg-muted/50 rounded-lg border max-h-96 overflow-y-auto">
+                      <div className="p-4 bg-slate-50/50 dark:bg-slate-800/50 rounded-xl">
+                        <p className="text-slate-700 dark:text-slate-300 whitespace-pre-wrap">
                           {selectedCustomer.notes}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          Last updated: {selectedCustomer.updated_at ? formatDate(selectedCustomer.updated_at) : 'Unknown'}
-                        </div>
+                        </p>
                       </div>
                     ) : (
-                      <div className="text-center py-8 text-muted-foreground">
-                        <p>No notes available for this customer</p>
-                        <p className="text-xs mt-2">Notes can be added when editing customer details</p>
+                      <div className="text-center py-12">
+                        <div className="w-20 h-20 bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-700 dark:to-slate-600 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-inner">
+                          <FileText className="w-10 h-10 text-slate-400 dark:text-slate-500" />
+                        </div>
+                        <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">
+                          No Notes Available
+                        </h3>
+                        <p className="text-slate-500 dark:text-slate-400 mb-6 max-w-sm mx-auto">
+                          Internal notes about this customer can be added when editing their profile.
+                        </p>
+                        <Button 
+                          variant="outline" 
+                          onClick={() => {
+                            setEditingCustomer(selectedCustomer);
+                            setShowAddDialog(true);
+                          }}
+                        >
+                          <Edit2 className="w-4 h-4 mr-2" />
+                          Add Notes
+                        </Button>
                       </div>
                     )}
                   </CardContent>
                 </Card>
-              </TabsContent>
-
-              {isAdmin && (
-                <TabsContent value="admin" className="mt-6">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-red-600 flex items-center gap-2">
-                        <Settings className="h-5 w-5" />
-                        Admin Actions
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      {/* Nested Admin Tabs */}
-                      <Tabs defaultValue="customer-details" className="w-full">
-                        <TabsList className="grid w-full grid-cols-3">
-                          <TabsTrigger value="customer-details" className="text-xs">
-                            Customer Details
-                          </TabsTrigger>
-                          <TabsTrigger value="loan-management" className="text-xs">
-                            Loan Management
-                          </TabsTrigger>
-                          <TabsTrigger value="account-actions" className="text-xs">
-                            Account Actions
-                          </TabsTrigger>
-                        </TabsList>
-
-                        {/* Customer Details Management Tab */}
-                        <TabsContent value="customer-details" className="mt-4">
-                          <Card>
-                            <CardHeader>
-                              <CardTitle className="text-base flex items-center gap-2">
-                                <Edit2 className="h-4 w-4" />
-                                Edit Customer Details
-                              </CardTitle>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
-                              <div className="text-sm text-muted-foreground mb-4">
-                                Modify customer information, contact details, and account settings.
-                              </div>
-                              
-                              <Button 
-                                className="w-full justify-start"
-                                onClick={() => {
-                                  setEditingCustomer(selectedCustomer);
-                                  setShowAddDialog(true);
-                                  setShowDetails(false);
-                                }}
-                              >
-                                <Edit2 className="mr-2 h-4 w-4" />
-                                Open Customer Editor
-                              </Button>
-
-                              <div className="grid grid-cols-2 gap-2 text-sm">
-                                <div>
-                                  <span className="font-medium">Name:</span>
-                                  <p className="text-muted-foreground">{customerService.getCustomerFullName(selectedCustomer)}</p>
-                                </div>
-                                <div>
-                                  <span className="font-medium">Phone:</span>
-                                  <p className="text-muted-foreground font-mono">{customerService.formatPhoneNumber(selectedCustomer.phone_number)}</p>
-                                </div>
-                                <div>
-                                  <span className="font-medium">Email:</span>
-                                  <p className="text-muted-foreground">{selectedCustomer.email || 'Not provided'}</p>
-                                </div>
-                                <div>
-                                  <span className="font-medium">Status:</span>
-                                  <Badge variant={getStatusVariant(selectedCustomer.status)} className="ml-1">
-                                    {selectedCustomer.status}
-                                  </Badge>
-                                </div>
-                              </div>
-                            </CardContent>
-                          </Card>
-                        </TabsContent>
-
-                        {/* Loan Management Tab */}
-                        <TabsContent value="loan-management" className="mt-4">
-                          <Card>
-                            <CardHeader>
-                              <CardTitle className="text-base flex items-center gap-2">
-                                <TrendingUp className="h-4 w-4" />
-                                Manage Loan Eligibility
-                              </CardTitle>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
-                              <div className="text-sm text-muted-foreground mb-4">
-                                Comprehensive loan eligibility management with credit limits and risk assessment.
-                              </div>
-                              
-                              <Button 
-                                className="w-full justify-start"
-                                onClick={() => {
-                                  // Switch to overview tab to see comprehensive loan eligibility
-                                  setActiveTab('overview');
-                                  toast({
-                                    title: 'Loan Eligibility Management',
-                                    description: 'Switched to Overview tab for comprehensive loan eligibility tools.',
-                                    duration: 3000
-                                  });
-                                }}
-                              >
-                                <TrendingUp className="mr-2 h-4 w-4" />
-                                Open Loan Eligibility Manager
-                              </Button>
-
-                              {/* Quick Loan Info */}
-                              <div className="grid grid-cols-2 gap-4 p-3 bg-muted/50 rounded-lg">
-                                <div className="text-center">
-                                  <p className="text-xs text-muted-foreground">Active Loans</p>
-                                  <p className="text-lg font-bold text-blue-600">{selectedCustomer.active_loans || 0}</p>
-                                </div>
-                                <div className="text-center">
-                                  <p className="text-xs text-muted-foreground">Total Borrowed</p>
-                                  <p className="text-lg font-bold text-green-600">${(selectedCustomer.total_borrowed || 0).toLocaleString()}</p>
-                                </div>
-                              </div>
-
-                              <div className="text-xs text-muted-foreground">
-                                💡 Use the Overview tab for full loan eligibility management including credit limits, loan calculators, and detailed risk assessment.
-                              </div>
-                            </CardContent>
-                          </Card>
-                        </TabsContent>
-
-                        {/* Account Actions Tab */}
-                        <TabsContent value="account-actions" className="mt-4">
-                          <Card>
-                            <CardHeader>
-                              <CardTitle className="text-base flex items-center gap-2 text-red-600">
-                                <AlertTriangle className="h-4 w-4" />
-                                Account Actions
-                              </CardTitle>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
-                              <div className="text-sm text-muted-foreground mb-4">
-                                <strong>⚠️ Warning:</strong> These actions will affect the customer's account status and access.
-                              </div>
-
-                              {/* Suspend Account */}
-                              <Card className="border-yellow-200">
-                                <CardContent className="p-4">
-                                  <div className="flex items-start justify-between mb-3">
-                                    <div>
-                                      <h4 className="font-medium text-yellow-800">Suspend Account</h4>
-                                      <p className="text-sm text-muted-foreground">Temporarily disable customer access</p>
-                                    </div>
-                                    <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">
-                                      Reversible
-                                    </Badge>
-                                  </div>
-                                  <Button 
-                                    variant="outline"
-                                    className="w-full border-yellow-300 text-yellow-800 hover:bg-yellow-50"
-                                    onClick={() => setShowSuspendDialog(true)}
-                                  >
-                                    <User className="mr-2 h-4 w-4" />
-                                    Suspend Account
-                                  </Button>
-                                </CardContent>
-                              </Card>
-
-                              {/* Archive Customer */}
-                              <Card className="border-red-200">
-                                <CardContent className="p-4">
-                                  <div className="flex items-start justify-between mb-3">
-                                    <div>
-                                      <h4 className="font-medium text-red-800">Archive Customer</h4>
-                                      <p className="text-sm text-muted-foreground">Permanently archive customer record</p>
-                                    </div>
-                                    <Badge variant="destructive">
-                                      Permanent
-                                    </Badge>
-                                  </div>
-                                  <Button 
-                                    variant="destructive"
-                                    className="w-full"
-                                    onClick={() => setShowArchiveDialog(true)}
-                                  >
-                                    <Archive className="mr-2 h-4 w-4" />
-                                    Archive Customer
-                                  </Button>
-                                </CardContent>
-                              </Card>
-
-                              <div className="text-xs text-muted-foreground p-2 bg-red-50 rounded border-l-4 border-red-200">
-                                <strong>Note:</strong> All actions are logged with your admin ID and timestamp for audit purposes.
-                              </div>
-                            </CardContent>
-                          </Card>
-                        </TabsContent>
-                      </Tabs>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
               )}
-            </Tabs>
+
+              {/* Admin Tab Content */}
+              {activeTab === 'admin' && isAdmin && (
+                <div className="space-y-6">
+                  {/* Admin Header */}
+                  <div className="p-5 bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-2xl border border-amber-200/50 dark:border-amber-700/50 shadow-lg">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-12 h-12 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl flex items-center justify-center shadow-lg">
+                        <Settings className="w-6 h-6 text-white" />
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100">Admin Controls</h3>
+                        <p className="text-sm text-amber-600 dark:text-amber-400">Administrative actions and customer management</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Customer Management Section */}
+                  <div className="p-5 bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-2xl border border-blue-200/50 dark:border-blue-700/50 shadow-lg">
+                    <div className="flex items-center space-x-3 mb-4">
+                      <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center">
+                        <Edit2 className="w-4 h-4 text-white" />
+                      </div>
+                      <h4 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Customer Management</h4>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 gap-3">
+                      <Button 
+                        variant="outline" 
+                        className="justify-start h-auto py-3 px-4 bg-blue-50/50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/30 text-blue-700 dark:text-blue-300"
+                        onClick={() => {
+                          setEditingCustomer(selectedCustomer);
+                          setShowAddDialog(true);
+                        }}
+                      >
+                        <Edit2 className="w-4 h-4 mr-3 shrink-0" />
+                        <div className="text-left min-w-0 flex-1">
+                          <p className="font-medium break-words">Edit Customer Details</p>
+                          <p className="text-xs text-blue-600/70 dark:text-blue-400/70 break-words leading-relaxed">Modify personal information and contact details</p>
+                        </div>
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Account Status Actions */}
+                  <div className="p-5 bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-2xl border border-amber-200/50 dark:border-amber-700/50 shadow-lg">
+                    <div className="flex items-center space-x-3 mb-4">
+                      <div className="w-8 h-8 bg-gradient-to-br from-amber-500 to-orange-600 rounded-lg flex items-center justify-center">
+                        <User className="w-4 h-4 text-white" />
+                      </div>
+                      <h4 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Account Status</h4>
+                    </div>
+                    
+                    <div className="space-y-3">
+                      <Button 
+                        variant="outline" 
+                        className="justify-start h-auto py-3 px-4 w-full bg-amber-50/50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/30 text-amber-700 dark:text-amber-300"
+                        onClick={() => setShowSuspendDialog(true)}
+                      >
+                        <AlertTriangle className="w-4 h-4 mr-3 shrink-0" />
+                        <div className="text-left min-w-0 flex-1">
+                          <p className="font-medium break-words">Suspend Customer</p>
+                          <p className="text-xs text-amber-600/70 dark:text-amber-400/70 break-words leading-relaxed">Temporarily restrict account access (reversible)</p>
+                        </div>
+                      </Button>
+                      
+                      {selectedCustomer?.status === 'suspended' && (
+                        <Button 
+                          variant="outline" 
+                          className="justify-start h-auto py-3 px-4 w-full bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"
+                          onClick={() => {
+                            // Handle reactivate customer
+                            toast({
+                              title: 'Feature Coming Soon',
+                              description: 'Customer reactivation will be implemented soon',
+                            });
+                          }}
+                        >
+                          <CheckCircle className="w-4 h-4 mr-3 shrink-0" />
+                          <div className="text-left min-w-0 flex-1">
+                            <p className="font-medium break-words">Reactivate Customer</p>
+                            <p className="text-xs text-emerald-600/70 dark:text-emerald-400/70 break-words leading-relaxed">Remove suspension and restore full access</p>
+                          </div>
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Dangerous Actions Section */}
+                  <div className="p-5 bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-2xl border border-red-200/50 dark:border-red-700/50 shadow-lg">
+                    <div className="flex items-center space-x-3 mb-4">
+                      <div className="w-8 h-8 bg-gradient-to-br from-red-500 to-rose-600 rounded-lg flex items-center justify-center">
+                        <AlertTriangle className="w-4 h-4 text-white" />
+                      </div>
+                      <h4 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Dangerous Actions</h4>
+                    </div>
+                    
+                    <div className="p-4 bg-red-50/50 dark:bg-red-950/20 rounded-xl border border-red-200 dark:border-red-800 mb-4">
+                      <div className="flex items-start space-x-2">
+                        <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400 mt-0.5 shrink-0" />
+                        <p className="text-xs text-red-700 dark:text-red-300 break-words leading-relaxed">
+                          These actions have permanent consequences. Use with extreme caution and ensure proper authorization.
+                        </p>
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-3">
+                      <Button 
+                        variant="outline" 
+                        className="justify-start h-auto py-3 px-4 w-full bg-red-50/50 dark:bg-red-950/20 border-red-200 dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-700 dark:text-red-300"
+                        onClick={() => setShowArchiveDialog(true)}
+                      >
+                        <Archive className="w-4 h-4 mr-3 shrink-0" />
+                        <div className="text-left min-w-0 flex-1">
+                          <p className="font-medium break-words">Archive Customer</p>
+                          <p className="text-xs text-red-600/70 dark:text-red-400/70 break-words leading-relaxed">Permanently move to archived records (cannot be undone)</p>
+                        </div>
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* System Information */}
+                  <div className="p-5 bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-2xl border border-slate-200/50 dark:border-slate-700/50 shadow-lg">
+                    <div className="flex items-center space-x-3 mb-4">
+                      <div className="w-8 h-8 bg-gradient-to-br from-slate-500 to-slate-600 rounded-lg flex items-center justify-center">
+                        <FileText className="w-4 h-4 text-white" />
+                      </div>
+                      <h4 className="text-lg font-semibold text-slate-900 dark:text-slate-100">System Information</h4>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                      <div className="min-w-0">
+                        <p className="text-slate-500 dark:text-slate-400 break-words">Customer ID</p>
+                        <p className="font-mono text-slate-900 dark:text-slate-100 break-all">{selectedCustomer?.phone_number}</p>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-slate-500 dark:text-slate-400 break-words">Account Status</p>
+                        <p className="font-semibold text-slate-900 dark:text-slate-100 capitalize break-words">{selectedCustomer?.status}</p>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-slate-500 dark:text-slate-400 break-words">Created Date</p>
+                        <p className="text-slate-900 dark:text-slate-100 break-words">
+                          {selectedCustomer?.created_at ? new Date(selectedCustomer.created_at).toLocaleDateString() : 'N/A'}
+                        </p>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-slate-500 dark:text-slate-400 break-words">Last Updated</p>
+                        <p className="text-slate-900 dark:text-slate-100 break-words">
+                          {selectedCustomer?.updated_at ? new Date(selectedCustomer.updated_at).toLocaleDateString() : 'N/A'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Audit Trail Notice */}
+                  <div className="p-4 bg-slate-100/50 dark:bg-slate-800/30 rounded-xl border border-slate-300 dark:border-slate-600">
+                    <div className="flex items-start space-x-3">
+                      <Settings className="w-4 h-4 text-slate-500 dark:text-slate-400 mt-0.5 shrink-0" />
+                      <div>
+                        <p className="text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                          🔒 Security Notice
+                        </p>
+                        <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed break-words">
+                          All administrative actions are logged with your user ID and timestamp for audit compliance. 
+                          Customer data modifications are subject to regulatory oversight and data protection policies.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
+          </div>
+        </div>
         </SheetContent>
       </Sheet>
 
       {/* Suspend Customer Confirmation Dialog */}
       <Dialog open={showSuspendDialog} onOpenChange={setShowSuspendDialog}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-yellow-800">
-              <AlertTriangle className="h-5 w-5" />
-              Suspend Customer Account
-            </DialogTitle>
-            <DialogDescription>
-              Are you sure you want to suspend {selectedCustomer?.first_name} {selectedCustomer?.last_name}'s account?
-            </DialogDescription>
+        <DialogContent className="sm:max-w-[550px] bg-gradient-to-br from-slate-50/95 via-amber-50/30 to-orange-50/40 dark:from-slate-950/95 dark:via-amber-950/30 dark:to-orange-950/40 backdrop-blur-xl border-0 shadow-2xl">
+          {/* Warning accent */}
+          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-500 via-yellow-500 to-orange-500"></div>
+          
+          <DialogHeader className="pb-6 pt-4">
+            <div className="flex items-center space-x-4 mb-4">
+              {/* Warning Icon with Vault-style border */}
+              <div className="w-14 h-14 rounded-full border-3 border-amber-500 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950 dark:to-orange-950 shadow-lg flex items-center justify-center relative">
+                <AlertTriangle className="w-7 h-7 text-amber-600 dark:text-amber-400" />
+                <div className="absolute -top-1 -right-1 w-4 h-4 bg-amber-500 rounded-full border-2 border-white dark:border-slate-900 flex items-center justify-center">
+                  <span className="text-xs text-white font-bold">!</span>
+                </div>
+              </div>
+              <div>
+                <DialogTitle className="text-xl font-bold text-amber-900 dark:text-amber-100 mb-1">
+                  Suspend Customer Account
+                </DialogTitle>
+                <DialogDescription className="text-amber-700 dark:text-amber-300">
+                  Temporarily restrict account access and transaction privileges
+                </DialogDescription>
+              </div>
+            </div>
           </DialogHeader>
           
-          <div className="space-y-4">
-            <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-              <h4 className="font-medium text-yellow-800 mb-2">This action will:</h4>
-              <ul className="space-y-1 text-sm text-yellow-700">
-                <li>• Prevent new loans from being created</li>
-                <li>• Maintain all existing loan records</li>
-                <li>• Allow account reactivation later</li>
-                <li>• Be logged for audit purposes</li>
-              </ul>
+          <div className="space-y-6">
+            {/* Customer Information Card */}
+            <div className="p-5 bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-2xl border border-amber-200/50 dark:border-amber-700/50 shadow-lg">
+              <div className="flex items-center space-x-3 mb-4">
+                <div className="w-8 h-8 bg-gradient-to-br from-amber-500 to-orange-600 rounded-lg flex items-center justify-center">
+                  <User className="w-4 h-4 text-white" />
+                </div>
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Customer Details</h3>
+              </div>
+              
+              <div className="bg-amber-50/50 dark:bg-amber-950/20 rounded-xl p-4 border border-amber-200 dark:border-amber-800">
+                <p className="text-slate-700 dark:text-slate-300 mb-2">
+                  <span className="font-medium text-amber-900 dark:text-amber-100">
+                    {selectedCustomer?.first_name} {selectedCustomer?.last_name}
+                  </span> will be temporarily suspended from the PawnRepo system.
+                </p>
+                <div className="text-sm text-slate-600 dark:text-slate-400 space-y-1">
+                  <p>• Account access will be restricted</p>
+                  <p>• New pawn transactions will be prevented</p>
+                  <p>• Existing active loans remain unaffected</p>
+                  <p>• Suspension can be reversed by administrators</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Security Notice */}
+            <div className="p-4 bg-amber-100/50 dark:bg-amber-900/20 rounded-xl border border-amber-300 dark:border-amber-700">
+              <div className="flex items-start space-x-3">
+                <Settings className="w-5 h-5 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-amber-900 dark:text-amber-100 mb-1">
+                    Security & Audit Trail
+                  </p>
+                  <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
+                    This action will be logged with your admin ID and timestamp for compliance and audit purposes. 
+                    Customer will receive automatic system notification.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex justify-end space-x-3 pt-2">
+              <Button 
+                variant="outline" 
+                onClick={() => setShowSuspendDialog(false)}
+                className="px-6 py-2 bg-white/70 dark:bg-slate-700/70 border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600 backdrop-blur-sm"
+              >
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleSuspendCustomer}
+                className="px-6 py-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white shadow-lg shadow-amber-500/25"
+              >
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4" />
+                  <span>Suspend Customer</span>
+                </div>
+              </Button>
             </div>
           </div>
-
-          <DialogFooter className="flex gap-2">
-            <Button 
-              variant="outline" 
-              onClick={() => setShowSuspendDialog(false)}
-            >
-              Cancel
-            </Button>
-            <Button 
-              variant="destructive"
-              className="bg-yellow-600 hover:bg-yellow-700"
-              onClick={handleSuspendCustomer}
-            >
-              <User className="mr-2 h-4 w-4" />
-              Suspend Account
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Archive Customer Confirmation Dialog */}
       <Dialog open={showArchiveDialog} onOpenChange={setShowArchiveDialog}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-red-800">
-              <AlertTriangle className="h-5 w-5" />
-              ⚠️ Permanent Action Warning
-            </DialogTitle>
-            <DialogDescription>
-              You are about to permanently archive {selectedCustomer?.first_name} {selectedCustomer?.last_name}'s account.
-            </DialogDescription>
+        <DialogContent className="sm:max-w-[550px] bg-gradient-to-br from-slate-50/95 via-red-50/30 to-rose-50/40 dark:from-slate-950/95 dark:via-red-950/30 dark:to-rose-950/40 backdrop-blur-xl border-0 shadow-2xl">
+          {/* Danger accent */}
+          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-500 via-rose-500 to-red-600"></div>
+          
+          <DialogHeader className="pb-6 pt-4">
+            <div className="flex items-center space-x-4 mb-4">
+              {/* Danger Icon with Vault-style border */}
+              <div className="w-14 h-14 rounded-full border-3 border-red-500 bg-gradient-to-br from-red-50 to-rose-50 dark:from-red-950 dark:to-rose-950 shadow-lg flex items-center justify-center relative">
+                <Archive className="w-7 h-7 text-red-600 dark:text-red-400" />
+                <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border-2 border-white dark:border-slate-900 flex items-center justify-center">
+                  <AlertTriangle className="w-2 h-2 text-white" />
+                </div>
+              </div>
+              <div>
+                <DialogTitle className="text-xl font-bold text-red-900 dark:text-red-100 mb-1">
+                  Archive Customer Account
+                </DialogTitle>
+                <DialogDescription className="text-red-700 dark:text-red-300">
+                  Permanently move customer to archived records
+                </DialogDescription>
+              </div>
+            </div>
           </DialogHeader>
           
-          <div className="space-y-4">
-            <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-              <h4 className="font-medium text-red-800 mb-2">This action will:</h4>
-              <ul className="space-y-1 text-sm text-red-700">
-                <li>• Permanently archive all records</li>
-                <li>• Cannot be undone</li>
-                <li>• Remove customer from active lists</li>
-                <li>• Be logged with your admin ID</li>
-              </ul>
+          <div className="space-y-6">
+            {/* Customer Information Card */}
+            <div className="p-5 bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-2xl border border-red-200/50 dark:border-red-700/50 shadow-lg">
+              <div className="flex items-center space-x-3 mb-4">
+                <div className="w-8 h-8 bg-gradient-to-br from-red-500 to-rose-600 rounded-lg flex items-center justify-center">
+                  <User className="w-4 h-4 text-white" />
+                </div>
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Customer Details</h3>
+              </div>
+              
+              <div className="bg-red-50/50 dark:bg-red-950/20 rounded-xl p-4 border border-red-200 dark:border-red-800">
+                <p className="text-slate-700 dark:text-slate-300 mb-2">
+                  <span className="font-medium text-red-900 dark:text-red-100">
+                    {selectedCustomer?.first_name} {selectedCustomer?.last_name}
+                  </span> will be permanently archived from the PawnRepo system.
+                </p>
+                <div className="text-sm text-slate-600 dark:text-slate-400 space-y-1">
+                  <p>• Customer account will be moved to archived records</p>
+                  <p>• All transaction history will be preserved</p>
+                  <p>• Customer will no longer appear in active listings</p>
+                  <p className="text-red-600 dark:text-red-400 font-medium">• This action cannot be undone</p>
+                </div>
+              </div>
             </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="archiveConfirm" className="text-sm font-medium">
-                Type <strong>ARCHIVE</strong> to confirm this permanent action:
-              </Label>
-              <Input
-                id="archiveConfirm"
-                value={archiveConfirmation}
-                onChange={(e) => setArchiveConfirmation(e.target.value)}
-                placeholder="Type ARCHIVE here"
-                className="font-mono"
-              />
+
+            {/* Permanent Action Warning */}
+            <div className="p-4 bg-red-100/60 dark:bg-red-900/20 rounded-xl border-2 border-red-300 dark:border-red-700">
+              <div className="flex items-start space-x-3">
+                <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-bold text-red-900 dark:text-red-100 mb-1">
+                    ⚠️ PERMANENT ACTION WARNING
+                  </p>
+                  <p className="text-xs text-red-700 dark:text-red-300 leading-relaxed">
+                    This is a permanent action that cannot be reversed. The customer account will be moved to archived 
+                    records and cannot be restored to active status. All audit logs will be maintained for compliance.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Confirmation Required */}
+            <div className="p-4 bg-slate-100/50 dark:bg-slate-800/20 rounded-xl border border-slate-300 dark:border-slate-600">
+              <div className="flex items-start space-x-3">
+                <Settings className="w-5 h-5 text-slate-600 dark:text-slate-400 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-1">
+                    Security & Compliance
+                  </p>
+                  <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                    Archive action will be logged with admin credentials. Customer data retention follows regulatory 
+                    compliance requirements. All transaction history preserved for audit purposes.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex justify-end space-x-3 pt-2">
+              <Button 
+                variant="outline" 
+                onClick={() => setShowArchiveDialog(false)}
+                className="px-6 py-2 bg-white/70 dark:bg-slate-700/70 border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600 backdrop-blur-sm"
+              >
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleArchiveCustomer}
+                className="px-6 py-2 bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 text-white shadow-lg shadow-red-500/25"
+              >
+                <div className="flex items-center gap-2">
+                  <Archive className="w-4 h-4" />
+                  <span>Archive Customer</span>
+                </div>
+              </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
 
-          <DialogFooter className="flex gap-2">
-            <Button 
-              variant="outline" 
-              onClick={() => {
-                setShowArchiveDialog(false);
-                setArchiveConfirmation('');
-              }}
-            >
-              Cancel
-            </Button>
-            <Button 
-              variant="destructive"
-              onClick={handleArchiveCustomer}
-              disabled={archiveConfirmation !== 'ARCHIVE'}
-            >
-              <Archive className="mr-2 h-4 w-4" />
-              Archive Customer
-            </Button>
-          </DialogFooter>
+      {/* Bulk Status Change Confirmation Dialog */}
+      <Dialog open={showBulkStatusDialog} onOpenChange={setShowBulkStatusDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-blue-800">
+              <Users className="h-5 w-5" />
+              Bulk Status Change
+            </DialogTitle>
+            <DialogDescription>
+              You are about to change the status of {selectedCustomerIds.length} selected customer{selectedCustomerIds.length > 1 ? 's' : ''}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-slate-600 dark:text-slate-300">
+              Please select the new status for the selected customers:
+            </p>
+            <div className="flex justify-end space-x-2">
+              <Button variant="outline" onClick={() => setShowBulkStatusDialog(false)}>
+                Cancel
+              </Button>
+              <Button 
+                variant="outline"
+                className="border-green-300 text-green-800 hover:bg-green-50"
+                onClick={() => setShowBulkActivateDialog(true)}
+              >
+                <CheckCircle className="mr-2 h-4 w-4" />
+                Activate
+              </Button>
+              <Button 
+                variant="outline"
+                className="border-yellow-300 text-yellow-800 hover:bg-yellow-50"
+                onClick={() => setShowBulkSuspendDialog(true)}
+              >
+                <AlertCircle className="mr-2 h-4 w-4" />
+                Suspend
+              </Button>
+              <Button 
+                variant="destructive"
+                onClick={() => setShowBulkArchiveDialog(true)}
+              >
+                <Archive className="mr-2 h-4 w-4" />
+                Archive
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -1932,8 +2422,8 @@ const EnhancedCustomerManagement = () => {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-green-800">
-              <AlertTriangle className="h-5 w-5" />
-              ⚠️ Bulk Activate Confirmation
+              <CheckCircle className="h-5 w-5" />
+              Bulk Activate Confirmation
             </DialogTitle>
             <DialogDescription>
               You are about to activate {selectedCustomerIds.length} customer{selectedCustomerIds.length > 1 ? 's' : ''}.
@@ -1997,8 +2487,8 @@ const EnhancedCustomerManagement = () => {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-yellow-800">
-              <AlertTriangle className="h-5 w-5" />
-              ⚠️ Bulk Suspend Warning
+              <AlertCircle className="h-5 w-5" />
+              Bulk Suspend Warning
             </DialogTitle>
             <DialogDescription>
               You are about to suspend {selectedCustomerIds.length} customer{selectedCustomerIds.length > 1 ? 's' : ''}.
@@ -2062,8 +2552,8 @@ const EnhancedCustomerManagement = () => {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-red-800">
-              <AlertTriangle className="h-5 w-5" />
-              ⚠️ Permanent Bulk Action Warning
+              <Archive className="h-5 w-5" />
+              Permanent Bulk Action Warning
             </DialogTitle>
             <DialogDescription>
               You are about to permanently archive {selectedCustomerIds.length} customer{selectedCustomerIds.length > 1 ? 's' : ''}.

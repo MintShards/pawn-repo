@@ -36,6 +36,7 @@ import { Progress } from '../ui/progress';
 import customerService from '../../services/customerService';
 import { useToast } from '../ui/toast';
 import { useAuth } from '../../context/AuthContext';
+import { isAdmin as isAdminRole } from '../../utils/roleUtils';
 
 const LoanEligibilityManager = ({ customer, onEligibilityUpdate }) => {
   const { toast } = useToast();
@@ -47,7 +48,7 @@ const LoanEligibilityManager = ({ customer, onEligibilityUpdate }) => {
   const [newCreditLimit, setNewCreditLimit] = useState('');
   const [showDetailsDialog, setShowDetailsDialog] = useState(false);
 
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = isAdminRole(user);
 
   const checkEligibility = useCallback(async (testLoanAmount = null, shouldCallCallback = false) => {
     setLoading(true);
