@@ -235,3 +235,20 @@ class CustomerStatusUpdate(BaseModel):
             }
         }
     )
+
+
+class CustomerArchiveRequest(BaseModel):
+    """Schema for archiving customer (admin only)"""
+    reason: str = Field(
+        default="Admin action - permanent archive",
+        max_length=500,
+        description="Reason for archiving customer account"
+    )
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "reason": "Admin action - permanent archive"
+            }
+        }
+    )

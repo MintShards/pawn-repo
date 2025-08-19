@@ -9,7 +9,7 @@ CRUD operations, search, statistics, and status management.
 from typing import Optional
 
 # Third-party imports
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 
 # Local imports
 from app.api.deps.user_deps import get_current_user, get_current_admin_user
@@ -17,7 +17,7 @@ from app.models.customer_model import CustomerStatus
 from app.models.user_model import User
 from app.schemas.customer_schema import (
     CustomerCreate, CustomerUpdate, CustomerResponse, CustomerListResponse,
-    CustomerStatsResponse
+    CustomerStatsResponse, CustomerArchiveRequest
 )
 from app.services.customer_service import CustomerService
 
@@ -330,7 +330,7 @@ async def deactivate_customer(
 )
 async def archive_customer(
     phone_number: str,
-    reason: str = "Long-term inactive account",
+    archive_request: CustomerArchiveRequest = Body(...),
     current_user: User = Depends(get_current_admin_user)
 ) -> CustomerResponse:
     """Archive customer account (long-term inactive, compliance preservation)"""
@@ -352,7 +352,7 @@ async def archive_customer(
             )
         
         # Archive the customer
-        customer.archive(reason, current_user.user_id)
+        customer.archive(archive_request.reason, current_user.user_id)
         await customer.save()
         
         # Add computed properties before response

@@ -19,17 +19,13 @@ import {
   AlertTriangle,
   Archive,
   Calendar,
-  TrendingDown,
   Banknote,
   Loader2,
   DollarSign,
-  FileText,
-  RefreshCw,
-  Calculator
+  FileText
 } from 'lucide-react';
 import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
-import { StatusBadge, RiskBadge, LoanActivityBadge } from '../ui/enhanced-badge';
+import { StatusBadge, RiskBadge } from '../ui/enhanced-badge';
 import { CustomerTableSkeleton, StatsCardSkeleton, SearchSkeleton } from '../ui/skeleton';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import {
@@ -49,6 +45,7 @@ import {
 } from '../ui/sheet';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
+import { Textarea } from '../ui/textarea';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -62,7 +59,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Avatar, AvatarImage, AvatarFallback } from '../ui/avatar';
 import { Progress } from '../ui/progress';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '../ui/hover-card';
@@ -142,6 +138,9 @@ const EnhancedCustomerManagement = () => {
   const [showBulkArchiveDialog, setShowBulkArchiveDialog] = useState(false);
   const [bulkConfirmation, setBulkConfirmation] = useState('');
   const [isMobile, setIsMobile] = useState(false);
+  const [isEditingNotes, setIsEditingNotes] = useState(false);
+  const [notesText, setNotesText] = useState('');
+  const [saveNotesLoading, setSaveNotesLoading] = useState(false);
 
   const isAdmin = isAdminRole(user);
 
@@ -277,22 +276,36 @@ const EnhancedCustomerManagement = () => {
 
   const handleSuspendCustomer = async () => {
     try {
-      await customerService.updateCustomer(selectedCustomer.phone_number, {
-        ...selectedCustomer,
+      const updatedCustomer = await customerService.updateCustomer(selectedCustomer.phone_number, {
         status: 'suspended'
       });
+      
+      // Update the selected customer
+      setSelectedCustomer(updatedCustomer);
+      
+      // Update customer in the list
+      setCustomers(prevCustomers => 
+        prevCustomers.map(customer => 
+          customer.phone_number === selectedCustomer.phone_number 
+            ? updatedCustomer 
+            : customer
+        )
+      );
+      
       toast({
         title: 'Customer Suspended',
-        description: 'Customer account has been suspended'
+        description: 'Customer account has been suspended and access is temporarily restricted'
       });
-      setShowDetails(false);
+      
       setShowSuspendDialog(false);
-      await loadCustomerList(currentPage, getCurrentSearchTerm(), statusFilter);
-      await loadCustomerStats(); // Refresh stats when customer status changes
+      
+      // Refresh stats to reflect status change
+      await loadCustomerStats();
     } catch (error) {
+      console.error('Failed to suspend customer:', error);
       toast({
         title: 'Error',
-        description: 'Failed to suspend customer',
+        description: 'Failed to suspend customer. Please try again.',
         variant: 'destructive'
       });
     }
@@ -309,20 +322,45 @@ const EnhancedCustomerManagement = () => {
     }
 
     try {
-      await customerService.archiveCustomer(selectedCustomer.phone_number, 'Admin action - permanent archive');
+      await customerService.archiveCustomer(
+        selectedCustomer.phone_number, 
+        'Admin action - permanent archive'
+      );
+      
+      // Remove customer from the list since they're archived
+      setCustomers(prevCustomers => 
+        prevCustomers.filter(customer => 
+          customer.phone_number !== selectedCustomer.phone_number
+        )
+      );
+      
+      // Clear selected customer since it's now archived
+      setSelectedCustomer(null);
+      setShowDetails(false);
+      
       toast({
         title: 'Customer Archived',
-        description: 'Customer has been permanently archived'
+        description: 'Customer has been permanently archived and moved to archived records'
       });
-      setShowDetails(false);
+      
       setShowArchiveDialog(false);
       setArchiveConfirmation('');
-      await loadCustomerList(currentPage, getCurrentSearchTerm(), statusFilter);
-      await loadCustomerStats(); // Refresh stats when customer is archived
+      
+      // Refresh both stats and customer list to ensure data consistency
+      await loadCustomers(currentPage, getCurrentSearchTerm(), statusFilter);
+      
     } catch (error) {
+      console.error('Failed to archive customer:', error);
+      
+      // Handle specific error cases
+      let errorMessage = 'Failed to archive customer. Please try again.';
+      if (error.message && error.message.includes('active loans')) {
+        errorMessage = 'Cannot archive customer with active loans. Please resolve all loans first.';
+      }
+      
       toast({
         title: 'Error',
-        description: 'Failed to archive customer',
+        description: errorMessage,
         variant: 'destructive'
       });
     }
@@ -631,9 +669,8 @@ const EnhancedCustomerManagement = () => {
         }
       }
 
-      // Refresh data
-      await loadCustomerList(currentPage, getCurrentSearchTerm(), statusFilter);
-      await loadCustomerStats();
+      // Refresh data to ensure consistency
+      await loadCustomers(currentPage, getCurrentSearchTerm(), statusFilter);
       setSelectedCustomerIds([]);
 
       // Show result toast
@@ -701,18 +738,60 @@ const EnhancedCustomerManagement = () => {
     }
   };
 
-  const getStatusVariant = (status) => {
-    switch (status?.toLowerCase()) {
-      case 'active':
-        return 'default';
-      case 'suspended':
-        return 'secondary';
-      case 'banned':
-        return 'destructive';
-      default:
-        return 'outline';
+  const handleStartEditingNotes = () => {
+    setNotesText(selectedCustomer?.notes || '');
+    setIsEditingNotes(true);
+  };
+
+  const handleCancelEditingNotes = () => {
+    setIsEditingNotes(false);
+    setNotesText('');
+  };
+
+  const handleSaveNotes = async () => {
+    if (!selectedCustomer) return;
+    
+    setSaveNotesLoading(true);
+    try {
+      const updatedCustomer = await customerService.updateCustomer(selectedCustomer.phone_number, {
+        notes: notesText.trim()
+      });
+      
+      // Update the selected customer with new notes
+      setSelectedCustomer(updatedCustomer);
+      
+      // Update customer in the list
+      setCustomers(prevCustomers => 
+        prevCustomers.map(customer => 
+          customer.phone_number === selectedCustomer.phone_number 
+            ? updatedCustomer 
+            : customer
+        )
+      );
+      
+      setIsEditingNotes(false);
+      setNotesText('');
+      
+      toast({
+        title: 'Success',
+        description: 'Customer notes updated successfully'
+      });
+      
+      // Refresh list to ensure data consistency
+      await loadCustomers(currentPage, getCurrentSearchTerm(), statusFilter);
+      
+    } catch (error) {
+      console.error('Failed to save notes:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to save notes. Please try again.',
+        variant: 'destructive'
+      });
+    } finally {
+      setSaveNotesLoading(false);
     }
   };
+
 
   const formatDate = (dateString) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -1819,104 +1898,13 @@ const EnhancedCustomerManagement = () => {
                   </Card>
 
                   {/* Loan Eligibility Section */}
-                  <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
-                    <CardHeader>
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="text-lg flex items-center gap-3">
-                          <div className="w-10 h-10 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl flex items-center justify-center">
-                            <TrendingUp className="w-5 h-5 text-white" />
-                          </div>
-                          Loan Eligibility
-                        </CardTitle>
-                        <Button variant="outline" size="sm" className="text-xs">
-                          <RefreshCw className="w-3 h-3 mr-2" />
-                          Refresh
-                        </Button>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="space-y-6">
-                      {/* Eligibility Status */}
-                      <div className="flex items-center justify-between p-4 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/50 dark:to-teal-950/50 rounded-xl border border-emerald-200 dark:border-emerald-800">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 bg-emerald-500 rounded-full flex items-center justify-center">
-                            <CheckCircle className="w-4 h-4 text-white" />
-                          </div>
-                          <div>
-                            <p className="font-semibold text-emerald-900 dark:text-emerald-100">ELIGIBLE</p>
-                            <p className="text-sm text-emerald-600 dark:text-emerald-400">Ready for new loans</p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-medium text-amber-600 dark:text-amber-400">MEDIUM RISK</p>
-                          <p className="text-xs text-slate-500 dark:text-slate-400">Standard terms apply</p>
-                        </div>
-                      </div>
-
-                      {/* Credit Information Grid */}
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="p-4 bg-slate-50/50 dark:bg-slate-800/50 rounded-xl">
-                          <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">Credit Limit</p>
-                          <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">$1,000</p>
-                        </div>
-                        
-                        <div className="p-4 bg-slate-50/50 dark:bg-slate-800/50 rounded-xl">
-                          <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">Available Credit</p>
-                          <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">$1,000</p>
-                        </div>
-                        
-                        <div className="p-4 bg-slate-50/50 dark:bg-slate-800/50 rounded-xl col-span-2">
-                          <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">Active Loans</p>
-                          <div className="flex items-center justify-between">
-                            <span className="text-lg font-bold text-slate-900 dark:text-slate-100">0 / 5</span>
-                            <div className="w-20 h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                              <div className="h-full bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full" style={{width: '0%'}}></div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Loan Calculator */}
-                      <div className="p-4 bg-gradient-to-br from-violet-50 to-purple-50 dark:from-violet-950/50 dark:to-purple-950/50 rounded-xl border border-violet-200 dark:border-violet-800">
-                        <h4 className="font-semibold text-violet-900 dark:text-violet-100 mb-3 flex items-center gap-2">
-                          <Calculator className="w-4 h-4" />
-                          Loan Amount Calculator
-                        </h4>
-                        <div className="space-y-3">
-                          <div>
-                            <Label className="text-sm text-violet-700 dark:text-violet-300">Test Loan Amount</Label>
-                            <Input 
-                              placeholder="Enter amount to test" 
-                              className="mt-1 bg-white/50 dark:bg-slate-800/50 border-violet-200 dark:border-violet-700"
-                            />
-                          </div>
-                          <Button className="w-full bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 text-white shadow-lg shadow-violet-500/25">
-                            <CheckCircle className="w-4 h-4 mr-2" />
-                            Check
-                          </Button>
-                        </div>
-                      </div>
-
-                      {/* Admin Controls */}
-                      {isAdmin && (
-                        <div className="p-4 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/50 dark:to-orange-950/50 rounded-xl border border-amber-200 dark:border-amber-800">
-                          <h4 className="font-semibold text-amber-900 dark:text-amber-100 mb-3 flex items-center gap-2">
-                            <Settings className="w-4 h-4" />
-                            Admin Controls
-                          </h4>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <Button variant="outline" size="sm" className="justify-start">
-                              <TrendingUp className="w-4 h-4 mr-2" />
-                              Update Credit Limit
-                            </Button>
-                            <Button variant="outline" size="sm" className="justify-start">
-                              <Eye className="w-4 h-4 mr-2" />
-                              View Detailed Information
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
+                  <LoanEligibilityManager 
+                    customer={selectedCustomer}
+                    onEligibilityUpdate={(eligibility) => {
+                      // Handle eligibility updates if needed
+                      console.log('Eligibility updated:', eligibility);
+                    }}
+                  />
                 </div>
               )}
 
@@ -1955,41 +1943,87 @@ const EnhancedCustomerManagement = () => {
               {activeTab === 'notes' && (
                 <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
                   <CardHeader>
-                    <CardTitle className="text-lg flex items-center gap-3">
-                      <div className="w-10 h-10 bg-gradient-to-br from-violet-500 to-purple-600 rounded-xl flex items-center justify-center">
-                        <FileText className="w-5 h-5 text-white" />
-                      </div>
-                      Customer Notes
-                    </CardTitle>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-lg flex items-center gap-3">
+                        <div className="w-10 h-10 bg-gradient-to-br from-violet-500 to-purple-600 rounded-xl flex items-center justify-center">
+                          <FileText className="w-5 h-5 text-white" />
+                        </div>
+                        Customer Notes
+                      </CardTitle>
+                      {!isEditingNotes && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleStartEditingNotes}
+                          className="text-violet-600 border-violet-200 hover:bg-violet-50 dark:text-violet-400 dark:border-violet-700 dark:hover:bg-violet-950/50"
+                        >
+                          <Edit2 className="w-4 h-4 mr-2" />
+                          {selectedCustomer?.notes ? 'Edit Notes' : 'Add Notes'}
+                        </Button>
+                      )}
+                    </div>
                   </CardHeader>
                   <CardContent>
-                    {selectedCustomer.notes ? (
-                      <div className="p-4 bg-slate-50/50 dark:bg-slate-800/50 rounded-xl">
-                        <p className="text-slate-700 dark:text-slate-300 whitespace-pre-wrap">
+                    {isEditingNotes ? (
+                      <div className="space-y-4">
+                        <div>
+                          <Label htmlFor="customerNotes" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                            Internal Notes
+                          </Label>
+                          <Textarea
+                            id="customerNotes"
+                            placeholder="Add internal notes about this customer (confidential staff use only)..."
+                            value={notesText}
+                            onChange={(e) => setNotesText(e.target.value)}
+                            className="mt-2 min-h-[120px] bg-white/70 dark:bg-slate-700/70 border-violet-200 dark:border-violet-700 focus:border-violet-500 dark:focus:border-violet-400 focus:ring-violet-500/20 resize-none"
+                            disabled={saveNotesLoading}
+                          />
+                        </div>
+                        <div className="flex gap-3">
+                          <Button
+                            onClick={handleSaveNotes}
+                            disabled={saveNotesLoading}
+                            className="bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 text-white shadow-lg shadow-violet-500/25"
+                          >
+                            {saveNotesLoading ? (
+                              <>
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                Saving...
+                              </>
+                            ) : (
+                              <>
+                                <CheckCircle className="w-4 h-4 mr-2" />
+                                Save Notes
+                              </>
+                            )}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            onClick={handleCancelEditingNotes}
+                            disabled={saveNotesLoading}
+                            className="border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700"
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    ) : selectedCustomer?.notes ? (
+                      <div className="p-4 bg-slate-50/50 dark:bg-slate-800/50 rounded-xl border border-slate-200/50 dark:border-slate-700/50">
+                        <p className="text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed">
                           {selectedCustomer.notes}
                         </p>
                       </div>
                     ) : (
                       <div className="text-center py-12">
-                        <div className="w-20 h-20 bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-700 dark:to-slate-600 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-inner">
-                          <FileText className="w-10 h-10 text-slate-400 dark:text-slate-500" />
+                        <div className="w-20 h-20 bg-gradient-to-br from-violet-100 to-purple-100 dark:from-violet-900/50 dark:to-purple-900/50 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-inner">
+                          <FileText className="w-10 h-10 text-violet-400 dark:text-violet-500" />
                         </div>
                         <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">
                           No Notes Available
                         </h3>
                         <p className="text-slate-500 dark:text-slate-400 mb-6 max-w-sm mx-auto">
-                          Internal notes about this customer can be added when editing their profile.
+                          Click "Add Notes" to create internal staff notes for this customer.
                         </p>
-                        <Button 
-                          variant="outline" 
-                          onClick={() => {
-                            setEditingCustomer(selectedCustomer);
-                            setShowAddDialog(true);
-                          }}
-                        >
-                          <Edit2 className="w-4 h-4 mr-2" />
-                          Add Notes
-                        </Button>
                       </div>
                     )}
                   </CardContent>
@@ -2065,12 +2099,40 @@ const EnhancedCustomerManagement = () => {
                         <Button 
                           variant="outline" 
                           className="justify-start h-auto py-3 px-4 w-full bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"
-                          onClick={() => {
-                            // Handle reactivate customer
-                            toast({
-                              title: 'Feature Coming Soon',
-                              description: 'Customer reactivation will be implemented soon',
-                            });
+                          onClick={async () => {
+                            try {
+                              const updatedCustomer = await customerService.updateCustomer(selectedCustomer.phone_number, {
+                                status: 'active'
+                              });
+                              
+                              // Update the selected customer
+                              setSelectedCustomer(updatedCustomer);
+                              
+                              // Update customer in the list
+                              setCustomers(prevCustomers => 
+                                prevCustomers.map(customer => 
+                                  customer.phone_number === selectedCustomer.phone_number 
+                                    ? updatedCustomer 
+                                    : customer
+                                )
+                              );
+                              
+                              toast({
+                                title: 'Customer Reactivated',
+                                description: 'Customer account has been reactivated and can now access all services'
+                              });
+                              
+                              // Refresh stats to reflect status change
+                              await loadCustomerStats();
+                              
+                            } catch (error) {
+                              console.error('Failed to reactivate customer:', error);
+                              toast({
+                                title: 'Error',
+                                description: 'Failed to reactivate customer. Please try again.',
+                                variant: 'destructive'
+                              });
+                            }
                           }}
                         >
                           <CheckCircle className="w-4 h-4 mr-3 shrink-0" />
@@ -2346,6 +2408,36 @@ const EnhancedCustomerManagement = () => {
               </div>
             </div>
 
+            {/* Confirmation Required Input */}
+            <div className="p-4 bg-red-50/50 dark:bg-red-950/20 rounded-xl border-2 border-red-200 dark:border-red-800">
+              <div className="space-y-3">
+                <div className="flex items-center space-x-2">
+                  <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400" />
+                  <p className="text-sm font-medium text-red-900 dark:text-red-100">
+                    Confirmation Required
+                  </p>
+                </div>
+                <div>
+                  <Label htmlFor="archiveConfirmation" className="text-sm text-red-700 dark:text-red-300">
+                    Type <strong>"ARCHIVE"</strong> to confirm this permanent action:
+                  </Label>
+                  <Input
+                    id="archiveConfirmation"
+                    type="text"
+                    value={archiveConfirmation}
+                    onChange={(e) => setArchiveConfirmation(e.target.value)}
+                    placeholder="Type ARCHIVE to confirm"
+                    className="mt-2 bg-white/70 dark:bg-slate-800/70 border-red-300 dark:border-red-700 focus:border-red-500 dark:focus:border-red-400 focus:ring-red-500/20"
+                  />
+                  {archiveConfirmation && archiveConfirmation !== 'ARCHIVE' && (
+                    <p className="text-xs text-red-600 dark:text-red-400 mt-1">
+                      Please type "ARCHIVE" exactly as shown
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+
             {/* Action Buttons */}
             <div className="flex justify-end space-x-3 pt-2">
               <Button 
@@ -2357,7 +2449,8 @@ const EnhancedCustomerManagement = () => {
               </Button>
               <Button 
                 onClick={handleArchiveCustomer}
-                className="px-6 py-2 bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 text-white shadow-lg shadow-red-500/25"
+                disabled={archiveConfirmation !== 'ARCHIVE'}
+                className="px-6 py-2 bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed text-white shadow-lg shadow-red-500/25 disabled:shadow-gray-500/25"
               >
                 <div className="flex items-center gap-2">
                   <Archive className="w-4 h-4" />

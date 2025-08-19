@@ -13,7 +13,6 @@ import {
   LayoutDashboard, 
   Users, 
   LogOut, 
-  Sparkles,
   Crown,
   UserCheck
 } from 'lucide-react';
