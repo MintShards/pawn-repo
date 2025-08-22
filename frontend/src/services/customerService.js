@@ -126,6 +126,106 @@ class CustomerService {
     }
   }
 
+  // Deactivate customer account (admin only)
+  async deactivateCustomer(phoneNumber, reason = 'Customer requested account closure') {
+    try {
+      return await authService.apiRequest(`/api/v1/customer/${phoneNumber}/deactivate`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      });
+    } catch (error) {
+      console.error('Deactivate customer error:', error);
+      throw error;
+    }
+  }
+
+  // Update customer status (admin only)
+  async updateCustomerStatus(phoneNumber, status, reason = '') {
+    try {
+      return await authService.apiRequest(`/api/v1/customer/${phoneNumber}/status`, {
+        method: 'PUT',
+        body: JSON.stringify({ status, reason }),
+      });
+    } catch (error) {
+      console.error('Update customer status error:', error);
+      throw error;
+    }
+  }
+
+  // Enhanced search customers with advanced filtering
+  async searchCustomers(searchTerm, options = {}) {
+    try {
+      const params = {
+        search: searchTerm,
+        ...options
+      };
+      return await this.getAllCustomers(params);
+    } catch (error) {
+      console.error('Search customers error:', error);
+      throw error;
+    }
+  }
+
+  // Get customer risk level display string
+  getRiskLevelDisplay(customer) {
+    if (!customer || !customer.risk_level) return 'Unknown';
+    const riskLevel = customer.risk_level.toLowerCase();
+    const riskColors = {
+      low: 'text-green-600',
+      medium: 'text-yellow-600', 
+      high: 'text-red-600'
+    };
+    return {
+      level: customer.risk_level,
+      color: riskColors[riskLevel] || 'text-gray-600'
+    };
+  }
+
+  // Get customer borrow amount display
+  getBorrowAmountDisplay(customer) {
+    if (!customer || typeof customer.can_borrow_amount !== 'number') return '$0';
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD'
+    }).format(customer.can_borrow_amount);
+  }
+
+  // Validate phone number format
+  validatePhoneNumber(phoneNumber) {
+    if (!phoneNumber) return { valid: false, error: 'Phone number is required' };
+    const cleaned = phoneNumber.replace(/\D/g, '');
+    if (cleaned.length !== 10) {
+      return { valid: false, error: 'Phone number must be exactly 10 digits' };
+    }
+    return { valid: true, cleaned };
+  }
+
+  // Clear customer cache when needed
+  clearCustomerCache(phoneNumber = null) {
+    if (phoneNumber) {
+      authService.clearCache(`/api/v1/customer/${phoneNumber}`);
+    } else {
+      authService.clearCache('/api/v1/customer');
+    }
+  }
+
+  // Bulk operations helper
+  async getMultipleCustomers(phoneNumbers) {
+    try {
+      const promises = phoneNumbers.map(phone => this.getCustomerByPhone(phone));
+      const results = await Promise.allSettled(promises);
+      
+      return results.map((result, index) => ({
+        phone: phoneNumbers[index],
+        data: result.status === 'fulfilled' ? result.value : null,
+        error: result.status === 'rejected' ? result.reason : null
+      }));
+    } catch (error) {
+      console.error('Get multiple customers error:', error);
+      throw error;
+    }
+  }
+
 }
 
 const customerService = new CustomerService();

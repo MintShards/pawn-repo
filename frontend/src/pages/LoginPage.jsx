@@ -10,9 +10,7 @@ import {
 import { ThemeToggle } from '../components/ui/theme-toggle';
 import LoginForm from '../components/auth/LoginForm';
 import { 
-  Sparkles, 
   Shield, 
-  Lock, 
   Users, 
   TrendingUp, 
   Database,

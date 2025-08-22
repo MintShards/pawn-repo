@@ -18,11 +18,8 @@ import {
   Plus,
   CreditCard,
   TrendingUp,
-  TrendingDown,
   DollarSign,
   Clock,
-  CheckCircle,
-  AlertCircle,
   Crown,
   UserCheck,
   Activity,
@@ -31,11 +28,7 @@ import {
   Zap,
   FileText,
   Calendar,
-  BarChart3,
-  PieChart,
   ArrowUpRight,
-  ArrowDownRight,
-  Eye,
   RefreshCw
 } from 'lucide-react';
 import { getRoleTitle, getWelcomeMessage, getUserDisplayString } from '../utils/roleUtils';

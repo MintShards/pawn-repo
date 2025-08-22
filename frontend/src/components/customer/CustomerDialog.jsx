@@ -37,19 +37,23 @@ const customerSchema = z.object({
   first_name: z
     .string()
     .min(1, 'First name is required')
-    .max(50, 'First name must be less than 50 characters'),
+    .max(50, 'First name must be less than 50 characters')
+    .regex(/^[a-zA-Z\s'-]+$/, 'First name can only contain letters, spaces, hyphens, and apostrophes'),
   last_name: z
     .string()
     .min(1, 'Last name is required')
-    .max(50, 'Last name must be less than 50 characters'),
+    .max(50, 'Last name must be less than 50 characters')
+    .regex(/^[a-zA-Z\s'-]+$/, 'Last name can only contain letters, spaces, hyphens, and apostrophes'),
   phone_number: z
     .string()
     .min(10, 'Phone number must be exactly 10 digits')
     .max(10, 'Phone number must be exactly 10 digits')
     .regex(/^\d{10}$/, 'Phone number must contain only digits'),
-  email: z.union([z.literal(''), z.string().email()]).optional(),
-  status: z.enum(['active', 'suspended', 'banned']),
-  notes: z.string().optional(),
+  email: z.union([z.literal(''), z.string().email('Please enter a valid email address')]).optional(),
+  status: z.enum(['active', 'suspended', 'archived'], {
+    errorMap: () => ({ message: 'Status must be active, suspended, or archived' })
+  }),
+  notes: z.string().max(500, 'Notes must be less than 500 characters').optional(),
 });
 
 const CustomerDialog = ({ 
@@ -103,7 +107,9 @@ const CustomerDialog = ({
   }, [open, customer, form]);
 
   const checkPhoneExists = async (phoneNumber) => {
-    if (!phoneNumber || phoneNumber.length !== 10) {
+    // Use enhanced validation from service
+    const validation = customerService.validatePhoneNumber(phoneNumber);
+    if (!validation.valid) {
       setPhoneExists(false);
       return;
     }
@@ -115,9 +121,13 @@ const CustomerDialog = ({
     }
 
     try {
-      const existingCustomer = await customerService.getCustomerByPhone(phoneNumber);
+      const existingCustomer = await customerService.getCustomerByPhone(validation.cleaned);
       setPhoneExists(!!existingCustomer);
     } catch (error) {
+      // Only log if it's not a 404 (customer not found is expected)
+      if (!error.message.includes('404')) {
+        console.warn('Phone validation check failed:', error);
+      }
       setPhoneExists(false);
     }
   };
@@ -144,19 +154,33 @@ const CustomerDialog = ({
 
     setIsLoading(true);
     
-    // Clean up data - remove empty email
+    // Clean up data - remove empty fields and trim strings
     const cleanedData = { ...data };
+    
+    // Trim and clean string fields
+    cleanedData.first_name = cleanedData.first_name?.trim();
+    cleanedData.last_name = cleanedData.last_name?.trim();
+    cleanedData.notes = cleanedData.notes?.trim();
+    
+    // Remove empty email field
     if (!cleanedData.email || cleanedData.email.trim() === '') {
       delete cleanedData.email;
+    } else {
+      cleanedData.email = cleanedData.email.trim().toLowerCase();
     }
     
     try {
       let result;
       if (isEditing) {
         result = await customerService.updateCustomer(customer.phone_number, cleanedData);
+        // Clear specific customer cache
+        customerService.clearCustomerCache(customer.phone_number);
       } else {
         result = await customerService.createCustomer(cleanedData);
       }
+      
+      // Clear general customer list cache to ensure fresh data
+      customerService.clearCustomerCache();
 
       if (onSave) {
         onSave(result);
@@ -165,9 +189,28 @@ const CustomerDialog = ({
       onOpenChange(false);
     } catch (error) {
       console.error('Save customer error:', error);
+      
+      // Handle specific error types
+      let errorMessage = 'Failed to save customer';
+      if (error.message.includes('409')) {
+        errorMessage = 'A customer with this phone number already exists';
+        form.setError('phone_number', {
+          type: 'manual',
+          message: errorMessage,
+        });
+      } else if (error.message.includes('400')) {
+        errorMessage = 'Invalid customer data. Please check your inputs.';
+      } else if (error.message.includes('403')) {
+        errorMessage = 'You do not have permission to perform this action';
+      } else if (error.message.includes('422')) {
+        errorMessage = 'Validation error. Please check your inputs.';
+      } else {
+        errorMessage = error.message || 'Failed to save customer. Please try again.';
+      }
+      
       form.setError('root', {
         type: 'manual',
-        message: error.message || 'Failed to save customer',
+        message: errorMessage,
       });
     } finally {
       setIsLoading(false);

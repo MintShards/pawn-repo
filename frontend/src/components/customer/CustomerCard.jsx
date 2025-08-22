@@ -66,11 +66,24 @@ const CustomerCard = ({
               type="checkbox"
               checked={isSelected}
               onChange={(e) => onSelect?.(customer.phone_number, e.target.checked)}
-              className="w-4 h-4 text-amber-600 border-slate-300 rounded focus:ring-amber-500"
+              className="w-4 h-4 text-amber-600 border-slate-300 rounded focus:ring-amber-500 focus:ring-2"
+              aria-label={`Select customer ${customerService.getCustomerFullName(customer)}`}
             />
             
             {/* Avatar and basic info */}
-            <div className="flex items-center gap-3 flex-1 cursor-pointer" onClick={() => onView?.(customer)}>
+            <div 
+              className="flex items-center gap-3 flex-1 cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 rounded-lg p-1 -m-1" 
+              onClick={() => onView?.(customer)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onView?.(customer);
+                }
+              }}
+              tabIndex={0}
+              role="button"
+              aria-label={`View details for customer ${customerService.getCustomerFullName(customer)}`}
+            >
               <Avatar className="h-12 w-12 border-2 border-slate-200 dark:border-slate-700">
                 <AvatarImage 
                   src={getCustomerAvatarUrl(customer)} 
@@ -101,7 +114,12 @@ const CustomerCard = ({
           {/* Actions Menu */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="h-8 w-8 p-0"
+                aria-label={`Actions for customer ${customerService.getCustomerFullName(customer)}`}
+              >
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
@@ -140,12 +158,20 @@ const CustomerCard = ({
                     <p className="font-medium text-sm">Risk Assessment</p>
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div>
-                        <span className="text-muted-foreground">Credit:</span>
-                        <p className="font-medium">${(customer.credit_limit || 1000).toLocaleString()}</p>
+                        <span className="text-muted-foreground">Can Borrow:</span>
+                        <p className="font-medium text-green-600">
+                          {customerService.getBorrowAmountDisplay(customer)}
+                        </p>
                       </div>
                       <div>
                         <span className="text-muted-foreground">Score:</span>
                         <p className="font-medium">{customer.payment_history_score || 80}/100</p>
+                      </div>
+                      <div className="col-span-2">
+                        <span className="text-muted-foreground">Risk Level:</span>
+                        <p className={`font-medium ${customerService.getRiskLevelDisplay(customer).color}`}>
+                          {customerService.getRiskLevelDisplay(customer).level}
+                        </p>
                       </div>
                     </div>
                   </div>

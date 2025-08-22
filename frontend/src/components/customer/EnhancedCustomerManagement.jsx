@@ -474,7 +474,10 @@ const EnhancedCustomerManagement = () => {
                        sortField;
       params.sort_order = sortOrder;
       
-      const response = await customerService.getAllCustomers(params);
+      // Use enhanced search if we have a search term, otherwise use getAllCustomers
+      const response = search ? 
+        await customerService.searchCustomers(search, params) : 
+        await customerService.getAllCustomers(params);
       
       // Handle paginated response with metadata
       if (response && response.customers) {
@@ -715,9 +718,12 @@ const EnhancedCustomerManagement = () => {
     }
   };
 
-  const handleCustomerSaved = async () => {
+  const handleCustomerSaved = async (savedCustomer) => {
     setShowAddDialog(false);
     setEditingCustomer(null);
+    
+    // Clear cache to ensure fresh data
+    customerService.clearCustomerCache();
     
     // Refresh both customer list and stats
     await Promise.all([
@@ -726,16 +732,25 @@ const EnhancedCustomerManagement = () => {
     ]);
     
     // If we have a selected customer open, refresh their data
-    if (selectedCustomer && showDetails) {
+    if (selectedCustomer && savedCustomer) {
+      // Update the selected customer with fresh data
       try {
-        const updatedCustomer = await customerService.getCustomerByPhone(selectedCustomer.phone_number);
+        const updatedCustomer = await customerService.getCustomerByPhone(savedCustomer.phone_number);
         if (updatedCustomer) {
           setSelectedCustomer(updatedCustomer);
         }
       } catch (error) {
-        console.error('Failed to refresh selected customer:', error);
+        console.warn('Failed to refresh selected customer data:', error);
       }
     }
+    
+    // Show success message
+    toast({
+      title: editingCustomer ? 'Customer Updated' : 'Customer Created',
+      description: savedCustomer ? 
+        `${customerService.getCustomerFullName(savedCustomer)} has been ${editingCustomer ? 'updated' : 'created'} successfully.` :
+        `Customer has been ${editingCustomer ? 'updated' : 'created'} successfully.`,
+    });
   };
 
   const handleStartEditingNotes = () => {
@@ -757,10 +772,13 @@ const EnhancedCustomerManagement = () => {
         notes: notesText.trim()
       });
       
+      // Clear cache to ensure data freshness
+      customerService.clearCustomerCache(selectedCustomer.phone_number);
+      
       // Update the selected customer with new notes
       setSelectedCustomer(updatedCustomer);
       
-      // Update customer in the list
+      // Update the customer in the list as well
       setCustomers(prevCustomers => 
         prevCustomers.map(customer => 
           customer.phone_number === selectedCustomer.phone_number 
