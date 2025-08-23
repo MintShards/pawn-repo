@@ -8,7 +8,8 @@ including creation, updates, responses, and search functionality.
 from datetime import datetime
 from typing import Optional, List
 from decimal import Decimal
-from pydantic import BaseModel, Field, ConfigDict
+import re
+from pydantic import BaseModel, Field, ConfigDict, validator
 from pydantic.networks import EmailStr
 
 from app.models.customer_model import CustomerStatus
@@ -47,6 +48,77 @@ class CustomerCreate(CustomerBase):
         max_length=10,
         description="10-digit phone number (unique identifier)"
     )
+    
+    @validator('first_name', 'last_name')
+    def validate_names(cls, v):
+        """Enhanced name validation with unicode support for international names"""
+        if not v or not v.strip():
+            raise ValueError('Name cannot be empty')
+        
+        # Remove leading/trailing whitespace
+        v = v.strip()
+        
+        # Enhanced regex pattern for international names:
+        # Support Unicode letters, spaces, hyphens, and apostrophes
+        # This supports names like: José, O'Connor, Mary-Jane, etc.
+        if not re.match(r'^[\w\s\-\'\.]+$', v, re.UNICODE):
+            raise ValueError('Name contains invalid characters. Only letters, spaces, hyphens, and apostrophes are allowed.')
+        
+        # Check length after cleaning
+        if len(v) < 1 or len(v) > 50:
+            raise ValueError('Name must be between 1 and 50 characters')
+        
+        return v
+    
+    @validator('phone_number')
+    def validate_phone_number(cls, v):
+        """Strict phone number validation - exactly 10 digits"""
+        if not v:
+            raise ValueError('Phone number is required')
+        
+        # Remove any non-digit characters for validation
+        digits_only = re.sub(r'[^\d]', '', v)
+        
+        # Must be exactly 10 digits
+        if not re.match(r'^\d{10}$', digits_only):
+            raise ValueError('Phone number must be exactly 10 digits (e.g., 5551234567)')
+        
+        # Return only digits
+        return digits_only
+    
+    @validator('email')
+    def validate_email_security(cls, v):
+        """Additional email security validation"""
+        if v is None:
+            return v
+        
+        # Basic XSS protection - reject emails with suspicious characters
+        if re.search(r'[<>"\'\(\)&]', v):
+            raise ValueError('Email contains invalid characters')
+        
+        # Length check for security
+        if len(v) > 254:  # RFC 5321 limit
+            raise ValueError('Email address is too long')
+            
+        return v
+    
+    @validator('notes')
+    def validate_notes_security(cls, v):
+        """Security validation for notes field"""
+        if v is None:
+            return v
+        
+        v = v.strip()
+        
+        # Basic XSS protection - sanitize HTML-like content
+        if re.search(r'<[^>]+>', v):
+            raise ValueError('Notes cannot contain HTML tags')
+        
+        # Additional XSS patterns
+        if re.search(r'(javascript:|data:|vbscript:|onload=|onerror=)', v, re.IGNORECASE):
+            raise ValueError('Notes contain potentially unsafe content')
+        
+        return v
     
     model_config = ConfigDict(
         json_schema_extra={
@@ -96,6 +168,61 @@ class CustomerUpdate(CustomerBase):
         ge=0,
         description="Number of defaulted loans (admin only)"
     )
+    
+    @validator('first_name', 'last_name')
+    def validate_names(cls, v):
+        """Enhanced name validation with unicode support for international names"""
+        if v is None:
+            return v
+        
+        if not v.strip():
+            raise ValueError('Name cannot be empty')
+        
+        # Remove leading/trailing whitespace
+        v = v.strip()
+        
+        # Enhanced regex pattern for international names
+        if not re.match(r'^[\w\s\-\'\.]+$', v, re.UNICODE):
+            raise ValueError('Name contains invalid characters. Only letters, spaces, hyphens, and apostrophes are allowed.')
+        
+        # Check length after cleaning
+        if len(v) < 1 or len(v) > 50:
+            raise ValueError('Name must be between 1 and 50 characters')
+        
+        return v
+    
+    @validator('email')
+    def validate_email_security(cls, v):
+        """Additional email security validation"""
+        if v is None:
+            return v
+        
+        # Basic XSS protection
+        if re.search(r'[<>"\'\(\)&]', v):
+            raise ValueError('Email contains invalid characters')
+        
+        # Length check for security
+        if len(v) > 254:
+            raise ValueError('Email address is too long')
+            
+        return v
+    
+    @validator('notes')
+    def validate_notes_security(cls, v):
+        """Security validation for notes field"""
+        if v is None:
+            return v
+        
+        v = v.strip()
+        
+        # Basic XSS protection
+        if re.search(r'<[^>]+>', v):
+            raise ValueError('Notes cannot contain HTML tags')
+        
+        if re.search(r'(javascript:|data:|vbscript:|onload=|onerror=)', v, re.IGNORECASE):
+            raise ValueError('Notes contain potentially unsafe content')
+        
+        return v
     
     model_config = ConfigDict(
         json_schema_extra={
@@ -204,6 +331,12 @@ class CustomerStatsResponse(BaseModel):
     customers_created_today: int = Field(..., description="Customers created today")
     avg_transactions_per_customer: float = Field(..., description="Average transactions per customer")
     
+    # Enhanced customer-focused metrics
+    new_this_month: int = Field(..., description="Customers joined in the last 30 days")
+    good_standing: int = Field(..., description="Customers with low-medium risk level")
+    needs_follow_up: int = Field(..., description="High-risk customers or flagged for contact")
+    eligible_for_increase: int = Field(..., description="Low-risk customers eligible for credit increase")
+    
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
@@ -212,7 +345,11 @@ class CustomerStatsResponse(BaseModel):
                 "suspended_customers": 5,
                 "archived_customers": 2,
                 "customers_created_today": 3,
-                "avg_transactions_per_customer": 8.5
+                "avg_transactions_per_customer": 8.5,
+                "new_this_month": 12,
+                "good_standing": 95,
+                "needs_follow_up": 8,
+                "eligible_for_increase": 35
             }
         }
     )

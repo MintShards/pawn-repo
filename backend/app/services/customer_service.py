@@ -392,39 +392,160 @@ class CustomerService:
 
     @staticmethod
     async def get_customer_statistics() -> CustomerStatsResponse:
-        """Get customer statistics for admin dashboard"""
-        total_customers = await Customer.count()
-        active_customers = await Customer.find(
-            Customer.status == CustomerStatus.ACTIVE
-        ).count()
-        suspended_customers = await Customer.find(
-            Customer.status == CustomerStatus.SUSPENDED
-        ).count()
-        archived_customers = await Customer.find(
-            Customer.status == CustomerStatus.ARCHIVED
-        ).count()
-        
-        # Get customers created today
-        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-        customers_created_today = await Customer.find(
-            Customer.created_at >= today_start
-        ).count()
-        
-        # Calculate average transactions per customer
-        pipeline = [
-            {"$group": {
-                "_id": None,
-                "avg_transactions": {"$avg": "$total_transactions"}
-            }}
-        ]
-        avg_result = await Customer.aggregate(pipeline).to_list()
-        avg_transactions = avg_result[0]["avg_transactions"] if avg_result else 0.0
-        
-        return CustomerStatsResponse(
-            total_customers=total_customers,
-            active_customers=active_customers,
-            suspended_customers=suspended_customers,
-            archived_customers=archived_customers,
-            customers_created_today=customers_created_today,
-            avg_transactions_per_customer=round(avg_transactions, 2)
-        )
+        """Get comprehensive customer statistics for admin dashboard with customer-focused metrics"""
+        try:
+            # Calculate date boundaries
+            now = datetime.utcnow()
+            today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            thirty_days_ago = datetime.fromtimestamp(now.timestamp() - (30 * 24 * 60 * 60))
+            
+            # Use MongoDB aggregation pipeline for efficient calculation
+            pipeline = [
+                {
+                    "$facet": {
+                        # Basic counts
+                        "status_counts": [
+                        {
+                            "$group": {
+                                "_id": "$status",
+                                "count": {"$sum": 1}
+                            }
+                        }
+                    ],
+                    
+                    # Today's customers
+                    "today_customers": [
+                        {
+                            "$match": {"created_at": {"$gte": today_start}}
+                        },
+                        {
+                            "$count": "count"
+                        }
+                    ],
+                    
+                    # New customers this month (last 30 days)
+                    "new_this_month": [
+                        {
+                            "$match": {"created_at": {"$gte": thirty_days_ago}}
+                        },
+                        {
+                            "$count": "count"
+                        }
+                    ],
+                    
+                    # Good standing customers (active + low/medium risk)
+                    "good_standing": [
+                        {
+                            "$match": {
+                                "status": "active",
+                                "risk_level": {"$in": ["low", "medium"]}
+                            }
+                        },
+                        {
+                            "$count": "count"
+                        }
+                    ],
+                    
+                    # Needs follow-up (high risk or flagged notes)
+                    "needs_follow_up": [
+                        {
+                            "$match": {
+                                "status": "active",
+                                "$or": [
+                                    {"risk_level": "high"},
+                                    {"notes": {"$regex": "follow|contact|call", "$options": "i"}}
+                                ]
+                            }
+                        },
+                        {
+                            "$count": "count"
+                        }
+                    ],
+                    
+                    # Eligible for credit increase (low risk + available credit)
+                    "eligible_for_increase": [
+                        {
+                            "$match": {
+                                "status": "active",
+                                "risk_level": "low",
+                                "can_borrow_amount": {"$gt": 0}
+                            }
+                        },
+                        {
+                            "$count": "count"
+                        }
+                    ],
+                    
+                    # Average transactions
+                    "avg_transactions": [
+                        {
+                            "$group": {
+                                "_id": None,
+                                "avg": {"$avg": "$total_transactions"}
+                            }
+                        }
+                    ]
+                }
+            }
+            ]
+            
+            # Execute aggregation
+            result = await Customer.aggregate(pipeline).to_list()
+            data = result[0] if result else {}
+            
+            # Process status counts
+            status_counts = {item["_id"]: item["count"] for item in data.get("status_counts", [])}
+            
+            # Extract metrics with safe defaults - FIXED: Handle empty arrays
+            total_customers = sum(status_counts.values())
+            active_customers = status_counts.get("active", 0)
+            suspended_customers = status_counts.get("suspended", 0) 
+            archived_customers = status_counts.get("archived", 0)
+            
+            # Safe array access - handle empty arrays from aggregation
+            def safe_get_count(data_key):
+                """Safely get count from aggregation result that might be empty"""
+                result_array = data.get(data_key, [])
+                return result_array[0].get("count", 0) if result_array else 0
+            
+            customers_created_today = safe_get_count("today_customers")
+            new_this_month = safe_get_count("new_this_month") 
+            good_standing = safe_get_count("good_standing")
+            needs_follow_up = safe_get_count("needs_follow_up")
+            eligible_for_increase = safe_get_count("eligible_for_increase")
+            
+            # Safe access for average transactions
+            avg_transactions_array = data.get("avg_transactions", [])
+            avg_transactions = avg_transactions_array[0].get("avg", 0.0) if avg_transactions_array else 0.0
+            avg_transactions = avg_transactions or 0.0  # Handle None values
+            
+            return CustomerStatsResponse(
+                total_customers=total_customers,
+                active_customers=active_customers,
+                suspended_customers=suspended_customers,
+                archived_customers=archived_customers,
+                customers_created_today=customers_created_today,
+                avg_transactions_per_customer=round(avg_transactions, 2),
+                new_this_month=new_this_month,
+                good_standing=good_standing,
+                needs_follow_up=needs_follow_up,
+                eligible_for_increase=eligible_for_increase
+            )
+            
+        except Exception as e:
+            # Log error and return safe defaults if aggregation fails
+            print(f"Error in get_customer_statistics: {e}")
+            
+            # Return safe fallback with zero counts
+            return CustomerStatsResponse(
+                total_customers=0,
+                active_customers=0,
+                suspended_customers=0,
+                archived_customers=0,
+                customers_created_today=0,
+                avg_transactions_per_customer=0.0,
+                new_this_month=0,
+                good_standing=0,
+                needs_follow_up=0,
+                eligible_for_increase=0
+            )

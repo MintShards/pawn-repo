@@ -12,7 +12,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 
 # Local imports
-from app.api.deps.user_deps import get_current_user, get_current_admin_user
+from app.api.deps.user_deps import get_current_user
+from app.core.auth import get_admin_user
 from app.models.customer_model import CustomerStatus
 from app.models.user_model import User
 from app.schemas.customer_schema import (
@@ -137,14 +138,15 @@ async def get_customers_list(
     "/stats",
     response_model=CustomerStatsResponse,
     summary="Get customer statistics",
-    description="Get customer statistics for dashboard (Staff and Admin access)",
+    description="Get customer statistics for dashboard (Admin access only)",
     responses={
         200: {"description": "Customer statistics retrieved successfully"},
-        403: {"description": "Authentication required"}
+        401: {"description": "Authentication required"},
+        403: {"description": "Admin access required"}
     }
 )
 async def get_customer_statistics(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_admin_user)
 ) -> CustomerStatsResponse:
     """Get customer statistics for dashboard"""
     return await CustomerService.get_customer_statistics()
@@ -275,7 +277,7 @@ async def update_customer(
 async def deactivate_customer(
     phone_number: str,
     reason: str = "Customer requested account closure",
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(get_admin_user)
 ) -> CustomerResponse:
     """Deactivate customer account (customer-requested closure)"""
     try:
@@ -331,7 +333,7 @@ async def deactivate_customer(
 async def archive_customer(
     phone_number: str,
     archive_request: CustomerArchiveRequest = Body(...),
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(get_admin_user)
 ) -> CustomerResponse:
     """Archive customer account (long-term inactive, compliance preservation)"""
     try:

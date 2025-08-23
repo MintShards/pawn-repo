@@ -39,11 +39,11 @@ security_logger = structlog.get_logger("security")
 class SecurityConfig:
     """Security configuration constants"""
     
-    # Rate limiting settings - Environment configurable
-    LOGIN_RATE_LIMIT = "3/minute"  # 3 login attempts per minute (stricter)
-    API_RATE_LIMIT = "60/minute"   # 60 API calls per minute (more conservative)
-    STRICT_RATE_LIMIT = "5/minute"  # 5 requests per minute for sensitive endpoints
-    ADMIN_RATE_LIMIT = "30/minute"  # 30 requests per minute for admin endpoints
+    # Rate limiting settings - Development optimized
+    LOGIN_RATE_LIMIT = "5/minute"  # 5 login attempts per minute  
+    API_RATE_LIMIT = "120/minute"   # 120 API calls per minute (2 per second) - INCREASED FOR DEVELOPMENT
+    STRICT_RATE_LIMIT = "10/minute"  # 10 requests per minute for sensitive endpoints
+    ADMIN_RATE_LIMIT = "60/minute"  # 60 requests per minute for admin endpoints - DOUBLED
     
     # Production rate limits (more restrictive)
     PROD_LOGIN_RATE_LIMIT = "2/minute"

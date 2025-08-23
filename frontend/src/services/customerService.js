@@ -27,10 +27,13 @@ class CustomerService {
   // Create new customer
   async createCustomer(customerData) {
     try {
-      return await authService.apiRequest('/api/v1/customer/create', {
+      const result = await authService.apiRequest('/api/v1/customer/create', {
         method: 'POST',
         body: JSON.stringify(customerData),
       });
+      // Force immediate cache clear for instant UI updates
+      this.clearCustomerCache();
+      return result;
     } catch (error) {
       console.error('Create customer error:', error);
       throw error;
@@ -55,10 +58,14 @@ class CustomerService {
   // Update customer
   async updateCustomer(phoneNumber, customerData) {
     try {
-      return await authService.apiRequest(`/api/v1/customer/${phoneNumber}`, {
+      const result = await authService.apiRequest(`/api/v1/customer/${phoneNumber}`, {
         method: 'PUT',
         body: JSON.stringify(customerData),
       });
+      // Force immediate cache clear for instant UI updates
+      this.clearCustomerCache();
+      this.clearCustomerCache(phoneNumber);
+      return result;
     } catch (error) {
       console.error('Update customer error:', error);
       throw error;
@@ -87,16 +94,51 @@ class CustomerService {
     return `${firstName} ${lastName}`.trim();
   }
 
-  // Get customer statistics (admin only)
+  // Get customer statistics (admin only) with enhanced caching
   async getCustomerStatistics() {
     try {
-      return await authService.apiRequest('/api/v1/customer/stats', {
+      // Check for cached stats first (reduced cache time for stats)
+      const cacheKey = 'customer_stats';
+      const cached = this._getFromCache(cacheKey);
+      if (cached) {
+        console.log('📊 Using cached customer statistics');
+        return cached;
+      }
+
+      const stats = await authService.apiRequest('/api/v1/customer/stats', {
         method: 'GET',
       });
+
+      // Cache stats for 2 minutes (shorter than other data)
+      this._setCache(cacheKey, stats, 2 * 60 * 1000);
+      
+      return stats;
     } catch (error) {
       console.error('Get customer statistics error:', error);
       throw error;
     }
+  }
+
+  // Simple local cache implementation
+  _getFromCache(key) {
+    const cached = localStorage.getItem(`customer_cache_${key}`);
+    if (cached) {
+      const data = JSON.parse(cached);
+      if (Date.now() < data.expiry) {
+        return data.value;
+      } else {
+        localStorage.removeItem(`customer_cache_${key}`);
+      }
+    }
+    return null;
+  }
+
+  _setCache(key, value, ttlMs) {
+    const data = {
+      value,
+      expiry: Date.now() + ttlMs
+    };
+    localStorage.setItem(`customer_cache_${key}`, JSON.stringify(data));
   }
 
 
@@ -200,13 +242,35 @@ class CustomerService {
     return { valid: true, cleaned };
   }
 
-  // Clear customer cache when needed
+  // Clear customer cache when needed - enhanced for immediate refresh
   clearCustomerCache(phoneNumber = null) {
     if (phoneNumber) {
       authService.clearCache(`/api/v1/customer/${phoneNumber}`);
+      authService.clearCache('/api/v1/customer/'); // Clear list cache too
     } else {
       authService.clearCache('/api/v1/customer');
+      authService.clearCache('/api/v1/customer/');
     }
+    console.log('🔄 Customer cache cleared for immediate refresh');
+  }
+  
+  // Force refresh - clears cache and returns fresh data immediately
+  async forceRefresh() {
+    this.clearCustomerCache();
+    this._clearLocalCache();
+    authService.invalidateDataCache();
+    console.log('🔄 Forced complete cache refresh');
+  }
+
+  // Clear local cache
+  _clearLocalCache() {
+    const keys = Object.keys(localStorage);
+    keys.forEach(key => {
+      if (key.startsWith('customer_cache_')) {
+        localStorage.removeItem(key);
+      }
+    });
+    console.log('🧹 Local customer cache cleared');
   }
 
   // Bulk operations helper

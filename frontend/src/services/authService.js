@@ -13,7 +13,7 @@ class AuthService {
     this.lastRequestTime = 0;
     this.minRequestInterval = 100; // Minimum 100ms between requests
     this.rateLimitRetryDelay = 2000; // 2 second delay for rate limit retries
-    this.cacheExpiry = 30000; // 30 second cache for GET requests
+    this.cacheExpiry = 5000; // 5 second cache for GET requests - more responsive to changes
   }
 
   async login(userCredentials) {
@@ -229,6 +229,14 @@ class AuthService {
     }
   }
   
+  // Force immediate cache invalidation for data modification operations
+  invalidateDataCache() {
+    // Clear all customer-related cache entries immediately
+    this.clearCache('/api/v1/customer');
+    this.clearCache('/api/v1/user');
+    console.log('🧹 Data cache invalidated for immediate refresh');
+  }
+  
   getCacheStats() {
     return {
       cacheSize: this.requestCache.size,
@@ -354,12 +362,15 @@ class AuthService {
 
     const data = await response.json();
     
-    // Cache GET requests
+    // Cache GET requests only if not a data modification response
     if (method === 'GET') {
       this.requestCache.set(cacheKey, {
         data,
         timestamp: Date.now()
       });
+    } else if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+      // For data modification, immediately invalidate related cache
+      this.invalidateDataCache();
     }
     
     return data;

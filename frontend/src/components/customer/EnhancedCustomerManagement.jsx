@@ -89,7 +89,11 @@ const EnhancedCustomerManagement = () => {
     total: 0,
     active: 0,
     suspended: 0,
-    archived: 0
+    archived: 0,
+    newThisMonth: 0,
+    goodStanding: 0,
+    needsFollowUp: 0,
+    eligibleForIncrease: 0
   });
   const [loading, setLoading] = useState(true);
   const [customerListLoading, setCustomerListLoading] = useState(false);
@@ -346,8 +350,8 @@ const EnhancedCustomerManagement = () => {
       setShowArchiveDialog(false);
       setArchiveConfirmation('');
       
-      // Refresh both stats and customer list to ensure data consistency
-      await loadCustomers(currentPage, getCurrentSearchTerm(), statusFilter);
+      // Force refresh both stats and customer list to ensure immediate data consistency
+      await loadCustomers(currentPage, getCurrentSearchTerm(), statusFilter, true);
       
     } catch (error) {
       console.error('Failed to archive customer:', error);
@@ -429,22 +433,47 @@ const EnhancedCustomerManagement = () => {
     });
   };
 
-  // Load customer statistics
+  // Load customer statistics using optimized backend API - PERFORMANCE FIX
   const loadCustomerStats = useCallback(async () => {
     try {
+      // Use the optimized backend stats endpoint - single efficient API call
       const stats = await customerService.getCustomerStatistics();
+      
       if (stats) {
         setCustomerStats({
           total: stats.total_customers || 0,
           active: stats.active_customers || 0,
           suspended: stats.suspended_customers || 0,
-          archived: stats.archived_customers || 0
+          archived: stats.archived_customers || 0,
+          newThisMonth: stats.new_this_month || 0,
+          goodStanding: stats.good_standing || 0,
+          needsFollowUp: stats.needs_follow_up || 0,
+          eligibleForIncrease: stats.eligible_for_increase || 0
         });
       }
     } catch (error) {
       console.error('Failed to load customer stats:', error);
+      
+      // Fallback with safe defaults
+      setCustomerStats({
+        total: 0,
+        active: 0,
+        suspended: 0,
+        archived: 0,
+        newThisMonth: 0,
+        goodStanding: 0,
+        needsFollowUp: 0,
+        eligibleForIncrease: 0
+      });
+      
+      // Show user-friendly error message
+      toast({
+        title: 'Stats Loading Error',
+        description: 'Unable to load customer statistics. Please refresh the page.',
+        variant: 'destructive'
+      });
     }
-  }, []);
+  }, [toast]);
 
   // Load only customer list (for search/pagination) 
   const loadCustomerList = useCallback(async (page = 1, search = '', status = null) => {
@@ -528,10 +557,45 @@ const EnhancedCustomerManagement = () => {
     }
   }, [customersPerPage, sortField, sortOrder, toast]);
 
-  // Load full page data (initial load with stats)
-  const loadCustomers = useCallback(async (page = 1, search = '', status = null) => {
+  // Force complete data refresh - clears all caches and reloads
+  const forceRefreshAllData = useCallback(async () => {
     setLoading(true);
     try {
+      // Force cache invalidation
+      await customerService.forceRefresh();
+      
+      // Load stats and customer list in parallel with fresh data
+      await Promise.all([
+        loadCustomerStats(),
+        loadCustomerList(currentPage, getCurrentSearchTerm(), statusFilter)
+      ]);
+      
+      toast({
+        title: 'Data Refreshed',
+        description: 'All customer data has been refreshed with the latest information.',
+        duration: 2000
+      });
+    } catch (error) {
+      console.error('Failed to refresh data:', error);
+      toast({
+        title: 'Refresh Failed',
+        description: 'Failed to refresh data. Please try again.',
+        variant: 'destructive'
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [loadCustomerStats, loadCustomerList, currentPage, getCurrentSearchTerm, statusFilter, toast]);
+
+  // Load full page data (initial load with stats)
+  const loadCustomers = useCallback(async (page = 1, search = '', status = null, forceRefresh = false) => {
+    setLoading(true);
+    try {
+      // Clear cache if force refresh requested
+      if (forceRefresh) {
+        await customerService.forceRefresh();
+      }
+      
       // Load stats and customer list in parallel
       await Promise.all([
         loadCustomerStats(),
@@ -672,8 +736,8 @@ const EnhancedCustomerManagement = () => {
         }
       }
 
-      // Refresh data to ensure consistency
-      await loadCustomers(currentPage, getCurrentSearchTerm(), statusFilter);
+      // Force refresh data to ensure immediate consistency
+      await loadCustomers(currentPage, getCurrentSearchTerm(), statusFilter, true);
       setSelectedCustomerIds([]);
 
       // Show result toast
@@ -722,10 +786,10 @@ const EnhancedCustomerManagement = () => {
     setShowAddDialog(false);
     setEditingCustomer(null);
     
-    // Clear cache to ensure fresh data
-    customerService.clearCustomerCache();
+    // Force complete cache invalidation for immediate refresh
+    await customerService.forceRefresh();
     
-    // Refresh both customer list and stats
+    // Refresh both customer list and stats with immediate effect
     await Promise.all([
       loadCustomerList(currentPage, getCurrentSearchTerm(), statusFilter),
       loadCustomerStats() // Refresh stats including Eligible for Loans count
@@ -735,6 +799,8 @@ const EnhancedCustomerManagement = () => {
     if (selectedCustomer && savedCustomer) {
       // Update the selected customer with fresh data
       try {
+        // Clear specific customer cache and get fresh data
+        customerService.clearCustomerCache(savedCustomer.phone_number);
         const updatedCustomer = await customerService.getCustomerByPhone(savedCustomer.phone_number);
         if (updatedCustomer) {
           setSelectedCustomer(updatedCustomer);
@@ -772,7 +838,8 @@ const EnhancedCustomerManagement = () => {
         notes: notesText.trim()
       });
       
-      // Clear cache to ensure data freshness
+      // Force cache clear and refresh for immediate UI update
+      await customerService.forceRefresh();
       customerService.clearCustomerCache(selectedCustomer.phone_number);
       
       // Update the selected customer with new notes
@@ -795,8 +862,8 @@ const EnhancedCustomerManagement = () => {
         description: 'Customer notes updated successfully'
       });
       
-      // Refresh list to ensure data consistency
-      await loadCustomers(currentPage, getCurrentSearchTerm(), statusFilter);
+      // Force refresh list to ensure immediate data consistency
+      await loadCustomers(currentPage, getCurrentSearchTerm(), statusFilter, true);
       
     } catch (error) {
       console.error('Failed to save notes:', error);
@@ -885,33 +952,50 @@ const EnhancedCustomerManagement = () => {
             Manage customer records and track loan eligibility
           </p>
         </div>
-        <Button 
-          onClick={() => {
-            setEditingCustomer(null);
-            setShowAddDialog(true);
-          }}
-          className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg shadow-blue-500/25 border-0"
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          Add Customer
-        </Button>
+        <div className="flex gap-2">
+          <Button 
+            onClick={() => {
+              setEditingCustomer(null);
+              setShowAddDialog(true);
+            }}
+            className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg shadow-blue-500/25 border-0"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Add Customer
+          </Button>
+          <Button 
+            onClick={forceRefreshAllData}
+            variant="outline"
+            disabled={loading}
+            className="border-slate-200 hover:border-blue-300 hover:bg-blue-50 text-slate-700 hover:text-blue-700"
+          >
+            {loading ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            )}
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Modern Stats Grid */}
       <div className={`grid gap-6 ${isAdmin ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-5' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'}`}>
         {/* Active/Eligible Customers */}
-        <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/50 dark:to-teal-950/50">
+        <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/50 dark:to-teal-950/50 hover:shadow-md transition-shadow cursor-pointer group">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
+                <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300 group-hover:text-emerald-800 dark:group-hover:text-emerald-200">
                   Active Customers
                 </p>
                 <p className="text-2xl font-bold text-emerald-900 dark:text-emerald-100">
                   {customerStats.active}
                 </p>
               </div>
-              <div className="w-12 h-12 bg-emerald-500/10 dark:bg-emerald-400/10 rounded-xl flex items-center justify-center">
+              <div className="w-12 h-12 bg-emerald-500/10 dark:bg-emerald-400/10 rounded-xl flex items-center justify-center group-hover:bg-emerald-500/20 dark:group-hover:bg-emerald-400/20">
                 <CheckCircle className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
               </div>
             </div>
@@ -919,80 +1003,80 @@ const EnhancedCustomerManagement = () => {
           </CardContent>
         </Card>
 
-        {/* Due Today */}
-        <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/50 dark:to-orange-950/50">
+        {/* New Customers This Month */}
+        <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/50 dark:to-orange-950/50 hover:shadow-md transition-shadow cursor-pointer group">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
-                  Due Today
+                <p className="text-sm font-medium text-amber-700 dark:text-amber-300 group-hover:text-amber-800 dark:group-hover:text-amber-200">
+                  New This Month
                 </p>
                 <p className="text-2xl font-bold text-amber-900 dark:text-amber-100">
-                  3
+                  {customerStats.newThisMonth}
                 </p>
               </div>
-              <div className="w-12 h-12 bg-amber-500/10 dark:bg-amber-400/10 rounded-xl flex items-center justify-center">
-                <Calendar className="w-6 h-6 text-amber-600 dark:text-amber-400" />
+              <div className="w-12 h-12 bg-amber-500/10 dark:bg-amber-400/10 rounded-xl flex items-center justify-center group-hover:bg-amber-500/20 dark:group-hover:bg-amber-400/20">
+                <TrendingUp className="w-6 h-6 text-amber-600 dark:text-amber-400" />
               </div>
             </div>
             <div className="absolute top-0 right-0 w-20 h-20 bg-amber-500/5 dark:bg-amber-400/5 rounded-full -mr-10 -mt-10"></div>
           </CardContent>
         </Card>
 
-        {/* Overdue */}
-        <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-r from-red-50 to-rose-50 dark:from-red-950/50 dark:to-rose-950/50">
+        {/* Needs Follow-Up */}
+        <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-r from-red-50 to-rose-50 dark:from-red-950/50 dark:to-rose-950/50 hover:shadow-md transition-shadow cursor-pointer group">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-red-700 dark:text-red-300">
-                  Overdue
+                <p className="text-sm font-medium text-red-700 dark:text-red-300 group-hover:text-red-800 dark:group-hover:text-red-200">
+                  Needs Follow-Up
                 </p>
                 <p className="text-2xl font-bold text-red-900 dark:text-red-100">
-                  7
+                  {customerStats.needsFollowUp}
                 </p>
               </div>
-              <div className="w-12 h-12 bg-red-500/10 dark:bg-red-400/10 rounded-xl flex items-center justify-center">
-                <AlertCircle className="w-6 h-6 text-red-600 dark:text-red-400" />
+              <div className="w-12 h-12 bg-red-500/10 dark:bg-red-400/10 rounded-xl flex items-center justify-center group-hover:bg-red-500/20 dark:group-hover:bg-red-400/20">
+                <Phone className="w-6 h-6 text-red-600 dark:text-red-400" />
               </div>
             </div>
             <div className="absolute top-0 right-0 w-20 h-20 bg-red-500/5 dark:bg-red-400/5 rounded-full -mr-10 -mt-10"></div>
           </CardContent>
         </Card>
 
-        {/* Collections */}
-        <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-r from-blue-50 to-cyan-50 dark:from-blue-950/50 dark:to-cyan-950/50">
+        {/* Customers in Good Standing */}
+        <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-r from-blue-50 to-cyan-50 dark:from-blue-950/50 dark:to-cyan-950/50 hover:shadow-md transition-shadow cursor-pointer group">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-blue-700 dark:text-blue-300">
-                  Collections
+                <p className="text-sm font-medium text-blue-700 dark:text-blue-300 group-hover:text-blue-800 dark:group-hover:text-blue-200">
+                  Good Standing
                 </p>
                 <p className="text-2xl font-bold text-blue-900 dark:text-blue-100">
-                  $2,450
+                  {customerStats.goodStanding}
                 </p>
               </div>
-              <div className="w-12 h-12 bg-blue-500/10 dark:bg-blue-400/10 rounded-xl flex items-center justify-center">
-                <Banknote className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+              <div className="w-12 h-12 bg-blue-500/10 dark:bg-blue-400/10 rounded-xl flex items-center justify-center group-hover:bg-blue-500/20 dark:group-hover:bg-blue-400/20">
+                <CheckCircle className="w-6 h-6 text-blue-600 dark:text-blue-400" />
               </div>
             </div>
             <div className="absolute top-0 right-0 w-20 h-20 bg-blue-500/5 dark:bg-blue-400/5 rounded-full -mr-10 -mt-10"></div>
           </CardContent>
         </Card>
 
-        {/* Admin-only At Risk */}
+        {/* Admin-only Credit Limit Increase */}
         {isAdmin && (
-          <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-r from-purple-50 to-violet-50 dark:from-purple-950/50 dark:to-violet-950/50">
+          <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-r from-purple-50 to-violet-50 dark:from-purple-950/50 dark:to-violet-950/50 hover:shadow-md transition-shadow cursor-pointer group">
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-purple-700 dark:text-purple-300">
-                    At Risk
+                  <p className="text-sm font-medium text-purple-700 dark:text-purple-300 group-hover:text-purple-800 dark:group-hover:text-purple-200">
+                    Credit Increase
                   </p>
                   <p className="text-2xl font-bold text-purple-900 dark:text-purple-100">
-                    5
+                    {customerStats.eligibleForIncrease}
                   </p>
                 </div>
-                <div className="w-12 h-12 bg-purple-500/10 dark:bg-purple-400/10 rounded-xl flex items-center justify-center">
+                <div className="w-12 h-12 bg-purple-500/10 dark:bg-purple-400/10 rounded-xl flex items-center justify-center group-hover:bg-purple-500/20 dark:group-hover:bg-purple-400/20">
                   <TrendingUp className="w-6 h-6 text-purple-600 dark:text-purple-400" />
                 </div>
               </div>
