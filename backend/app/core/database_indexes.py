@@ -202,10 +202,10 @@ async def create_database_indexes(db_client):
     collections_and_indexes = [
         ("users", DatabaseIndexes.get_user_indexes()),
         ("customers", DatabaseIndexes.get_customer_indexes()),
-        ("pawntransactions", DatabaseIndexes.get_transaction_indexes()),
+        ("pawn_transactions", DatabaseIndexes.get_transaction_indexes()),
         ("payments", DatabaseIndexes.get_payment_indexes()),
         ("extensions", DatabaseIndexes.get_extension_indexes()),
-        ("pawnitems", DatabaseIndexes.get_item_indexes()),
+        ("pawn_items", DatabaseIndexes.get_item_indexes()),
     ]
     
     created_count = 0
@@ -313,7 +313,7 @@ async def drop_database_indexes(db_client, collection_name: str = None):
         collection_name: Optional specific collection name
     """
     collections = [collection_name] if collection_name else [
-        "users", "customers", "pawntransactions", "payments", "extensions", "pawnitems"
+        "users", "customers", "pawn_transactions", "payments", "extensions", "pawn_items"
     ]
     
     for collection in collections:
@@ -352,7 +352,7 @@ async def analyze_index_usage(db_client):
         Dictionary with index usage statistics
     """
     usage_stats = {}
-    collections = ["users", "customers", "pawntransactions", "payments", "extensions", "pawnitems"]
+    collections = ["users", "customers", "pawn_transactions", "payments", "extensions", "pawn_items"]
     
     for collection_name in collections:
         try:
