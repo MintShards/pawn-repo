@@ -1,6 +1,6 @@
 import * as React from "react";
 import { cva } from "class-variance-authority";
-import { CheckCircle, AlertCircle, Archive, XCircle, Clock, TrendingUp, TrendingDown } from "lucide-react";
+import { CheckCircle, AlertCircle, Archive, XCircle, Clock } from "lucide-react";
 import { cn } from "../../lib/utils";
 
 const badgeVariants = cva(
@@ -80,43 +80,6 @@ const StatusBadge = ({ status, className, ...props }) => {
   );
 };
 
-// Risk level indicator component
-const RiskBadge = ({ level, className, ...props }) => {
-  const riskConfig = {
-    low: {
-      variant: "success",
-      icon: TrendingUp,
-      label: "Low Risk",
-      description: "Excellent payment history"
-    },
-    medium: {
-      variant: "warning",
-      icon: Clock,
-      label: "Medium Risk", 
-      description: "Some payment delays"
-    },
-    high: {
-      variant: "danger",
-      icon: TrendingDown,
-      label: "High Risk",
-      description: "Multiple payment issues"
-    }
-  };
-
-  const config = riskConfig[level?.toLowerCase()] || riskConfig.low;
-
-  return (
-    <EnhancedBadge
-      variant={config.variant}
-      icon={config.icon}
-      className={className}
-      title={config.description}
-      {...props}
-    >
-      {config.label}
-    </EnhancedBadge>
-  );
-};
 
 // Loan activity badge
 const LoanActivityBadge = ({ count, maxLoans = 5, className, ...props }) => {
@@ -139,4 +102,4 @@ const LoanActivityBadge = ({ count, maxLoans = 5, className, ...props }) => {
   );
 };
 
-export { EnhancedBadge, StatusBadge, RiskBadge, LoanActivityBadge, badgeVariants };
+export { EnhancedBadge, StatusBadge, LoanActivityBadge, badgeVariants };

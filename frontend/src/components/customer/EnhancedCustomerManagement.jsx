@@ -19,13 +19,12 @@ import {
   AlertTriangle,
   Archive,
   Calendar,
-  Banknote,
   Loader2,
   DollarSign,
   FileText
 } from 'lucide-react';
 import { Button } from '../ui/button';
-import { StatusBadge, RiskBadge } from '../ui/enhanced-badge';
+import { StatusBadge } from '../ui/enhanced-badge';
 import { CustomerTableSkeleton, StatsCardSkeleton, SearchSkeleton } from '../ui/skeleton';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import {
@@ -61,7 +60,6 @@ import {
 } from '../ui/select';
 import { Avatar, AvatarImage, AvatarFallback } from '../ui/avatar';
 import { Progress } from '../ui/progress';
-import { HoverCard, HoverCardContent, HoverCardTrigger } from '../ui/hover-card';
 import { Command, CommandInput } from '../ui/command';
 import { Checkbox } from '../ui/checkbox';
 import {
@@ -130,7 +128,6 @@ const EnhancedCustomerManagement = () => {
     status: 'all',
     creditLimit: 'all',
     paymentHistory: 'all',
-    riskLevel: 'all'
   });
   const [activeTab, setActiveTab] = useState('overview');
   const [showSuspendDialog, setShowSuspendDialog] = useState(false);
@@ -212,7 +209,7 @@ const EnhancedCustomerManagement = () => {
   };
 
   // Helper function to get current search term (for immediate actions)
-  const getCurrentSearchTerm = () => {
+  const getCurrentSearchTerm = useCallback(() => {
     if (searchQuery) {
       return searchQuery.trim();
     } else if (searchFields.phone && searchFields.phone.trim()) {
@@ -233,7 +230,7 @@ const EnhancedCustomerManagement = () => {
       }
     }
     return '';
-  };
+  }, [searchQuery, searchFields.phone, searchFields.firstName, searchFields.lastName, searchFields.email]);
 
   const clearSearchFields = () => {
     // Clear timeout to prevent pending searches
@@ -306,7 +303,6 @@ const EnhancedCustomerManagement = () => {
       // Refresh stats to reflect status change
       await loadCustomerStats();
     } catch (error) {
-      console.error('Failed to suspend customer:', error);
       toast({
         title: 'Error',
         description: 'Failed to suspend customer. Please try again.',
@@ -354,7 +350,6 @@ const EnhancedCustomerManagement = () => {
       await loadCustomers(currentPage, getCurrentSearchTerm(), statusFilter, true);
       
     } catch (error) {
-      console.error('Failed to archive customer:', error);
       
       // Handle specific error cases
       let errorMessage = 'Failed to archive customer. Please try again.';
@@ -404,8 +399,7 @@ const EnhancedCustomerManagement = () => {
       status: 'all',
       creditLimit: 'all',
       paymentHistory: 'all',
-      riskLevel: 'all'
-    });
+      });
     setStatusFilter('all');
     setSearchQuery('');
     setDebouncedSearchQuery('');
@@ -446,13 +440,12 @@ const EnhancedCustomerManagement = () => {
           suspended: stats.suspended_customers || 0,
           archived: stats.archived_customers || 0,
           newThisMonth: stats.new_this_month || 0,
-          goodStanding: stats.good_standing || 0,
+          serviceAlerts: stats.service_alerts || 0,
           needsFollowUp: stats.needs_follow_up || 0,
           eligibleForIncrease: stats.eligible_for_increase || 0
         });
       }
     } catch (error) {
-      console.error('Failed to load customer stats:', error);
       
       // Fallback with safe defaults
       setCustomerStats({
@@ -520,7 +513,6 @@ const EnhancedCustomerManagement = () => {
       }
       
     } catch (error) {
-      console.error('Failed to load customers:', error);
       
       // Enhanced error handling for different error types
       let errorMessage = 'Failed to load customers';
@@ -532,7 +524,6 @@ const EnhancedCustomerManagement = () => {
         
         // Auto-retry after rate limit delay with current parameters
         setTimeout(() => {
-          console.log('🔄 Auto-retrying after rate limit...');
           loadCustomerList(page, search, status);
         }, 3000);
       } else if (error.message?.includes('Authentication')) {
@@ -576,7 +567,6 @@ const EnhancedCustomerManagement = () => {
         duration: 2000
       });
     } catch (error) {
-      console.error('Failed to refresh data:', error);
       toast({
         title: 'Refresh Failed',
         description: 'Failed to refresh data. Please try again.',
@@ -602,7 +592,6 @@ const EnhancedCustomerManagement = () => {
         loadCustomerList(page, search, status)
       ]);
     } catch (error) {
-      console.error('Failed to load initial data:', error);
     } finally {
       setLoading(false);
     }
@@ -732,7 +721,6 @@ const EnhancedCustomerManagement = () => {
           }
         } catch (error) {
           failCount++;
-          console.error(`Failed to update customer ${phoneNumber}:`, error);
         }
       }
 
@@ -806,7 +794,6 @@ const EnhancedCustomerManagement = () => {
           setSelectedCustomer(updatedCustomer);
         }
       } catch (error) {
-        console.warn('Failed to refresh selected customer data:', error);
       }
     }
     
@@ -866,7 +853,6 @@ const EnhancedCustomerManagement = () => {
       await loadCustomers(currentPage, getCurrentSearchTerm(), statusFilter, true);
       
     } catch (error) {
-      console.error('Failed to save notes:', error);
       toast({
         title: 'Error',
         description: 'Failed to save notes. Please try again.',
@@ -1004,22 +990,22 @@ const EnhancedCustomerManagement = () => {
         </Card>
 
         {/* New Customers This Month */}
-        <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/50 dark:to-orange-950/50 hover:shadow-md transition-shadow cursor-pointer group">
+        <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-r from-indigo-50 to-blue-50 dark:from-indigo-950/50 dark:to-blue-950/50 hover:shadow-md transition-shadow cursor-pointer group">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-amber-700 dark:text-amber-300 group-hover:text-amber-800 dark:group-hover:text-amber-200">
+                <p className="text-sm font-medium text-indigo-700 dark:text-indigo-300 group-hover:text-indigo-800 dark:group-hover:text-indigo-200">
                   New This Month
                 </p>
-                <p className="text-2xl font-bold text-amber-900 dark:text-amber-100">
+                <p className="text-2xl font-bold text-indigo-900 dark:text-indigo-100">
                   {customerStats.newThisMonth}
                 </p>
               </div>
-              <div className="w-12 h-12 bg-amber-500/10 dark:bg-amber-400/10 rounded-xl flex items-center justify-center group-hover:bg-amber-500/20 dark:group-hover:bg-amber-400/20">
-                <TrendingUp className="w-6 h-6 text-amber-600 dark:text-amber-400" />
+              <div className="w-12 h-12 bg-indigo-500/10 dark:bg-indigo-400/10 rounded-xl flex items-center justify-center group-hover:bg-indigo-500/20 dark:group-hover:bg-indigo-400/20">
+                <TrendingUp className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
               </div>
             </div>
-            <div className="absolute top-0 right-0 w-20 h-20 bg-amber-500/5 dark:bg-amber-400/5 rounded-full -mr-10 -mt-10"></div>
+            <div className="absolute top-0 right-0 w-20 h-20 bg-indigo-500/5 dark:bg-indigo-400/5 rounded-full -mr-10 -mt-10"></div>
           </CardContent>
         </Card>
 
@@ -1043,23 +1029,23 @@ const EnhancedCustomerManagement = () => {
           </CardContent>
         </Card>
 
-        {/* Customers in Good Standing */}
-        <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-r from-blue-50 to-cyan-50 dark:from-blue-950/50 dark:to-cyan-950/50 hover:shadow-md transition-shadow cursor-pointer group">
+        {/* Service Alerts */}
+        <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-r from-yellow-50 to-amber-50 dark:from-yellow-950/50 dark:to-amber-950/50 hover:shadow-md transition-shadow cursor-pointer group">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-blue-700 dark:text-blue-300 group-hover:text-blue-800 dark:group-hover:text-blue-200">
-                  Good Standing
+                <p className="text-sm font-medium text-yellow-700 dark:text-yellow-300 group-hover:text-yellow-800 dark:group-hover:text-yellow-200">
+                  Service Alerts
                 </p>
-                <p className="text-2xl font-bold text-blue-900 dark:text-blue-100">
-                  {customerStats.goodStanding}
+                <p className="text-2xl font-bold text-yellow-900 dark:text-yellow-100">
+                  {customerStats.serviceAlerts}
                 </p>
               </div>
-              <div className="w-12 h-12 bg-blue-500/10 dark:bg-blue-400/10 rounded-xl flex items-center justify-center group-hover:bg-blue-500/20 dark:group-hover:bg-blue-400/20">
-                <CheckCircle className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+              <div className="w-12 h-12 bg-yellow-500/10 dark:bg-yellow-400/10 rounded-xl flex items-center justify-center group-hover:bg-yellow-500/20 dark:group-hover:bg-yellow-400/20">
+                <AlertTriangle className="w-6 h-6 text-yellow-600 dark:text-yellow-400" />
               </div>
             </div>
-            <div className="absolute top-0 right-0 w-20 h-20 bg-blue-500/5 dark:bg-blue-400/5 rounded-full -mr-10 -mt-10"></div>
+            <div className="absolute top-0 right-0 w-20 h-20 bg-yellow-500/5 dark:bg-yellow-400/5 rounded-full -mr-10 -mt-10"></div>
           </CardContent>
         </Card>
 
@@ -1197,43 +1183,6 @@ const EnhancedCustomerManagement = () => {
                           </Select>
                         </div>
                         
-                        <div>
-                          <label className="text-sm font-medium">Payment History Score <span className="text-xs text-muted-foreground">(Coming Soon)</span></label>
-                          <Select 
-                            value={advancedFilters.paymentHistory} 
-                            onValueChange={(value) => setAdvancedFilters(prev => ({ ...prev, paymentHistory: value }))}
-                            disabled
-                          >
-                            <SelectTrigger className="mt-1" disabled>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="all">All Scores</SelectItem>
-                              <SelectItem value="excellent">🟢 Excellent (90-100)</SelectItem>
-                              <SelectItem value="good">🟡 Good (70-89)</SelectItem>
-                              <SelectItem value="poor">🔴 Poor (Below 70)</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        
-                        <div>
-                          <label className="text-sm font-medium">Risk Level <span className="text-xs text-muted-foreground">(Coming Soon)</span></label>
-                          <Select 
-                            value={advancedFilters.riskLevel} 
-                            onValueChange={(value) => setAdvancedFilters(prev => ({ ...prev, riskLevel: value }))}
-                            disabled
-                          >
-                            <SelectTrigger className="mt-1" disabled>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="all">All Risk Levels</SelectItem>
-                              <SelectItem value="low">🟢 Low Risk</SelectItem>
-                              <SelectItem value="medium">🟡 Medium Risk</SelectItem>
-                              <SelectItem value="high">🔴 High Risk</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
                         
                         <div className="pt-4 space-y-2">
                           <Button 
@@ -1609,42 +1558,6 @@ const EnhancedCustomerManagement = () => {
                     >
                       <div className="flex items-center space-x-2">
                         <StatusBadge status={customer.status} />
-                        {customer.status === 'active' && (
-                          <HoverCard>
-                            <HoverCardTrigger>
-                              <RiskBadge level={customer.risk_level} className="text-xs cursor-pointer" />
-                            </HoverCardTrigger>
-                            <HoverCardContent className="w-72">
-                              <div className="space-y-3">
-                                <p className="font-medium flex items-center gap-2">
-                                  <TrendingUp className="h-4 w-4 text-amber-600" />
-                                  Loan Risk Assessment
-                                </p>
-                                <div className="grid grid-cols-2 gap-3 text-sm">
-                                  <div className="space-y-1">
-                                    <span className="text-muted-foreground">Credit Limit:</span>
-                                    <p className="font-medium text-amber-600">${(customer.credit_limit || 1000).toLocaleString()}</p>
-                                  </div>
-                                  <div className="space-y-1">
-                                    <span className="text-muted-foreground">Payment Score:</span>
-                                    <p className="font-medium">{customer.payment_history_score || 80}/100</p>
-                                  </div>
-                                  <div className="space-y-1">
-                                    <span className="text-muted-foreground">Defaults:</span>
-                                    <p className="font-medium">{customer.default_count || 0}</p>
-                                  </div>
-                                  <div className="space-y-1">
-                                    <span className="text-muted-foreground">Risk Level:</span>
-                                    <RiskBadge level={customer.risk_level} className="text-xs" />
-                                  </div>
-                                </div>
-                                <p className="text-xs text-muted-foreground border-t pt-2">
-                                  Assessment based on payment history and default count
-                                </p>
-                              </div>
-                            </HoverCardContent>
-                          </HoverCard>
-                        )}
                       </div>
                     </TableCell>
                     
@@ -2004,7 +1917,6 @@ const EnhancedCustomerManagement = () => {
                     customer={selectedCustomer}
                     onEligibilityUpdate={(eligibility) => {
                       // Handle eligibility updates if needed
-                      console.log('Eligibility updated:', eligibility);
                     }}
                   />
                 </div>
@@ -2228,7 +2140,6 @@ const EnhancedCustomerManagement = () => {
                               await loadCustomerStats();
                               
                             } catch (error) {
-                              console.error('Failed to reactivate customer:', error);
                               toast({
                                 title: 'Error',
                                 description: 'Failed to reactivate customer. Please try again.',

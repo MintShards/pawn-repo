@@ -46,9 +46,7 @@ class Customer(Document):
         suspended_reason: Reason for suspension (if applicable)
         suspended_by: User who suspended account
         suspended_at: Suspension timestamp
-        credit_limit: Maximum loan amount allowed (risk assessment)
-        payment_history_score: 1-100 based on past payment behavior
-        default_count: Number of defaulted/forfeited loans
+        credit_limit: Maximum loan amount allowed
     """
     
     # Primary identifier - phone number
@@ -144,23 +142,12 @@ class Customer(Document):
         description="Suspension timestamp"
     )
     
-    # Credit & Risk Assessment fields
+    # Credit fields
     credit_limit: Decimal = Field(
-        default=Decimal("1000.00"),
+        default=Decimal("3000.00"),
         ge=Decimal("0.00"),
         le=Decimal("50000.00"),
-        description="Maximum loan amount allowed based on risk assessment"
-    )
-    payment_history_score: int = Field(
-        default=80,
-        ge=1,
-        le=100,
-        description="Payment reliability score (1-100) based on past behavior"
-    )
-    default_count: int = Field(
-        default=0,
-        ge=0,
-        description="Number of defaulted/forfeited loans in history"
+        description="Maximum loan amount allowed"
     )
     
     @field_validator("phone_number")
@@ -207,17 +194,6 @@ class Customer(Document):
         """Check if customer can perform transactions"""
         return self.status == CustomerStatus.ACTIVE
     
-    @property
-    def risk_level(self) -> str:
-        """Calculate risk level based on payment history and defaults"""
-        if self.default_count >= 3:
-            return "high"
-        elif self.payment_history_score >= 90:
-            return "low"
-        elif self.payment_history_score >= 70:
-            return "medium"
-        else:
-            return "high"
     
     @property
     def can_borrow_amount(self) -> Decimal:

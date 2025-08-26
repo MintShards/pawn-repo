@@ -157,17 +157,6 @@ class CustomerUpdate(CustomerBase):
         le=Decimal("50000.00"),
         description="Maximum loan amount allowed (admin only)"
     )
-    payment_history_score: Optional[int] = Field(
-        None,
-        ge=1,
-        le=100,
-        description="Payment reliability score 1-100 (admin only)"
-    )
-    default_count: Optional[int] = Field(
-        None,
-        ge=0,
-        description="Number of defaulted loans (admin only)"
-    )
     
     @validator('first_name', 'last_name')
     def validate_names(cls, v):
@@ -232,9 +221,7 @@ class CustomerUpdate(CustomerBase):
                 "email": "john.doe@email.com",
                 "status": "active",
                 "notes": "Updated contact information",
-                "credit_limit": "2500.00",
-                "payment_history_score": 85,
-                "default_count": 0
+                "credit_limit": "2500.00"
             }
         }
     )
@@ -255,9 +242,6 @@ class CustomerResponse(CustomerBase):
         description="Date of most recent transaction"
     )
     credit_limit: Decimal = Field(..., description="Maximum loan amount allowed")
-    payment_history_score: int = Field(..., description="Payment reliability score (1-100)")
-    default_count: int = Field(..., description="Number of defaulted loans")
-    risk_level: str = Field(..., description="Calculated risk level (low/medium/high)")
     can_borrow_amount: Decimal = Field(..., description="Available borrowing amount")
     
     model_config = ConfigDict(
@@ -278,9 +262,6 @@ class CustomerResponse(CustomerBase):
                 "active_loans": 2,
                 "last_transaction_date": "2024-01-15T14:30:00Z",
                 "credit_limit": "2500.00",
-                "payment_history_score": 85,
-                "default_count": 0,
-                "risk_level": "medium",
                 "can_borrow_amount": "2500.00"
             }
         }
@@ -333,9 +314,9 @@ class CustomerStatsResponse(BaseModel):
     
     # Enhanced customer-focused metrics
     new_this_month: int = Field(..., description="Customers joined in the last 30 days")
-    good_standing: int = Field(..., description="Customers with low-medium risk level")
-    needs_follow_up: int = Field(..., description="High-risk customers or flagged for contact")
-    eligible_for_increase: int = Field(..., description="Low-risk customers eligible for credit increase")
+    service_alerts: int = Field(..., description="Customers requiring service attention")
+    needs_follow_up: int = Field(..., description="Customers flagged for contact")
+    eligible_for_increase: int = Field(..., description="Customers eligible for credit increase")
     
     model_config = ConfigDict(
         json_schema_extra={
@@ -347,7 +328,7 @@ class CustomerStatsResponse(BaseModel):
                 "customers_created_today": 3,
                 "avg_transactions_per_customer": 8.5,
                 "new_this_month": 12,
-                "good_standing": 95,
+                "service_alerts": 3,
                 "needs_follow_up": 8,
                 "eligible_for_increase": 35
             }

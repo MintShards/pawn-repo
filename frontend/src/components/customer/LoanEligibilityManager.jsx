@@ -64,7 +64,6 @@ const LoanEligibilityManager = ({ customer, onEligibilityUpdate }) => {
         onEligibilityUpdate(result);
       }
     } catch (error) {
-      console.error('Failed to check loan eligibility:', error);
       toast({
         title: 'Error',
         description: 'Failed to check loan eligibility',
@@ -133,15 +132,6 @@ const LoanEligibilityManager = ({ customer, onEligibilityUpdate }) => {
     }
   };
 
-  const getRiskBadgeVariant = (riskLevel) => {
-    switch (riskLevel?.toLowerCase()) {
-      case 'low': return 'default';
-      case 'medium': return 'secondary';
-      case 'high': return 'destructive';
-      default: return 'outline';
-    }
-  };
-
   const getEligibilityColor = (eligible) => {
     return eligible ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400';
   };
@@ -200,8 +190,8 @@ const LoanEligibilityManager = ({ customer, onEligibilityUpdate }) => {
                     {eligibilityData.eligible ? 'ELIGIBLE' : 'NOT ELIGIBLE'}
                   </span>
                 </div>
-                <Badge variant={getRiskBadgeVariant(eligibilityData.risk_level)}>
-                  {eligibilityData.risk_level?.toUpperCase()} RISK
+                <Badge variant="default">
+                  ELIGIBLE
                 </Badge>
               </div>
 
@@ -403,12 +393,12 @@ const LoanEligibilityManager = ({ customer, onEligibilityUpdate }) => {
                       <Separator />
                       
                       <div className="space-y-2">
-                        <h4 className="font-semibold">Risk Assessment</h4>
+                        <h4 className="font-semibold">Eligibility Status</h4>
                         <div className="flex items-center gap-2">
                           <Shield className="h-4 w-4" />
-                          <span>Risk Level: </span>
-                          <Badge variant={getRiskBadgeVariant(eligibilityData.risk_level)}>
-                            {eligibilityData.risk_level?.toUpperCase()}
+                          <span>Status: </span>
+                          <Badge variant="default">
+                            ELIGIBLE
                           </Badge>
                         </div>
                       </div>

@@ -18,11 +18,9 @@ class CustomerService {
       // Fallback for unexpected response format
       return Array.isArray(result) ? { customers: result, total: result.length } : { customers: [], total: 0 };
     } catch (error) {
-      console.error('Get all customers error:', error);
       throw error;
     }
   }
-
 
   // Create new customer
   async createCustomer(customerData) {
@@ -35,7 +33,6 @@ class CustomerService {
       this.clearCustomerCache();
       return result;
     } catch (error) {
-      console.error('Create customer error:', error);
       throw error;
     }
   }
@@ -50,7 +47,6 @@ class CustomerService {
       if (error.message.includes('404')) {
         return null; // Customer not found
       }
-      console.error('Get customer by phone error:', error);
       throw error;
     }
   }
@@ -67,7 +63,6 @@ class CustomerService {
       this.clearCustomerCache(phoneNumber);
       return result;
     } catch (error) {
-      console.error('Update customer error:', error);
       throw error;
     }
   }
@@ -101,7 +96,6 @@ class CustomerService {
       const cacheKey = 'customer_stats';
       const cached = this._getFromCache(cacheKey);
       if (cached) {
-        console.log('📊 Using cached customer statistics');
         return cached;
       }
 
@@ -114,7 +108,6 @@ class CustomerService {
       
       return stats;
     } catch (error) {
-      console.error('Get customer statistics error:', error);
       throw error;
     }
   }
@@ -150,7 +143,6 @@ class CustomerService {
         body: JSON.stringify({ reason }),
       });
     } catch (error) {
-      console.error('Archive customer error:', error);
       throw error;
     }
   }
@@ -163,7 +155,6 @@ class CustomerService {
         method: 'GET',
       });
     } catch (error) {
-      console.error('Check loan eligibility error:', error);
       throw error;
     }
   }
@@ -176,7 +167,6 @@ class CustomerService {
         body: JSON.stringify({ reason }),
       });
     } catch (error) {
-      console.error('Deactivate customer error:', error);
       throw error;
     }
   }
@@ -189,7 +179,6 @@ class CustomerService {
         body: JSON.stringify({ status, reason }),
       });
     } catch (error) {
-      console.error('Update customer status error:', error);
       throw error;
     }
   }
@@ -203,25 +192,10 @@ class CustomerService {
       };
       return await this.getAllCustomers(params);
     } catch (error) {
-      console.error('Search customers error:', error);
       throw error;
     }
   }
 
-  // Get customer risk level display string
-  getRiskLevelDisplay(customer) {
-    if (!customer || !customer.risk_level) return 'Unknown';
-    const riskLevel = customer.risk_level.toLowerCase();
-    const riskColors = {
-      low: 'text-green-600',
-      medium: 'text-yellow-600', 
-      high: 'text-red-600'
-    };
-    return {
-      level: customer.risk_level,
-      color: riskColors[riskLevel] || 'text-gray-600'
-    };
-  }
 
   // Get customer borrow amount display
   getBorrowAmountDisplay(customer) {
@@ -251,7 +225,6 @@ class CustomerService {
       authService.clearCache('/api/v1/customer');
       authService.clearCache('/api/v1/customer/');
     }
-    console.log('🔄 Customer cache cleared for immediate refresh');
   }
   
   // Force refresh - clears cache and returns fresh data immediately
@@ -259,7 +232,6 @@ class CustomerService {
     this.clearCustomerCache();
     this._clearLocalCache();
     authService.invalidateDataCache();
-    console.log('🔄 Forced complete cache refresh');
   }
 
   // Clear local cache
@@ -270,7 +242,6 @@ class CustomerService {
         localStorage.removeItem(key);
       }
     });
-    console.log('🧹 Local customer cache cleared');
   }
 
   // Bulk operations helper
@@ -285,7 +256,6 @@ class CustomerService {
         error: result.status === 'rejected' ? result.reason : null
       }));
     } catch (error) {
-      console.error('Get multiple customers error:', error);
       throw error;
     }
   }

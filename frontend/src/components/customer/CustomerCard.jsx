@@ -10,8 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
-import { HoverCard, HoverCardContent, HoverCardTrigger } from '../ui/hover-card';
-import { StatusBadge, RiskBadge } from '../ui/enhanced-badge';
+import { StatusBadge } from '../ui/enhanced-badge';
 import customerService from '../../services/customerService';
 
 const CustomerCard = ({ 
@@ -21,8 +20,10 @@ const CustomerCard = ({
   onSelect, 
   isSelected = false,
   onViewTransactions,
-  onManageEligibility
+  onManageEligibility,
+  onNotifications
 }) => {
+  
   const getCustomerInitials = (customer) => {
     const firstName = customer.first_name || '';
     const lastName = customer.last_name || '';
@@ -111,73 +112,50 @@ const CustomerCard = ({
             </div>
           </div>
 
-          {/* Actions Menu */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                className="h-8 w-8 p-0"
-                aria-label={`Actions for customer ${customerService.getCustomerFullName(customer)}`}
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem onClick={() => onView?.(customer)}>
-                <Eye className="h-4 w-4 mr-2" />
-                View Details
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onEdit?.(customer)}>
-                <Edit2 className="h-4 w-4 mr-2" />
-                Edit Customer
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onViewTransactions?.(customer)}>
-                <CreditCard className="h-4 w-4 mr-2" />
-                View Transactions
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onManageEligibility?.(customer)}>
-                <TrendingUp className="h-4 w-4 mr-2" />
-                Manage Eligibility
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {/* Action Buttons */}
+          <div className="flex items-center gap-1">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="h-8 w-8 p-0"
+              onClick={() => onView?.(customer)}
+              aria-label={`View details for customer ${customerService.getCustomerFullName(customer)}`}
+            >
+              <Eye className="h-4 w-4" />
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="h-8 w-8 p-0"
+                  aria-label={`More actions for customer ${customerService.getCustomerFullName(customer)}`}
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem onClick={() => onEdit?.(customer)}>
+                  <Edit2 className="h-4 w-4 mr-2" />
+                  Edit Customer
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onViewTransactions?.(customer)}>
+                  <CreditCard className="h-4 w-4 mr-2" />
+                  View Transactions
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onManageEligibility?.(customer)}>
+                  <TrendingUp className="h-4 w-4 mr-2" />
+                  Manage Eligibility
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
 
-        {/* Status and Risk Section */}
+        {/* Status Section */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <StatusBadge status={customer.status} />
-            {customer.status === 'active' && (
-              <HoverCard>
-                <HoverCardTrigger>
-                  <RiskBadge level={customer.risk_level} className="text-xs cursor-pointer" />
-                </HoverCardTrigger>
-                <HoverCardContent className="w-64" side="top">
-                  <div className="space-y-2">
-                    <p className="font-medium text-sm">Risk Assessment</p>
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div>
-                        <span className="text-muted-foreground">Can Borrow:</span>
-                        <p className="font-medium text-green-600">
-                          {customerService.getBorrowAmountDisplay(customer)}
-                        </p>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Score:</span>
-                        <p className="font-medium">{customer.payment_history_score || 80}/100</p>
-                      </div>
-                      <div className="col-span-2">
-                        <span className="text-muted-foreground">Risk Level:</span>
-                        <p className={`font-medium ${customerService.getRiskLevelDisplay(customer).color}`}>
-                          {customerService.getRiskLevelDisplay(customer).level}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </HoverCardContent>
-              </HoverCard>
-            )}
           </div>
           
           {/* Last visit */}

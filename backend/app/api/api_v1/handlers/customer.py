@@ -70,7 +70,6 @@ async def create_customer(
         
         # Add computed properties before response
         customer_dict = customer.model_dump()
-        customer_dict["risk_level"] = customer.risk_level
         customer_dict["can_borrow_amount"] = customer.can_borrow_amount
         return CustomerResponse.model_validate(customer_dict)
     
@@ -187,7 +186,6 @@ async def get_customer_by_phone(
         
         # Add computed properties before response
         customer_dict = customer.model_dump()
-        customer_dict["risk_level"] = customer.risk_level
         customer_dict["can_borrow_amount"] = customer.can_borrow_amount
         return CustomerResponse.model_validate(customer_dict)
         
@@ -247,7 +245,6 @@ async def update_customer(
         
         # Add computed properties before response
         customer_dict = customer.model_dump()
-        customer_dict["risk_level"] = customer.risk_level
         customer_dict["can_borrow_amount"] = customer.can_borrow_amount
         return CustomerResponse.model_validate(customer_dict)
         
@@ -303,7 +300,6 @@ async def deactivate_customer(
         
         # Add computed properties before response
         customer_dict = customer.model_dump()
-        customer_dict["risk_level"] = customer.risk_level
         customer_dict["can_borrow_amount"] = customer.can_borrow_amount
         return CustomerResponse.model_validate(customer_dict)
         
@@ -359,7 +355,6 @@ async def archive_customer(
         
         # Add computed properties before response
         customer_dict = customer.model_dump()
-        customer_dict["risk_level"] = customer.risk_level
         customer_dict["can_borrow_amount"] = customer.can_borrow_amount
         return CustomerResponse.model_validate(customer_dict)
         

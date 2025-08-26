@@ -89,7 +89,7 @@ class CustomerService:
             update_dict = update_data.model_dump(exclude_unset=True)
             
             # Handle admin-only fields based on permissions
-            admin_only_fields = ["status", "credit_limit", "payment_history_score", "default_count"]
+            admin_only_fields = ["status", "credit_limit"]
             if not is_admin:
                 for field in admin_only_fields:
                     if field in update_dict:
@@ -221,7 +221,6 @@ class CustomerService:
             for customer in customers:
                 customer_dict = customer.model_dump()
                 # Add computed properties
-                customer_dict["risk_level"] = customer.risk_level
                 customer_dict["can_borrow_amount"] = customer.can_borrow_amount
                 customer_responses.append(CustomerResponse.model_validate(customer_dict))
             
@@ -300,7 +299,6 @@ class CustomerService:
                 for customer in customers:
                     customer_dict = customer.model_dump()
                     # Add computed properties
-                    customer_dict["risk_level"] = customer.risk_level
                     customer_dict["can_borrow_amount"] = customer.can_borrow_amount
                     customer_responses.append(CustomerResponse.model_validate(customer_dict))
                 
@@ -364,8 +362,7 @@ class CustomerService:
             "max_loans": 5,
             "credit_limit": float(customer.credit_limit),
             "max_loan_amount": float(customer.credit_limit),  # For backward compatibility
-            "available_credit": float(customer.can_borrow_amount),
-            "risk_level": customer.risk_level
+            "available_credit": float(customer.can_borrow_amount)
         }
         
         # Check account status
@@ -384,9 +381,6 @@ class CustomerService:
                 eligibility["eligible"] = False
                 eligibility["reasons"].append(f"Loan amount exceeds credit limit of ${customer.credit_limit}")
         
-        # Check risk level for high-risk customers
-        if customer.risk_level == "high":
-            eligibility["reasons"].append("High risk customer - requires additional approval")
         
         return eligibility
 
@@ -433,27 +427,13 @@ class CustomerService:
                         }
                     ],
                     
-                    # Good standing customers (active + low/medium risk)
-                    "good_standing": [
+                    # Service alerts (customers requiring service attention)
+                    "service_alerts": [
                         {
                             "$match": {
-                                "status": "active",
-                                "risk_level": {"$in": ["low", "medium"]}
-                            }
-                        },
-                        {
-                            "$count": "count"
-                        }
-                    ],
-                    
-                    # Needs follow-up (high risk or flagged notes)
-                    "needs_follow_up": [
-                        {
-                            "$match": {
-                                "status": "active",
                                 "$or": [
-                                    {"risk_level": "high"},
-                                    {"notes": {"$regex": "follow|contact|call", "$options": "i"}}
+                                    {"status": "suspended"},
+                                    {"notes": {"$regex": "alert|issue|problem|overdue", "$options": "i"}}
                                 ]
                             }
                         },
@@ -462,12 +442,24 @@ class CustomerService:
                         }
                     ],
                     
-                    # Eligible for credit increase (low risk + available credit)
+                    # Needs follow-up (flagged notes)
+                    "needs_follow_up": [
+                        {
+                            "$match": {
+                                "status": "active",
+                                "notes": {"$regex": "follow|contact|call", "$options": "i"}
+                            }
+                        },
+                        {
+                            "$count": "count"
+                        }
+                    ],
+                    
+                    # Eligible for credit increase (active + available credit)
                     "eligible_for_increase": [
                         {
                             "$match": {
                                 "status": "active",
-                                "risk_level": "low",
                                 "can_borrow_amount": {"$gt": 0}
                             }
                         },
@@ -510,7 +502,7 @@ class CustomerService:
             
             customers_created_today = safe_get_count("today_customers")
             new_this_month = safe_get_count("new_this_month") 
-            good_standing = safe_get_count("good_standing")
+            service_alerts = safe_get_count("service_alerts")
             needs_follow_up = safe_get_count("needs_follow_up")
             eligible_for_increase = safe_get_count("eligible_for_increase")
             
@@ -527,15 +519,13 @@ class CustomerService:
                 customers_created_today=customers_created_today,
                 avg_transactions_per_customer=round(avg_transactions, 2),
                 new_this_month=new_this_month,
-                good_standing=good_standing,
+                service_alerts=service_alerts,
                 needs_follow_up=needs_follow_up,
                 eligible_for_increase=eligible_for_increase
             )
             
         except Exception as e:
             # Log error and return safe defaults if aggregation fails
-            print(f"Error in get_customer_statistics: {e}")
-            
             # Return safe fallback with zero counts
             return CustomerStatsResponse(
                 total_customers=0,
@@ -545,7 +535,7 @@ class CustomerService:
                 customers_created_today=0,
                 avg_transactions_per_customer=0.0,
                 new_this_month=0,
-                good_standing=0,
+                service_alerts=0,
                 needs_follow_up=0,
                 eligible_for_increase=0
             )
