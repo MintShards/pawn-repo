@@ -98,6 +98,15 @@ const DashboardPage = () => {
                   <Users className="w-4 h-4 mr-2" />
                   Customers
                 </Button>
+                <Button 
+                  variant="ghost" 
+                  size="sm"
+                  onClick={() => navigate('/transactions')}
+                  className="h-9 px-3 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
+                >
+                  <CreditCard className="w-4 h-4 mr-2" />
+                  Transactions
+                </Button>
               </nav>
             </div>
 
@@ -164,7 +173,10 @@ const DashboardPage = () => {
                 Here's what's happening with your pawn shop today
               </p>
             </div>
-            <Button className="bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white shadow-lg shadow-amber-500/25">
+            <Button 
+              onClick={() => navigate('/transactions')}
+              className="bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white shadow-lg shadow-amber-500/25"
+            >
               <Plus className="w-4 h-4 mr-2" />
               New Transaction
             </Button>
@@ -272,7 +284,11 @@ const DashboardPage = () => {
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">
-                <Button className="w-full justify-start bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/50 dark:to-teal-950/50 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800 hover:from-emerald-100 hover:to-teal-100 dark:hover:from-emerald-900/50 dark:hover:to-teal-900/50" variant="outline">
+                <Button 
+                  onClick={() => navigate('/transactions')}
+                  className="w-full justify-start bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/50 dark:to-teal-950/50 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800 hover:from-emerald-100 hover:to-teal-100 dark:hover:from-emerald-900/50 dark:hover:to-teal-900/50" 
+                  variant="outline"
+                >
                   <Plus className="w-4 h-4 mr-2" />
                   New Pawn Transaction
                 </Button>
@@ -374,7 +390,10 @@ const DashboardPage = () => {
                   <p className="text-slate-500 dark:text-slate-400 mb-6 max-w-sm mx-auto">
                     When you create transactions, payments, or other activities, they'll appear here for quick access.
                   </p>
-                  <Button className="bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white shadow-lg shadow-amber-500/25">
+                  <Button 
+                    onClick={() => navigate('/transactions')}
+                    className="bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white shadow-lg shadow-amber-500/25"
+                  >
                     <Plus className="w-4 h-4 mr-2" />
                     Create First Transaction
                   </Button>

@@ -6,6 +6,7 @@ import ProtectedRoute from './components/auth/ProtectedRoute';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import CustomersPage from './pages/CustomersPage';
+import TransactionHub from './pages/TransactionHub';
 
 function App() {
   return (
@@ -32,6 +33,15 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <CustomersPage />
+                  </ProtectedRoute>
+                } 
+              />
+              
+              <Route 
+                path="/transactions" 
+                element={
+                  <ProtectedRoute>
+                    <TransactionHub />
                   </ProtectedRoute>
                 } 
               />
