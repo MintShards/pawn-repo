@@ -16,7 +16,7 @@ class ExtensionService {
       this.clearExtensionCache();
       return result;
     } catch (error) {
-      console.error('Process extension error:', error);
+      // Error handled
       throw error;
     }
   }
@@ -28,7 +28,7 @@ class ExtensionService {
         method: 'GET',
       });
     } catch (error) {
-      console.error('Get extension history error:', error);
+      // Error handled
       throw error;
     }
   }
@@ -41,7 +41,7 @@ class ExtensionService {
         method: 'GET',
       });
     } catch (error) {
-      console.error('Check extension eligibility error:', error);
+      // Error handled
       throw error;
     }
   }
@@ -53,7 +53,7 @@ class ExtensionService {
         method: 'GET',
       });
     } catch (error) {
-      console.error('Get extension summary error:', error);
+      // Error handled
       throw error;
     }
   }
@@ -68,7 +68,7 @@ class ExtensionService {
       if (error.message.includes('404')) {
         throw new Error(`Extension ${extensionId} not found`);
       }
-      console.error('Get extension by ID error:', error);
+      // Error handled
       throw error;
     }
   }
@@ -79,4 +79,5 @@ class ExtensionService {
   }
 }
 
-export default new ExtensionService();
+const extensionService = new ExtensionService();
+export default extensionService;

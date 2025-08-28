@@ -14,6 +14,7 @@ from .pawn_transaction_model import PawnTransaction
 from .pawn_item_model import PawnItem
 from .payment_model import Payment
 from .extension_model import Extension
+from .service_alert_model import ServiceAlert
 
 __all__ = [
     "User",
@@ -21,5 +22,6 @@ __all__ = [
     "PawnTransaction",
     "PawnItem",
     "Payment",
-    "Extension"
+    "Extension",
+    "ServiceAlert"
 ]

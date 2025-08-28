@@ -56,7 +56,7 @@ const LoginForm = ({ onLoginSuccess }) => {
       }
     } catch (err) {
       setError('An unexpected error occurred. Please try again.');
-      console.error('Login form error:', err);
+      // Error handled
     } finally {
       setIsLoading(false);
     }

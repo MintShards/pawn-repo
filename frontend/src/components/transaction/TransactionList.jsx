@@ -85,7 +85,7 @@ const TransactionList = ({
       
       setTransactions(transactionList);
     } catch (err) {
-      console.error('Error loading transactions:', err);
+      // Error handled
       setError(err.message || 'Failed to load transactions');
     } finally {
       setLoading(false);
@@ -110,11 +110,6 @@ const TransactionList = ({
     loadTransactions();
   };
 
-  const clearSearch = () => {
-    setSearchTerm('');
-    setIsExtensionSearch(false);
-    setFilters(prev => ({ ...prev, page: 1 }));
-  };
 
   return (
     <div className="space-y-4">

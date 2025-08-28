@@ -40,7 +40,7 @@ const CreatePawnForm = ({ onSuccess, onCancel }) => {
       const response = await customerService.getAllCustomers({ page_size: 100 });
       setCustomers(response.customers || []);
     } catch (err) {
-      console.error('Error loading customers:', err);
+      // Error loading customers
     } finally {
       setLoadingCustomers(false);
     }
@@ -55,16 +55,7 @@ const CreatePawnForm = ({ onSuccess, onCancel }) => {
       
       const eligibility = await customerService.checkLoanEligibility(customerId, parseFloat(loanAmount));
       
-      // Debug logging
-      console.log('Loan Eligibility Check:', {
-        customerId,
-        loanAmount: parseFloat(loanAmount),
-        eligible: eligibility.eligible,
-        creditLimit: eligibility.credit_limit,
-        availableCredit: eligibility.available_credit,
-        activeLoans: eligibility.active_loans,
-        reasons: eligibility.reasons
-      });
+      // Loan eligibility validated
       
       setEligibilityData(eligibility);
       
@@ -72,7 +63,7 @@ const CreatePawnForm = ({ onSuccess, onCancel }) => {
         setError(`Loan not approved: ${eligibility.reasons?.join(', ') || 'Credit limit exceeded'}`);
       }
     } catch (err) {
-      console.error('Error checking loan eligibility:', err);
+      // Error checking loan eligibility
       setError('Failed to check loan eligibility');
       setEligibilityData(null);
     } finally {
@@ -219,7 +210,7 @@ const CreatePawnForm = ({ onSuccess, onCancel }) => {
         onSuccess(result);
       }
     } catch (err) {
-      console.error('Error creating transaction:', err);
+      // Error creating transaction
       
       // Check for specific credit limit error
       if (err.message?.includes('Credit limit exceeded') || 

@@ -21,12 +21,12 @@ export const AuthProvider = ({ children }) => {
 
   // Security: Inactivity timer for automatic logout
   const handleInactivityTimeout = () => {
-    console.warn('🔒 Security: Automatic logout due to 2 hours + 1 minute of inactivity');
+    // Automatic logout due to 2 hours + 1 minute of inactivity
     logout('inactivity_timeout');
   };
 
   const handleInactivityWarning = () => {
-    console.warn('🔒 Security: Inactivity warning - automatic logout in 60 seconds');
+    // Inactivity warning - automatic logout in 60 seconds
   };
 
   const handleUserActivity = () => {
@@ -63,12 +63,12 @@ export const AuthProvider = ({ children }) => {
         try {
           const refreshSuccess = await authService.refreshAccessToken();
           if (refreshSuccess) {
-            console.log('🔒 Token: Auto-refreshed successfully');
+            // Token auto-refreshed successfully
           } else {
-            console.warn('🔒 Token: Auto-refresh failed - user may need to re-login');
+            // Token auto-refresh failed - user may need to re-login
           }
         } catch (error) {
-          console.error('🔒 Token: Auto-refresh error:', error);
+          // Token auto-refresh error
         }
       }
     }, 5 * 60 * 1000); // Check every 5 minutes for proactive refresh
@@ -105,12 +105,12 @@ export const AuthProvider = ({ children }) => {
       // EMERGENCY FIX: Don't fetch user data during initialization
       // Sessions without refresh token are considered invalid - require re-login
       if (!hasRefreshToken) {
-        console.log('🔒 No refresh token - requiring fresh login');
+        // No refresh token - requiring fresh login
         authService.logout();
         setIsAuthenticated(false);
       }
     } catch (error) {
-      console.error('Auth initialization error:', error);
+      // Auth initialization error
       authService.logout();
       setIsAuthenticated(false);
     } finally {
@@ -134,7 +134,7 @@ export const AuthProvider = ({ children }) => {
         setIsAuthenticated(true);
         setLastActivity(Date.now()); // Initialize activity tracking
         
-        console.log('🔒 Login successful for user:', userData.user_id);
+        // Login successful
         
         // Start security inactivity timer
         // Use setTimeout to avoid race condition during login
@@ -144,11 +144,11 @@ export const AuthProvider = ({ children }) => {
         
         return { success: true, user: userData };
       } else {
-        console.error('🔒 Login response missing user data:', response);
+        // Login response missing user data
         throw new Error('No user data received');
       }
     } catch (error) {
-      console.error('Login error:', error);
+      // Login error
       return { 
         success: false, 
         error: error.message || 'Login failed. Please check your credentials.' 
@@ -161,7 +161,7 @@ export const AuthProvider = ({ children }) => {
   const logout = (reason = 'manual') => {
     // Log security event
     if (reason === 'inactivity_timeout') {
-      console.warn('🔒 Security: User logged out due to inactivity timeout');
+      // User logged out due to inactivity timeout
     }
     
     // Stop inactivity monitoring
@@ -193,7 +193,7 @@ export const AuthProvider = ({ children }) => {
           return userData;
         }
       } catch (error) {
-        console.error('Failed to fetch user data:', error);
+        // Failed to fetch user data
         // Don't logout automatically - just leave user data empty
       }
     }

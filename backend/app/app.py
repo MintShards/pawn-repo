@@ -28,6 +28,7 @@ from app.models.extension_model import Extension
 from app.models.pawn_item_model import PawnItem
 from app.models.pawn_transaction_model import PawnTransaction
 from app.models.payment_model import Payment
+from app.models.service_alert_model import ServiceAlert
 from app.models.user_model import User
 
 # Database client
@@ -54,7 +55,7 @@ async def lifespan(app: FastAPI):
     
     await init_beanie(
         database=db_client,
-        document_models=[User, Customer, PawnTransaction, PawnItem, Payment, Extension]
+        document_models=[User, Customer, PawnTransaction, PawnItem, Payment, Extension, ServiceAlert]
     )
     
     # Initialize Redis-based services

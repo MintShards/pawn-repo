@@ -13,6 +13,7 @@ from app.api.api_v1.handlers.customer import customer_router
 from app.api.api_v1.handlers.pawn_transaction import pawn_transaction_router
 from app.api.api_v1.handlers.payment import payment_router
 from app.api.api_v1.handlers.extension import extension_router
+from app.api.api_v1.handlers.service_alert import service_alert_router
 
 # Main API v1 router
 router = APIRouter()
@@ -64,5 +65,12 @@ router.include_router(
     extension_router,
     prefix="/extension",
     tags=["Extension Management"],
+    responses={403: {"description": "Staff or Admin access required"}}
+)
+
+router.include_router(
+    service_alert_router,
+    prefix="/service-alert",
+    tags=["Service Alert Management"],
     responses={403: {"description": "Staff or Admin access required"}}
 )

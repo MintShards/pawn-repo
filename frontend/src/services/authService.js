@@ -34,37 +34,28 @@ class AuthService {
 
       const data = await response.json();
       
-      console.log('🔒 Login response data:', data);
-      
       if (data.access_token) {
         localStorage.setItem('pawn_repo_token', data.access_token);
         this.token = data.access_token;
-        console.log('🔒 Access token stored successfully');
       }
       
       if (data.refresh_token) {
         localStorage.setItem('pawn_repo_refresh_token', data.refresh_token);
         this.refreshToken = data.refresh_token;
-        console.log('🔒 Refresh token stored successfully');
-      } else {
-        console.warn('🔒 No refresh token received from login endpoint');
       }
 
       return data;
     } catch (error) {
-      console.error('Login error:', error);
       throw error;
     }
   }
 
   async refreshAccessToken() {
     if (!this.refreshToken) {
-      console.warn('🔒 No refresh token available - user needs to login again');
       return false;
     }
 
     try {
-      console.log('🔒 Attempting token refresh...');
       const response = await fetch(`${API_BASE_URL}/api/v1/auth/jwt/refresh`, {
         method: 'POST',
         headers: {
@@ -76,12 +67,8 @@ class AuthService {
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('🔒 Token refresh failed:', response.status, errorData);
-        
         if (response.status === 401) {
           // Refresh token expired, clear everything and force re-login
-          console.warn('🔒 Refresh token expired - clearing session');
           this.logout();
           // Force page reload to redirect to login
           window.location.reload();
@@ -94,19 +81,16 @@ class AuthService {
       if (data.access_token) {
         localStorage.setItem('pawn_repo_token', data.access_token);
         this.token = data.access_token;
-        console.log('🔒 Access token refreshed successfully');
       }
       
       // Backend only returns new access token, refresh token stays the same
       if (data.refresh_token) {
         localStorage.setItem('pawn_repo_refresh_token', data.refresh_token);
         this.refreshToken = data.refresh_token;
-        console.log('🔒 Refresh token updated');
       }
 
       return true;
     } catch (error) {
-      console.error('🔒 Token refresh network error:', error);
       // On network error, don't clear tokens - user might be temporarily offline
       return false;
     }
@@ -175,7 +159,6 @@ class AuthService {
 
       return false;
     } catch (error) {
-      console.error('Token verification error:', error);
       return false;
     }
   }
@@ -198,7 +181,6 @@ class AuthService {
 
       return await response.json();
     } catch (error) {
-      console.error('Get current user error:', error);
       return null;
     }
   }
@@ -221,11 +203,9 @@ class AuthService {
           this.requestCache.delete(key);
         }
       }
-      console.log(`🧹 Cleared cache entries matching: ${pattern}`);
     } else {
       // Clear all cache
       this.requestCache.clear();
-      console.log('🧹 Cleared all request cache');
     }
   }
   
@@ -234,7 +214,6 @@ class AuthService {
     // Clear all customer-related cache entries immediately
     this.clearCache('/api/v1/customer');
     this.clearCache('/api/v1/user');
-    console.log('🧹 Data cache invalidated for immediate refresh');
   }
   
   getCacheStats() {
@@ -263,7 +242,6 @@ class AuthService {
     if (method === 'GET' && this.requestCache.has(cacheKey)) {
       const cached = this.requestCache.get(cacheKey);
       if (Date.now() - cached.timestamp < this.cacheExpiry) {
-        console.log('🚀 Returning cached response for:', endpoint);
         return cached.data;
       } else {
         this.requestCache.delete(cacheKey);
@@ -272,7 +250,6 @@ class AuthService {
     
     // Check if identical request is already in progress
     if (this.requestQueue.has(cacheKey)) {
-      console.log('🚀 Waiting for existing request:', endpoint);
       return await this.requestQueue.get(cacheKey);
     }
     
@@ -321,7 +298,6 @@ class AuthService {
     
     // Handle rate limiting with exponential backoff
     if (response.status === 429) {
-      console.warn('🚨 Rate limit hit, retrying after delay...');
       const retryAfter = response.headers.get('Retry-After');
       const delay = retryAfter ? parseInt(retryAfter) * 1000 : this.rateLimitRetryDelay;
       
@@ -337,19 +313,15 @@ class AuthService {
     
     // If we get a 401/422 (token expired), try to refresh and retry once
     if ((response.status === 401 || response.status === 422) && this.refreshToken) {
-      console.log('🔒 API request failed with 401/422 - attempting token refresh');
       const refreshSuccess = await this.refreshAccessToken();
       
       if (refreshSuccess) {
         config.headers.Authorization = `Bearer ${this.token}`;
         response = await fetch(url, config);
-        console.log('🔒 API request retried after token refresh');
       } else {
-        console.error('🔒 Token refresh failed - user needs to login again');
         throw new Error('Authentication failed - please login again');
       }
     } else if ((response.status === 401 || response.status === 422) && !this.refreshToken) {
-      console.warn('🔒 API request failed with auth error and no refresh token - forcing logout');
       this.logout();
       window.location.reload();
       throw new Error('Authentication failed - please login again');

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { DollarSign, CreditCard, X } from 'lucide-react';
+import { CreditCard, X } from 'lucide-react';
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
@@ -42,7 +42,7 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
       const balanceData = await transactionService.getTransactionBalance(transaction.transaction_id);
       setBalance(balanceData);
     } catch (err) {
-      console.error('Error loading balance:', err);
+      // Error handled
       setError('Failed to load transaction balance');
     } finally {
       setLoadingBalance(false);
@@ -60,7 +60,7 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
         setValidation(validationResult);
       }
     } catch (err) {
-      console.error('Payment validation error:', err);
+      // Error handled
       setValidation(null);
     }
   };
@@ -114,7 +114,7 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
         onSuccess(result);
       }
     } catch (err) {
-      console.error('Error processing payment:', err);
+      // Error handled
       setError(err.message || 'Failed to process payment');
     } finally {
       setSubmitting(false);

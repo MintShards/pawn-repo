@@ -71,16 +71,21 @@ import {
   DialogFooter,
 } from '../ui/dialog';
 import customerService from '../../services/customerService';
+import serviceAlertService from '../../services/serviceAlertService';
 import CustomerDialog from './CustomerDialog';
+import AlertBellAction from './AlertBellAction';
+import ServiceAlertDialog from './ServiceAlertDialog';
 import LoanEligibilityManager from './LoanEligibilityManager';
 import { useToast } from '../ui/toast';
 import { useAuth } from '../../context/AuthContext';
+import { useAlertCount } from '../../context/AlertCountContext';
 import { isAdmin as isAdminRole } from '../../utils/roleUtils';
 import CustomerCard from './CustomerCard';
 
 const EnhancedCustomerManagement = () => {
   const { toast } = useToast();
   const { user } = useAuth();
+  const { initializeAlertCounts } = useAlertCount();
   const [customers, setCustomers] = useState([]);
   const [totalCustomers, setTotalCustomers] = useState(0);
   const [customerStats, setCustomerStats] = useState({
@@ -113,6 +118,7 @@ const EnhancedCustomerManagement = () => {
   });
   const searchTimeoutRef = useRef(null);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [alertFilter, setAlertFilter] = useState(false); // Filter for customers with alerts
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
   const [showAddDialog, setShowAddDialog] = useState(false);
@@ -137,6 +143,10 @@ const EnhancedCustomerManagement = () => {
   const [showBulkActivateDialog, setShowBulkActivateDialog] = useState(false);
   const [showBulkSuspendDialog, setShowBulkSuspendDialog] = useState(false);
   const [showBulkArchiveDialog, setShowBulkArchiveDialog] = useState(false);
+  
+  // Service Alert Dialog State
+  const [showServiceAlertDialog, setShowServiceAlertDialog] = useState(false);
+  const [selectedCustomerForAlert, setSelectedCustomerForAlert] = useState(null);
   const [bulkConfirmation, setBulkConfirmation] = useState('');
   const [isMobile, setIsMobile] = useState(false);
   const [isEditingNotes, setIsEditingNotes] = useState(false);
@@ -202,6 +212,75 @@ const EnhancedCustomerManagement = () => {
       }
     };
   }, [searchFields, debouncedSearchFields]);
+
+  // Load customer statistics using optimized backend API - MOVED HERE TO FIX HOISTING ISSUE
+  const loadCustomerStats = useCallback(async () => {
+    try {
+      // Use the optimized backend stats endpoint - single efficient API call
+      const stats = await customerService.getCustomerStatistics();
+      
+      if (stats) {
+        setCustomerStats({
+          total: stats.total_customers || 0,
+          active: stats.active_customers || 0,
+          suspended: stats.suspended_customers || 0,
+          archived: stats.archived_customers || 0,
+          newThisMonth: stats.new_this_month || 0,
+          serviceAlerts: stats.service_alerts || 0,
+          needsFollowUp: stats.needs_follow_up || 0,
+          eligibleForIncrease: stats.eligible_for_increase || 0
+        });
+      }
+    } catch (error) {
+      
+      // Fallback with safe defaults
+      setCustomerStats({
+        total: 0,
+        active: 0,
+        suspended: 0,
+        archived: 0,
+        newThisMonth: 0,
+        goodStanding: 0,
+        needsFollowUp: 0,
+        eligibleForIncrease: 0
+      });
+      
+      // Show user-friendly error message
+      toast({
+        title: 'Stats Loading Error',
+        description: 'Unable to load customer statistics. Please refresh the page.',
+        variant: 'destructive'
+      });
+    }
+  }, [toast]);
+
+  // Listen for service alert changes and auto-refresh stats
+  useEffect(() => {
+    const handleServiceAlertUpdate = async () => {
+      // Refresh customer stats when service alerts change
+      try {
+        await customerService.forceRefresh(); // Clear cache
+        await loadCustomerStats(); // Reload stats
+      } catch (error) {
+        // Error handled
+      }
+    };
+
+    // Listen for global alert events
+    window.addEventListener('refreshAlertCounts', handleServiceAlertUpdate);
+    window.addEventListener('refreshCustomerAlerts', handleServiceAlertUpdate);
+    
+    // Set up periodic refresh for stats (every 30 seconds)
+    const statsRefreshInterval = setInterval(() => {
+      loadCustomerStats();
+    }, 30000);
+    
+    return () => {
+      window.removeEventListener('refreshAlertCounts', handleServiceAlertUpdate);
+      window.removeEventListener('refreshCustomerAlerts', handleServiceAlertUpdate);
+      clearInterval(statsRefreshInterval);
+    };
+  }, [loadCustomerStats]);
 
   // Helper function to check if advanced search is active (for Clear button logic)
   const isAdvancedSearchActive = () => {
@@ -347,7 +426,7 @@ const EnhancedCustomerManagement = () => {
       setArchiveConfirmation('');
       
       // Force refresh both stats and customer list to ensure immediate data consistency
-      await loadCustomers(currentPage, getCurrentSearchTerm(), statusFilter, true);
+      await loadCustomers(currentPage, getCurrentSearchTerm(), statusFilter, true, alertFilter);
       
     } catch (error) {
       
@@ -377,7 +456,7 @@ const EnhancedCustomerManagement = () => {
     setCurrentPage(1);
     
     // Load customers with the applied filters
-    loadCustomerList(1, getCurrentSearchTerm(), advancedFilters.status === 'all' ? null : advancedFilters.status);
+    loadCustomerList(1, getCurrentSearchTerm(), advancedFilters.status === 'all' ? null : advancedFilters.status, alertFilter);
     
     // Show appropriate toast message
     if (advancedFilters.status !== 'all') {
@@ -416,8 +495,11 @@ const EnhancedCustomerManagement = () => {
     // Reset to first page
     setCurrentPage(1);
     
+    // Clear alert filter too
+    setAlertFilter(false);
+    
     // Load customers without filters
-    loadCustomerList(1, '', null);
+    loadCustomerList(1, '', null, false); // Clear alert filter when clearing all filters
     
     // Show confirmation toast
     toast({
@@ -427,49 +509,10 @@ const EnhancedCustomerManagement = () => {
     });
   };
 
-  // Load customer statistics using optimized backend API - PERFORMANCE FIX
-  const loadCustomerStats = useCallback(async () => {
-    try {
-      // Use the optimized backend stats endpoint - single efficient API call
-      const stats = await customerService.getCustomerStatistics();
-      
-      if (stats) {
-        setCustomerStats({
-          total: stats.total_customers || 0,
-          active: stats.active_customers || 0,
-          suspended: stats.suspended_customers || 0,
-          archived: stats.archived_customers || 0,
-          newThisMonth: stats.new_this_month || 0,
-          serviceAlerts: stats.service_alerts || 0,
-          needsFollowUp: stats.needs_follow_up || 0,
-          eligibleForIncrease: stats.eligible_for_increase || 0
-        });
-      }
-    } catch (error) {
-      
-      // Fallback with safe defaults
-      setCustomerStats({
-        total: 0,
-        active: 0,
-        suspended: 0,
-        archived: 0,
-        newThisMonth: 0,
-        goodStanding: 0,
-        needsFollowUp: 0,
-        eligibleForIncrease: 0
-      });
-      
-      // Show user-friendly error message
-      toast({
-        title: 'Stats Loading Error',
-        description: 'Unable to load customer statistics. Please refresh the page.',
-        variant: 'destructive'
-      });
-    }
-  }, [toast]);
+  // Note: loadCustomerStats has been moved earlier in the file to fix hoisting issue
 
   // Load only customer list (for search/pagination) 
-  const loadCustomerList = useCallback(async (page = 1, search = '', status = null) => {
+  const loadCustomerList = useCallback(async (page = 1, search = '', status = null, filterByAlerts = null) => {
     setCustomerListLoading(true);
     setCustomerListError(null);
     try {
@@ -497,15 +540,49 @@ const EnhancedCustomerManagement = () => {
       params.sort_order = sortOrder;
       
       // Use enhanced search if we have a search term, otherwise use getAllCustomers
-      const response = search ? 
+      let response = search ? 
         await customerService.searchCustomers(search, params) : 
         await customerService.getAllCustomers(params);
+      
+      // Apply alert filtering if requested
+      if (filterByAlerts) {
+        try {
+          // Get customers with alerts from service alert service
+          const alertStats = await serviceAlertService.getUniqueCustomerAlertStats();
+          const customersWithAlerts = alertStats.customers_with_alerts || [];
+          
+          if (response && response.customers) {
+            // Filter customers to only include those with alerts
+            const filteredCustomers = response.customers.filter(customer => 
+              customersWithAlerts.includes(customer.phone_number)
+            );
+            
+            response = {
+              ...response,
+              customers: filteredCustomers,
+              total: filteredCustomers.length
+            };
+          }
+        } catch (error) {
+          // Error handled
+          // Continue with unfiltered results if alert filtering fails
+        }
+      }
       
       // Handle paginated response with metadata
       if (response && response.customers) {
         setCustomers(response.customers);
         setTotalCustomers(response.total || 0);
         setCustomerListError(null);
+        
+        // Batch initialize alert counts for all loaded customers
+        const customerPhones = response.customers.map(customer => customer.phone_number);
+        if (customerPhones.length > 0) {
+          initializeAlertCounts(customerPhones).catch(error => {
+            // Silent error handling - alert counts will show as 0 if failed
+            console.warn('Failed to initialize alert counts:', error);
+          });
+        }
       } else {
         // Fallback for unexpected response
         setCustomers([]);
@@ -524,7 +601,7 @@ const EnhancedCustomerManagement = () => {
         
         // Auto-retry after rate limit delay with current parameters
         setTimeout(() => {
-          loadCustomerList(page, search, status);
+          loadCustomerList(page, search, status, filterByAlerts);
         }, 3000);
       } else if (error.message?.includes('Authentication')) {
         errorMessage = 'Authentication error';
@@ -546,7 +623,7 @@ const EnhancedCustomerManagement = () => {
     } finally {
       setCustomerListLoading(false);
     }
-  }, [customersPerPage, sortField, sortOrder, toast]);
+  }, [customersPerPage, sortField, sortOrder, toast, initializeAlertCounts]);
 
   // Force complete data refresh - clears all caches and reloads
   const forceRefreshAllData = useCallback(async () => {
@@ -558,7 +635,7 @@ const EnhancedCustomerManagement = () => {
       // Load stats and customer list in parallel with fresh data
       await Promise.all([
         loadCustomerStats(),
-        loadCustomerList(currentPage, getCurrentSearchTerm(), statusFilter)
+        loadCustomerList(currentPage, getCurrentSearchTerm(), statusFilter, alertFilter)
       ]);
       
       toast({
@@ -578,7 +655,7 @@ const EnhancedCustomerManagement = () => {
   }, [loadCustomerStats, loadCustomerList, currentPage, getCurrentSearchTerm, statusFilter, toast]);
 
   // Load full page data (initial load with stats)
-  const loadCustomers = useCallback(async (page = 1, search = '', status = null, forceRefresh = false) => {
+  const loadCustomers = useCallback(async (page = 1, search = '', status = null, forceRefresh = false, filterByAlerts = null) => {
     setLoading(true);
     try {
       // Clear cache if force refresh requested
@@ -589,7 +666,7 @@ const EnhancedCustomerManagement = () => {
       // Load stats and customer list in parallel
       await Promise.all([
         loadCustomerStats(),
-        loadCustomerList(page, search, status)
+        loadCustomerList(page, search, status, filterByAlerts)
       ]);
     } catch (error) {
     } finally {
@@ -649,10 +726,10 @@ const EnhancedCustomerManagement = () => {
       if (!hasInitialLoadRef.current) {
         // First load - get both stats and customers
         hasInitialLoadRef.current = true;
-        loadCustomers(currentPage, searchTerm, statusFilter);
+        loadCustomers(currentPage, searchTerm, statusFilter, false, alertFilter);
       } else {
         // Subsequent loads - only get customer list
-        loadCustomerList(currentPage, searchTerm, statusFilter);
+        loadCustomerList(currentPage, searchTerm, statusFilter, alertFilter);
       }
     };
     
@@ -663,7 +740,7 @@ const EnhancedCustomerManagement = () => {
       const timeoutId = setTimeout(makeRequest, 500 - timeSinceLastCall);
       return () => clearTimeout(timeoutId);
     }
-  }, [currentPage, debouncedSearchQuery, debouncedSearchFields, statusFilter, sortField, sortOrder, loadCustomers, loadCustomerList]);
+  }, [currentPage, debouncedSearchQuery, debouncedSearchFields, statusFilter, alertFilter, sortField, sortOrder, loadCustomers, loadCustomerList]);
 
   // For server-side pagination, we don't need client-side filtering
   const totalPages = Math.ceil(totalCustomers / customersPerPage);
@@ -673,7 +750,7 @@ const EnhancedCustomerManagement = () => {
   useEffect(() => {
     setCurrentPage(1);
     setSelectedCustomerIds([]); // Clear selections when filters change
-  }, [searchQuery, searchFields, statusFilter]);
+  }, [searchQuery, searchFields, statusFilter, alertFilter]);
 
 
   const handleSelectAll = (checked) => {
@@ -725,7 +802,7 @@ const EnhancedCustomerManagement = () => {
       }
 
       // Force refresh data to ensure immediate consistency
-      await loadCustomers(currentPage, getCurrentSearchTerm(), statusFilter, true);
+      await loadCustomers(currentPage, getCurrentSearchTerm(), statusFilter, true, alertFilter);
       setSelectedCustomerIds([]);
 
       // Show result toast
@@ -770,6 +847,37 @@ const EnhancedCustomerManagement = () => {
     }
   };
 
+  // Handle Service Alert Bell Click
+  const handleBellClick = (customerPhone, alertCount, refreshCount) => {
+    const customer = customers.find(c => c.phone_number === customerPhone);
+    if (customer) {
+      setSelectedCustomerForAlert({
+        phone: customer.phone_number,
+        name: `${customer.first_name} ${customer.last_name}`,
+        refreshCount
+      });
+      setShowServiceAlertDialog(true);
+    }
+  };
+
+  // Handle Alert Resolved (callback from dialog)
+  const handleAlertResolved = () => {
+    // Refresh the alert counts for all visible bells
+    window.dispatchEvent(new CustomEvent('refreshAlertCounts'));
+    
+    // Also refresh the specific customer if we have that info
+    if (selectedCustomerForAlert?.phone) {
+      window.dispatchEvent(new CustomEvent('refreshCustomerAlerts', {
+        detail: { customerPhone: selectedCustomerForAlert.phone }
+      }));
+    }
+    
+    // Clear service alert cache to ensure fresh data
+    if (typeof serviceAlertService?.clearCache === 'function') {
+      serviceAlertService.clearCache();
+    }
+  };
+
   const handleCustomerSaved = async (savedCustomer) => {
     setShowAddDialog(false);
     setEditingCustomer(null);
@@ -779,7 +887,7 @@ const EnhancedCustomerManagement = () => {
     
     // Refresh both customer list and stats with immediate effect
     await Promise.all([
-      loadCustomerList(currentPage, getCurrentSearchTerm(), statusFilter),
+      loadCustomerList(currentPage, getCurrentSearchTerm(), statusFilter, alertFilter),
       loadCustomerStats() // Refresh stats including Eligible for Loans count
     ]);
     
@@ -850,7 +958,7 @@ const EnhancedCustomerManagement = () => {
       });
       
       // Force refresh list to ensure immediate data consistency
-      await loadCustomers(currentPage, getCurrentSearchTerm(), statusFilter, true);
+      await loadCustomers(currentPage, getCurrentSearchTerm(), statusFilter, true, alertFilter);
       
     } catch (error) {
       toast({
@@ -1030,15 +1138,48 @@ const EnhancedCustomerManagement = () => {
         </Card>
 
         {/* Service Alerts */}
-        <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-r from-yellow-50 to-amber-50 dark:from-yellow-950/50 dark:to-amber-950/50 hover:shadow-md transition-shadow cursor-pointer group">
+        <Card 
+          className={`relative overflow-hidden border-0 shadow-sm bg-gradient-to-r transition-all cursor-pointer group ${
+            alertFilter 
+              ? 'from-yellow-100 to-amber-100 dark:from-yellow-900/70 dark:to-amber-900/70 shadow-md ring-2 ring-yellow-400 dark:ring-yellow-500' 
+              : 'from-yellow-50 to-amber-50 dark:from-yellow-950/50 dark:to-amber-950/50 hover:shadow-md'
+          }`}
+          onClick={async () => {
+            // Toggle alert filter
+            const newAlertFilter = !alertFilter;
+            setAlertFilter(newAlertFilter);
+            setCurrentPage(1); // Reset to first page
+            setSelectedCustomerIds([]); // Clear selections
+            
+            // Clear search when applying alert filter
+            if (newAlertFilter) {
+              setSearchQuery('');
+              setDebouncedSearchQuery('');
+              setSearchFields({ firstName: '', lastName: '', phone: '', email: '' });
+              setDebouncedSearchFields({ firstName: '', lastName: '', phone: '', email: '' });
+              setStatusFilter('all'); // Clear status filter
+            }
+            
+            // Load filtered customers
+            await loadCustomerList(1, '', null, newAlertFilter);
+            
+            // Show appropriate toast message
+            toast({
+              title: newAlertFilter ? 'Showing Customers with Alerts' : 'Showing All Customers',
+              description: newAlertFilter 
+                ? 'Displaying only customers who have active service alerts.' 
+                : 'Alert filter has been removed. Showing all customers.'
+            });
+          }}
+        >
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-yellow-700 dark:text-yellow-300 group-hover:text-yellow-800 dark:group-hover:text-yellow-200">
-                  Service Alerts
+                  Service Alerts {loading ? '(Refreshing...)' : ''}
                 </p>
                 <p className="text-2xl font-bold text-yellow-900 dark:text-yellow-100">
-                  {customerStats.serviceAlerts}
+                  {loading ? '-' : customerStats.serviceAlerts}
                 </p>
               </div>
               <div className="w-12 h-12 bg-yellow-500/10 dark:bg-yellow-400/10 rounded-xl flex items-center justify-center group-hover:bg-yellow-500/20 dark:group-hover:bg-yellow-400/20">
@@ -1128,7 +1269,7 @@ const EnhancedCustomerManagement = () => {
               <Button
                 variant="outline"
                 onClick={clearSearchFields}
-                disabled={!searchQuery && !isAdvancedSearchActive() && statusFilter === 'all'}
+                disabled={!searchQuery && !isAdvancedSearchActive() && statusFilter === 'all' && !alertFilter}
                 className="h-12 px-4 rounded-xl border-slate-200 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700"
               >
                 Clear
@@ -1289,6 +1430,31 @@ const EnhancedCustomerManagement = () => {
             </CardContent>
           </Card>
 
+          {/* Alert Filter Indicator */}
+          {alertFilter && (
+            <Card className="mb-4 p-3 bg-gradient-to-r from-yellow-50 to-amber-50 dark:from-yellow-950/30 dark:to-amber-950/30 border-yellow-200 dark:border-yellow-800">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm text-yellow-700 dark:text-yellow-300">
+                  <AlertTriangle className="w-4 h-4" />
+                  <span className="font-medium">Showing customers with service alerts only</span>
+                  <span className="text-xs opacity-75">({totalCustomers} found)</span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setAlertFilter(false);
+                    setCurrentPage(1);
+                    loadCustomerList(1, getCurrentSearchTerm(), statusFilter, false);
+                  }}
+                  className="h-7 px-3 text-xs text-yellow-700 hover:text-yellow-900 hover:bg-yellow-100 dark:text-yellow-300 dark:hover:text-yellow-100 dark:hover:bg-yellow-900/20"
+                >
+                  Clear filter
+                </Button>
+              </div>
+            </Card>
+          )}
+
       {/* Enhanced Customer Table */}
       {/* Bulk Actions Bar */}
       {selectedCustomerIds.length > 0 && (
@@ -1362,7 +1528,7 @@ const EnhancedCustomerManagement = () => {
                     <Button 
                       variant="outline" 
                       size="sm" 
-                      onClick={() => loadCustomerList(currentPage, getCurrentSearchTerm(), statusFilter)}
+                      onClick={() => loadCustomerList(currentPage, getCurrentSearchTerm(), statusFilter, alertFilter)}
                       className="mt-2"
                     >
                       Try Again
@@ -1375,7 +1541,7 @@ const EnhancedCustomerManagement = () => {
                 <div className="flex flex-col items-center gap-2">
                   <User className="h-8 w-8 text-muted-foreground" />
                   <p className="text-sm text-muted-foreground">
-                    {searchQuery || statusFilter !== 'all' ? 'No customers found' : 'No customers yet'}
+                    {searchQuery || statusFilter !== 'all' || alertFilter ? 'No customers found' : 'No customers yet'}
                   </p>
                 </div>
               </Card>
@@ -1485,7 +1651,7 @@ const EnhancedCustomerManagement = () => {
                         <Button 
                           variant="outline" 
                           size="sm" 
-                          onClick={() => loadCustomerList(currentPage, getCurrentSearchTerm(), statusFilter)}
+                          onClick={() => loadCustomerList(currentPage, getCurrentSearchTerm(), statusFilter, alertFilter)}
                           className="mt-2"
                         >
                           Try Again
@@ -1500,7 +1666,7 @@ const EnhancedCustomerManagement = () => {
                     <div className="flex flex-col items-center gap-2">
                       <User className="h-8 w-8 text-muted-foreground" />
                       <p className="text-sm text-muted-foreground">
-                        {searchQuery || statusFilter !== 'all' ? 'No customers found' : 'No customers yet'}
+                        {searchQuery || statusFilter !== 'all' || alertFilter ? 'No customers found' : 'No customers yet'}
                       </p>
                     </div>
                   </TableCell>
@@ -1611,6 +1777,10 @@ const EnhancedCustomerManagement = () => {
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
+                        <AlertBellAction
+                          customerPhone={customer.phone_number}
+                          onBellClick={handleBellClick}
+                        />
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button 
@@ -2724,6 +2894,20 @@ const EnhancedCustomerManagement = () => {
         customer={editingCustomer}
         onSave={handleCustomerSaved}
       />
+
+      {/* Service Alert Dialog */}
+      {selectedCustomerForAlert && (
+        <ServiceAlertDialog
+          isOpen={showServiceAlertDialog}
+          onClose={() => {
+            setShowServiceAlertDialog(false);
+            setSelectedCustomerForAlert(null);
+          }}
+          customerPhone={selectedCustomerForAlert.phone}
+          customerName={selectedCustomerForAlert.name}
+          onAlertResolved={handleAlertResolved}
+        />
+      )}
     </div>
   );
 };

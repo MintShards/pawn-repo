@@ -16,7 +16,7 @@ class PaymentService {
       this.clearPaymentCache();
       return result;
     } catch (error) {
-      console.error('Process payment error:', error);
+      // Error handled
       throw error;
     }
   }
@@ -28,7 +28,7 @@ class PaymentService {
         method: 'GET',
       });
     } catch (error) {
-      console.error('Get payment history error:', error);
+      // Error handled
       throw error;
     }
   }
@@ -40,7 +40,7 @@ class PaymentService {
         method: 'GET',
       });
     } catch (error) {
-      console.error('Get payment summary error:', error);
+      // Error handled
       throw error;
     }
   }
@@ -55,7 +55,7 @@ class PaymentService {
       if (error.message.includes('404')) {
         throw new Error(`Payment ${paymentId} not found`);
       }
-      console.error('Get payment by ID error:', error);
+      // Error handled
       throw error;
     }
   }
@@ -68,7 +68,7 @@ class PaymentService {
         body: JSON.stringify(paymentData),
       });
     } catch (error) {
-      console.error('Validate payment error:', error);
+      // Error handled
       throw error;
     }
   }
@@ -80,7 +80,7 @@ class PaymentService {
         method: 'GET',
       });
     } catch (error) {
-      console.error('Get payment receipt error:', error);
+      // Error handled
       throw error;
     }
   }
@@ -95,7 +95,7 @@ class PaymentService {
       this.clearPaymentCache();
       return result;
     } catch (error) {
-      console.error('Void payment error:', error);
+      // Error handled
       throw error;
     }
   }
@@ -106,4 +106,5 @@ class PaymentService {
   }
 }
 
-export default new PaymentService();
+const paymentService = new PaymentService();
+export default paymentService;

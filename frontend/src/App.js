@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
+import { AlertCountProvider } from './context/AlertCountContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
@@ -12,8 +13,14 @@ function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <Router>
-          <div className="App">
+        <AlertCountProvider>
+          <Router
+            future={{
+              v7_startTransition: true,
+              v7_relativeSplatPath: true
+            }}
+          >
+            <div className="App">
             <Routes>
               {/* Public routes */}
               <Route path="/login" element={<LoginPage />} />
@@ -53,8 +60,9 @@ function App() {
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
             
-          </div>
-        </Router>
+            </div>
+          </Router>
+        </AlertCountProvider>
       </AuthProvider>
     </ThemeProvider>
   );

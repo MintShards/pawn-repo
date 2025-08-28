@@ -126,7 +126,7 @@ const CustomerDialog = ({
     } catch (error) {
       // Only log if it's not a 404 (customer not found is expected)
       if (!error.message.includes('404')) {
-        console.warn('Phone validation check failed:', error);
+        // Warning handled
       }
       setPhoneExists(false);
     }
@@ -188,7 +188,7 @@ const CustomerDialog = ({
       
       onOpenChange(false);
     } catch (error) {
-      console.error('Save customer error:', error);
+      // Error handled
       
       // Handle specific error types
       let errorMessage = 'Failed to save customer';

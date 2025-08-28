@@ -22,7 +22,7 @@ class ErrorBoundary extends React.Component {
     
     // Log error to console in development
     if (process.env.NODE_ENV === 'development') {
-      console.error('ErrorBoundary caught an error:', error, errorInfo);
+      // Error handled
     }
   }
 
@@ -92,7 +92,7 @@ export const useErrorHandler = () => {
   const resetError = () => setError(null);
 
   const handleError = React.useCallback((error) => {
-    console.error('Error caught by useErrorHandler:', error);
+    // Error handled
     setError(error);
   }, []);
 

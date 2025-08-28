@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, CreditCard, X, Clock } from 'lucide-react';
+import { Calendar, X } from 'lucide-react';
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
@@ -45,7 +45,7 @@ const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
         }));
       }
     } catch (err) {
-      console.error('Error checking extension eligibility:', err);
+      // Error handled
       setError('Failed to check extension eligibility');
     } finally {
       setLoadingEligibility(false);
@@ -107,7 +107,7 @@ const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
         onSuccess(result);
       }
     } catch (err) {
-      console.error('Error processing extension:', err);
+      // Error handled
       setError(err.message || 'Failed to process extension');
     } finally {
       setSubmitting(false);

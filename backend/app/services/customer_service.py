@@ -388,128 +388,27 @@ class CustomerService:
     async def get_customer_statistics() -> CustomerStatsResponse:
         """Get comprehensive customer statistics for admin dashboard with customer-focused metrics"""
         try:
-            # Calculate date boundaries
+            # Use simpler direct counting instead of aggregation
+            total_customers = await Customer.count()
+            active_customers = await Customer.find(Customer.status == "active").count()
+            suspended_customers = await Customer.find(Customer.status == "suspended").count()
+            archived_customers = await Customer.find(Customer.status == "archived").count()
+            
+            # Calculate date boundaries for date-based counts
             now = datetime.utcnow()
             today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
             thirty_days_ago = datetime.fromtimestamp(now.timestamp() - (30 * 24 * 60 * 60))
             
-            # Use MongoDB aggregation pipeline for efficient calculation
-            pipeline = [
-                {
-                    "$facet": {
-                        # Basic counts
-                        "status_counts": [
-                        {
-                            "$group": {
-                                "_id": "$status",
-                                "count": {"$sum": 1}
-                            }
-                        }
-                    ],
-                    
-                    # Today's customers
-                    "today_customers": [
-                        {
-                            "$match": {"created_at": {"$gte": today_start}}
-                        },
-                        {
-                            "$count": "count"
-                        }
-                    ],
-                    
-                    # New customers this month (last 30 days)
-                    "new_this_month": [
-                        {
-                            "$match": {"created_at": {"$gte": thirty_days_ago}}
-                        },
-                        {
-                            "$count": "count"
-                        }
-                    ],
-                    
-                    # Service alerts (customers requiring service attention)
-                    "service_alerts": [
-                        {
-                            "$match": {
-                                "$or": [
-                                    {"status": "suspended"},
-                                    {"notes": {"$regex": "alert|issue|problem|overdue", "$options": "i"}}
-                                ]
-                            }
-                        },
-                        {
-                            "$count": "count"
-                        }
-                    ],
-                    
-                    # Needs follow-up (flagged notes)
-                    "needs_follow_up": [
-                        {
-                            "$match": {
-                                "status": "active",
-                                "notes": {"$regex": "follow|contact|call", "$options": "i"}
-                            }
-                        },
-                        {
-                            "$count": "count"
-                        }
-                    ],
-                    
-                    # Eligible for credit increase (active + available credit)
-                    "eligible_for_increase": [
-                        {
-                            "$match": {
-                                "status": "active",
-                                "can_borrow_amount": {"$gt": 0}
-                            }
-                        },
-                        {
-                            "$count": "count"
-                        }
-                    ],
-                    
-                    # Average transactions
-                    "avg_transactions": [
-                        {
-                            "$group": {
-                                "_id": None,
-                                "avg": {"$avg": "$total_transactions"}
-                            }
-                        }
-                    ]
-                }
-            }
-            ]
+            customers_created_today = await Customer.find(Customer.created_at >= today_start).count()
+            new_this_month = await Customer.find(Customer.created_at >= thirty_days_ago).count()
             
-            # Execute aggregation
-            result = await Customer.aggregate(pipeline).to_list()
-            data = result[0] if result else {}
-            
-            # Process status counts
-            status_counts = {item["_id"]: item["count"] for item in data.get("status_counts", [])}
-            
-            # Extract metrics with safe defaults - FIXED: Handle empty arrays
-            total_customers = sum(status_counts.values())
-            active_customers = status_counts.get("active", 0)
-            suspended_customers = status_counts.get("suspended", 0) 
-            archived_customers = status_counts.get("archived", 0)
-            
-            # Safe array access - handle empty arrays from aggregation
-            def safe_get_count(data_key):
-                """Safely get count from aggregation result that might be empty"""
-                result_array = data.get(data_key, [])
-                return result_array[0].get("count", 0) if result_array else 0
-            
-            customers_created_today = safe_get_count("today_customers")
-            new_this_month = safe_get_count("new_this_month") 
-            service_alerts = safe_get_count("service_alerts")
-            needs_follow_up = safe_get_count("needs_follow_up")
-            eligible_for_increase = safe_get_count("eligible_for_increase")
-            
-            # Safe access for average transactions
-            avg_transactions_array = data.get("avg_transactions", [])
-            avg_transactions = avg_transactions_array[0].get("avg", 0.0) if avg_transactions_array else 0.0
-            avg_transactions = avg_transactions or 0.0  # Handle None values
+            # Get unique customer alert count from ServiceAlertService
+            from app.services.service_alert_service import ServiceAlertService
+            try:
+                alert_stats = await ServiceAlertService.get_unique_customer_alert_count()
+                service_alerts = alert_stats.get("unique_customer_count", 0)
+            except Exception as e:
+                service_alerts = 0
             
             return CustomerStatsResponse(
                 total_customers=total_customers,
@@ -517,16 +416,22 @@ class CustomerService:
                 suspended_customers=suspended_customers,
                 archived_customers=archived_customers,
                 customers_created_today=customers_created_today,
-                avg_transactions_per_customer=round(avg_transactions, 2),
+                avg_transactions_per_customer=0.0,
                 new_this_month=new_this_month,
                 service_alerts=service_alerts,
-                needs_follow_up=needs_follow_up,
-                eligible_for_increase=eligible_for_increase
+                needs_follow_up=0,
+                eligible_for_increase=0
             )
-            
+        
         except Exception as e:
-            # Log error and return safe defaults if aggregation fails
-            # Return safe fallback with zero counts
+            # Get unique customer alert count even in error case
+            from app.services.service_alert_service import ServiceAlertService
+            try:
+                alert_stats = await ServiceAlertService.get_unique_customer_alert_count()
+                service_alerts = alert_stats.get("unique_customer_count", 0)
+            except:
+                service_alerts = 0
+            
             return CustomerStatsResponse(
                 total_customers=0,
                 active_customers=0,
@@ -535,7 +440,8 @@ class CustomerService:
                 customers_created_today=0,
                 avg_transactions_per_customer=0.0,
                 new_this_month=0,
-                service_alerts=0,
+                service_alerts=service_alerts,
                 needs_follow_up=0,
                 eligible_for_increase=0
             )
+

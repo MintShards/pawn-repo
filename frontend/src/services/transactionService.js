@@ -1,6 +1,6 @@
 import authService from './authService';
 import extensionService from './extensionService';
-import { formatExtensionId, matchesExtensionSearch } from '../utils/transactionUtils';
+import { matchesExtensionSearch } from '../utils/transactionUtils';
 
 class TransactionService {
   constructor() {
@@ -29,7 +29,7 @@ class TransactionService {
       }
       return Array.isArray(result) ? { transactions: result, total: result.length } : { transactions: [], total: 0 };
     } catch (error) {
-      console.error('Get all transactions error:', error);
+      // Error handled
       throw error;
     }
   }
@@ -44,7 +44,7 @@ class TransactionService {
       this.clearTransactionCache();
       return result;
     } catch (error) {
-      console.error('Create transaction error:', error);
+      // Error handled
       throw error;
     }
   }
@@ -59,7 +59,7 @@ class TransactionService {
       if (error.message.includes('404')) {
         throw new Error(`Transaction ${transactionId} not found`);
       }
-      console.error('Get transaction by ID error:', error);
+      // Error handled
       throw error;
     }
   }
@@ -72,7 +72,7 @@ class TransactionService {
         method: 'GET',
       });
     } catch (error) {
-      console.error('Get transaction balance error:', error);
+      // Error handled
       throw error;
     }
   }
@@ -87,7 +87,7 @@ class TransactionService {
       this.clearTransactionCache();
       return result;
     } catch (error) {
-      console.error('Update transaction status error:', error);
+      // Error handled
       throw error;
     }
   }
@@ -101,7 +101,7 @@ class TransactionService {
       this.clearTransactionCache();
       return result;
     } catch (error) {
-      console.error('Redeem transaction error:', error);
+      // Error handled
       throw error;
     }
   }
@@ -116,7 +116,7 @@ class TransactionService {
       this.clearTransactionCache();
       return result;
     } catch (error) {
-      console.error('Forfeit transaction error:', error);
+      // Error handled
       throw error;
     }
   }
@@ -130,7 +130,7 @@ class TransactionService {
         method: 'GET',
       });
     } catch (error) {
-      console.error('Get customer transactions error:', error);
+      // Error handled
       throw error;
     }
   }
@@ -174,7 +174,7 @@ class TransactionService {
             }
             
             // If extension loading fails for other reasons, continue with transaction but log the error
-            console.warn(`Failed to load extensions for transaction ${transaction.transaction_id}:`, error);
+            // Failed to load extensions for transaction
             return {
               ...transaction,
               extensions: [],
@@ -186,7 +186,7 @@ class TransactionService {
       
       return enrichedTransactions;
     } catch (error) {
-      console.error('Error enriching transactions with extensions:', error);
+      // Error handled
       return transactions; // Return original transactions if enrichment fails
     }
   }
@@ -219,7 +219,7 @@ class TransactionService {
         searchTerm: extensionSearchTerm
       };
     } catch (error) {
-      console.error('Error searching transactions by extension:', error);
+      // Error handled
       throw error;
     }
   }
@@ -230,4 +230,5 @@ class TransactionService {
   }
 }
 
-export default new TransactionService();
+const transactionService = new TransactionService();
+export default transactionService;

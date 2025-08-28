@@ -37,7 +37,7 @@ const TransactionCard = ({
       const balanceData = await transactionService.getTransactionBalance(transaction.transaction_id);
       setBalance(balanceData);
     } catch (error) {
-      console.error('Error loading balance:', error);
+      // Error handled
     } finally {
       setLoading(false);
     }

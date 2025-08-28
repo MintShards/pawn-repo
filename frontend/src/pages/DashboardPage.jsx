@@ -29,13 +29,20 @@ import {
   FileText,
   Calendar,
   ArrowUpRight,
-  RefreshCw
+  RefreshCw,
+  Bell
 } from 'lucide-react';
 import { getRoleTitle, getWelcomeMessage, getUserDisplayString } from '../utils/roleUtils';
+import serviceAlertService from '../services/serviceAlertService';
 
 const DashboardPage = () => {
   const { user, logout, loading, fetchUserDataIfNeeded } = useAuth();
   const navigate = useNavigate();
+  const [alertStats, setAlertStats] = React.useState({
+    unique_customer_count: 0,
+    total_alert_count: 0
+  });
+  const [alertStatsLoading, setAlertStatsLoading] = React.useState(true);
 
   // Fetch user data if needed on component mount
   React.useEffect(() => {
@@ -43,6 +50,55 @@ const DashboardPage = () => {
       fetchUserDataIfNeeded();
     }
   }, [user, loading, fetchUserDataIfNeeded]);
+
+  // Fetch service alert stats
+  React.useEffect(() => {
+    const fetchAlertStats = async () => {
+      try {
+        setAlertStatsLoading(true);
+        const stats = await serviceAlertService.getUniqueCustomerAlertStats();
+        setAlertStats(stats);
+      } catch (error) {
+        // Failed to fetch alert stats
+        // Set default values on error
+        setAlertStats({
+          unique_customer_count: 0,
+          total_alert_count: 0
+        });
+      } finally {
+        setAlertStatsLoading(false);
+      }
+    };
+
+    if (user) {
+      fetchAlertStats();
+      // Refresh stats every 30 seconds
+      const interval = setInterval(fetchAlertStats, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [user]);
+
+  // Listen for service alert updates
+  React.useEffect(() => {
+    const handleAlertUpdate = async () => {
+      try {
+        // Clear cache to force fresh fetch
+        serviceAlertService.clearCacheByPattern('unique_customer_alert_stats');
+        const stats = await serviceAlertService.getUniqueCustomerAlertStats();
+        setAlertStats(stats);
+      } catch (error) {
+        // Failed to refresh alert stats
+      }
+    };
+
+    window.addEventListener('refreshAlertCounts', handleAlertUpdate);
+    window.addEventListener('refreshCustomerAlerts', handleAlertUpdate);
+    
+    return () => {
+      window.removeEventListener('refreshAlertCounts', handleAlertUpdate);
+      window.removeEventListener('refreshCustomerAlerts', handleAlertUpdate);
+    };
+  }, []);
 
   const handleLogout = () => {
     logout();
@@ -184,7 +240,7 @@ const DashboardPage = () => {
         </div>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
           {/* Today's Revenue */}
           <Card className="border-0 shadow-lg bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-950/50 dark:to-teal-950/50 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-20 h-20 bg-emerald-500/10 rounded-full -mr-10 -mt-10"></div>
@@ -220,6 +276,44 @@ const DashboardPage = () => {
                 </div>
                 <div className="w-12 h-12 bg-blue-500/20 rounded-xl flex items-center justify-center">
                   <CreditCard className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Service Alerts */}
+          <Card 
+            className="border-0 shadow-lg bg-gradient-to-br from-red-50 to-rose-50 dark:from-red-950/50 dark:to-rose-950/50 relative overflow-hidden cursor-pointer"
+            onClick={async () => {
+              setAlertStatsLoading(true);
+              try {
+                serviceAlertService.clearCacheByPattern('unique_customer_alert_stats');
+                const stats = await serviceAlertService.getUniqueCustomerAlertStats();
+                setAlertStats(stats);
+              } catch (error) {
+                // Manual refresh failed
+              }
+              setAlertStatsLoading(false);
+            }}
+          >
+            <div className="absolute top-0 right-0 w-20 h-20 bg-red-500/10 rounded-full -mr-10 -mt-10"></div>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-red-600 dark:text-red-400">Service Alerts</p>
+                  <p className="text-2xl font-bold text-red-900 dark:text-red-100">
+                    {alertStatsLoading ? '-' : alertStats.unique_customer_count}
+                  </p>
+                  <p className="text-xs text-red-600/70 dark:text-red-400/70 flex items-center mt-1">
+                    <Bell className="w-3 h-3 mr-1" />
+                    {alertStatsLoading ? 'Loading...' : (
+                      alertStats.unique_customer_count === 0 ? 'No active alerts' :
+                      `${alertStats.unique_customer_count} customer${alertStats.unique_customer_count !== 1 ? 's' : ''} with alerts`
+                    )}
+                  </p>
+                </div>
+                <div className="w-12 h-12 bg-red-500/20 rounded-xl flex items-center justify-center">
+                  <Bell className="w-6 h-6 text-red-600 dark:text-red-400" />
                 </div>
               </div>
             </CardContent>

@@ -30,7 +30,7 @@ const loadSequenceData = () => {
       nextExtensionNumber = parseInt(savedNextExtension, 10) || 1;
     }
   } catch (e) {
-    console.warn('Failed to load sequence data from localStorage:', e);
+    // Warning handled
     // Reset to defaults if loading fails
     transactionSequence = new Map();
     extensionSequence = new Map();
@@ -47,7 +47,7 @@ const saveSequenceData = () => {
     localStorage.setItem('nextSequenceNumber', nextSequenceNumber.toString());
     localStorage.setItem('nextExtensionNumber', nextExtensionNumber.toString());
   } catch (e) {
-    console.warn('Failed to save sequence data to localStorage:', e);
+    // Warning handled
   }
 };
 
@@ -157,7 +157,7 @@ export const clearSequenceData = () => {
     localStorage.removeItem('nextSequenceNumber');
     localStorage.removeItem('nextExtensionNumber');
   } catch (e) {
-    console.warn('Failed to clear sequence data from localStorage:', e);
+    // Warning handled
   }
 };
 
@@ -249,7 +249,7 @@ export const matchesExtensionSearch = (extension, searchTerm) => {
   );
 };
 
-export default {
+const transactionUtils = {
   formatTransactionId,
   formatExtensionId,
   initializeSequenceNumbers,
@@ -257,3 +257,5 @@ export default {
   matchesTransactionSearch,
   matchesExtensionSearch
 };
+
+export default transactionUtils;

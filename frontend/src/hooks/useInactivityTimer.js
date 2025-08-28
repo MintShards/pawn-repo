@@ -75,7 +75,7 @@ const useInactivityTimer = ({
         warningStartTimeRef.current = Date.now();
         setShowWarning(true);
         onWarning();
-        console.warn('🔒 Security Warning: Auto-logout due to inactivity');
+        // Warning handled
         
         // Start countdown interval - counts down from warning time remaining
         setTimeRemaining(warningTime); // Initialize with full warning time
@@ -102,7 +102,7 @@ const useInactivityTimer = ({
             setTimeRemaining(0);
             
             // Trigger logout immediately when countdown reaches zero
-            console.warn('🔒 Security: Auto-logout triggered by countdown completion');
+            // Warning handled
             onTimeout();
           }
         }, 1000); // Update every second for clear countdown
@@ -111,7 +111,7 @@ const useInactivityTimer = ({
 
     // Set logout timer (full timeout)
     timeoutRef.current = setTimeout(() => {
-      console.warn('🔒 Security: Auto-logout due to inactivity');
+      // Warning handled
       
       // Clean up everything
       if (intervalRef.current) {
@@ -220,7 +220,7 @@ const useInactivityTimer = ({
               warningStartTimeRef.current = Date.now();
               setShowWarning(true);
               onWarning();
-              console.warn('🔒 Security Warning: Auto-logout due to inactivity');
+              // Warning handled
               
               // Start countdown interval
               setTimeRemaining(warningTime);
@@ -247,7 +247,7 @@ const useInactivityTimer = ({
                   setTimeRemaining(0);
                   
                   // Trigger logout immediately when countdown reaches zero
-                  console.warn('🔒 Security: Auto-logout triggered by countdown completion');
+                  // Warning handled
                   onTimeout();
                 }
               }, 1000);
@@ -256,7 +256,7 @@ const useInactivityTimer = ({
 
           // Set logout timer
           timeoutRef.current = setTimeout(() => {
-            console.warn('🔒 Security: Auto-logout due to inactivity');
+            // Warning handled
             
             // Clean up everything
             if (intervalRef.current) {

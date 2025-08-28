@@ -246,6 +246,30 @@ class ConfigurationError(PawnShopException):
         )
 
 
+class NotFoundError(PawnShopException):
+    """Raised when a requested resource is not found."""
+    
+    def __init__(self, message: str = "Resource not found", error_code: str = None, details: Dict[str, Any] = None):
+        super().__init__(
+            message,
+            error_code or "NOT_FOUND",
+            details,
+            log_level="info"
+        )
+
+
+class ConflictError(PawnShopException):
+    """Raised when a resource conflict occurs (e.g., duplicate records)."""
+    
+    def __init__(self, message: str = "Resource conflict", error_code: str = None, details: Dict[str, Any] = None):
+        super().__init__(
+            message,
+            error_code or "CONFLICT",
+            details,
+            log_level="warning"
+        )
+
+
 class ExternalServiceError(PawnShopException):
     """Raised when external service calls fail."""
     
@@ -268,8 +292,10 @@ EXCEPTION_STATUS_MAP = {
     ValidationError: 400,
     AuthenticationError: 401,
     AuthorizationError: 403,
+    NotFoundError: 404,
     TransactionNotFoundError: 404,
     CustomerNotFoundError: 404,
+    ConflictError: 409,
     BusinessRuleError: 422,
     PaymentError: 422,
     ExtensionError: 422,
