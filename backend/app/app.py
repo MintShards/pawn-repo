@@ -25,6 +25,7 @@ from app.core.exception_handlers import register_exception_handlers
 from app.middleware.request_id import add_request_id_middleware
 from app.models.customer_model import Customer
 from app.models.extension_model import Extension
+from app.models.loan_config_model import LoanConfig
 from app.models.pawn_item_model import PawnItem
 from app.models.pawn_transaction_model import PawnTransaction
 from app.models.payment_model import Payment
@@ -55,7 +56,7 @@ async def lifespan(app: FastAPI):
     
     await init_beanie(
         database=db_client,
-        document_models=[User, Customer, PawnTransaction, PawnItem, Payment, Extension, ServiceAlert]
+        document_models=[User, Customer, PawnTransaction, PawnItem, Payment, Extension, ServiceAlert, LoanConfig]
     )
     
     # Initialize Redis-based services

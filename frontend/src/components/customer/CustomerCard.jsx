@@ -1,5 +1,5 @@
 import React from 'react';
-import { MoreHorizontal, Eye, Edit2, CreditCard, TrendingUp, Phone, Mail } from 'lucide-react';
+import { MoreHorizontal, Eye, Edit2, CreditCard, TrendingUp, Phone, Mail, Gauge } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Card, CardContent } from '../ui/card';
 import { Avatar, AvatarImage, AvatarFallback } from '../ui/avatar';
@@ -12,6 +12,8 @@ import {
 } from '../ui/dropdown-menu';
 import { StatusBadge } from '../ui/enhanced-badge';
 import customerService from '../../services/customerService';
+import { useAuth } from '../../context/AuthContext';
+import { isAdmin as isAdminRole } from '../../utils/roleUtils';
 
 const CustomerCard = ({ 
   customer, 
@@ -21,8 +23,13 @@ const CustomerCard = ({
   isSelected = false,
   onViewTransactions,
   onManageEligibility,
-  onNotifications
+  onNotifications,
+  onSetCustomLimit,
+  maxActiveLoans = 8
 }) => {
+  const { user } = useAuth();
+  const isAdmin = isAdminRole(user);
+  
   
   const getCustomerInitials = (customer) => {
     const firstName = customer.first_name || '';
@@ -33,6 +40,11 @@ const CustomerCard = ({
   const getCustomerAvatarUrl = (customer) => {
     const fullName = customerService.getCustomerFullName(customer);
     return `https://api.dicebear.com/7.x/shapes/svg?seed=${encodeURIComponent(fullName + customer.phone_number)}`;
+  };
+
+  // Get the effective loan limit for this customer
+  const getEffectiveLoanLimit = () => {
+    return customer.custom_loan_limit || maxActiveLoans;
   };
 
   const formatDate = (dateString) => {
@@ -147,6 +159,14 @@ const CustomerCard = ({
                   <TrendingUp className="h-4 w-4 mr-2" />
                   Manage Eligibility
                 </DropdownMenuItem>
+                {isAdmin && (
+                  <DropdownMenuItem 
+                    onClick={() => onSetCustomLimit?.(customer)}
+                  >
+                    <Gauge className="h-4 w-4 mr-2" />
+                    Set Loan Limit
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -172,13 +192,20 @@ const CustomerCard = ({
         {/* Loan Activity Section */}
         <div className="space-y-2">
           <div className="flex items-center justify-between text-sm">
-            <span className="text-slate-600 dark:text-slate-400">Loan Activity</span>
+            <div className="flex items-center gap-2">
+              <span className="text-slate-600 dark:text-slate-400">Loan Activity</span>
+              {customer.custom_loan_limit && (
+                <span className="text-xs bg-amber-100 text-amber-800 dark:bg-amber-900/20 dark:text-amber-400 px-2 py-1 rounded-full">
+                  Custom Limit
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-4">
               <div className="text-right">
                 <span className="font-semibold text-slate-900 dark:text-slate-100">
                   {customer.active_loans || 0}
                 </span>
-                <span className="text-xs text-slate-500 ml-1">active</span>
+                <span className="text-xs text-slate-500 ml-1">/ {getEffectiveLoanLimit()}</span>
               </div>
               <div className="text-right">
                 <span className="text-xs text-slate-500">
@@ -190,11 +217,11 @@ const CustomerCard = ({
           
           <div className="flex items-center gap-2">
             <Progress 
-              value={Math.min(((customer.active_loans || 0) / 5) * 100, 100)} 
+              value={Math.min(((customer.active_loans || 0) / getEffectiveLoanLimit()) * 100, 100)} 
               className="flex-1 h-2"
             />
             <span className="text-xs text-slate-500 w-8">
-              {Math.min(((customer.active_loans || 0) / 5) * 100, 100).toFixed(0)}%
+              {Math.min(((customer.active_loans || 0) / getEffectiveLoanLimit()) * 100, 100).toFixed(0)}%
             </span>
           </div>
         </div>
@@ -219,6 +246,18 @@ const CustomerCard = ({
             <Edit2 className="h-3 w-3 mr-1" />
             Edit
           </Button>
+          {isAdmin && (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="hover:bg-blue-50 hover:border-blue-300 dark:hover:bg-blue-950"
+              onClick={() => onSetCustomLimit?.(customer)}
+              title="Set Custom Loan Limit (Admin Only)"
+            >
+              <Gauge className="h-4 w-4 mr-1" />
+              Limit
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>

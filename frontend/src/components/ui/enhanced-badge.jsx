@@ -80,9 +80,8 @@ const StatusBadge = ({ status, className, ...props }) => {
   );
 };
 
-
 // Loan activity badge
-const LoanActivityBadge = ({ count, maxLoans = 5, className, ...props }) => {
+const LoanActivityBadge = ({ count, maxLoans = 8, className, ...props }) => {
   const getVariant = (count, max) => {
     const ratio = count / max;
     if (ratio >= 0.8) return "danger";

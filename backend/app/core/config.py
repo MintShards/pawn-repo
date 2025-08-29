@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     # Field encryption settings
     FIELD_ENCRYPTION_KEY: str = config("FIELD_ENCRYPTION_KEY", default="", cast=str)
     
+    # Business rules configuration
+    MAX_ACTIVE_LOANS: int = config("MAX_ACTIVE_LOANS", default=8, cast=int)
+    
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     @classmethod
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> Union[List[str], str]:

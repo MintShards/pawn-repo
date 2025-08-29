@@ -18,7 +18,7 @@ from app.models.customer_model import CustomerStatus
 from app.models.user_model import User
 from app.schemas.customer_schema import (
     CustomerCreate, CustomerUpdate, CustomerResponse, CustomerListResponse,
-    CustomerStatsResponse, CustomerArchiveRequest
+    CustomerStatsResponse, CustomerArchiveRequest, LoanLimitUpdateRequest, LoanLimitResponse
 )
 from app.services.customer_service import CustomerService
 
@@ -137,18 +137,74 @@ async def get_customers_list(
     "/stats",
     response_model=CustomerStatsResponse,
     summary="Get customer statistics",
-    description="Get customer statistics for dashboard (Admin access only)",
+    description="Get customer statistics for dashboard (Staff and Admin access)",
     responses={
         200: {"description": "Customer statistics retrieved successfully"},
         401: {"description": "Authentication required"},
-        403: {"description": "Admin access required"}
+        403: {"description": "Forbidden"}
     }
 )
 async def get_customer_statistics(
-    current_user: User = Depends(get_admin_user)
+    current_user: User = Depends(get_current_user)
 ) -> CustomerStatsResponse:
     """Get customer statistics for dashboard"""
     return await CustomerService.get_customer_statistics()
+
+
+@customer_router.get(
+    "/loan-limit-config",
+    response_model=LoanLimitResponse,
+    summary="Get current loan limit configuration",
+    description="Get the current maximum active loans limit configuration (Staff and Admin access)",
+    responses={
+        200: {"description": "Loan limit configuration retrieved successfully"},
+        401: {"description": "Authentication required"},
+        403: {"description": "Staff or Admin access required"}
+    }
+)
+async def get_loan_limit_config(
+    current_user: User = Depends(get_current_user)
+) -> LoanLimitResponse:
+    """Get current loan limit configuration"""
+    try:
+        return await CustomerService.get_loan_limit_config()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve loan limit configuration. Please try again later."
+        )
+
+
+@customer_router.put(
+    "/loan-limit-config",
+    response_model=LoanLimitResponse,
+    summary="Update loan limit configuration",
+    description="Update the maximum active loans limit configuration (Admin access only)",
+    responses={
+        200: {"description": "Loan limit configuration updated successfully"},
+        400: {"description": "Bad request - Invalid data"},
+        401: {"description": "Authentication required"},
+        403: {"description": "Admin access required"},
+        422: {"description": "Validation error"}
+    }
+)
+async def update_loan_limit_config(
+    request: LoanLimitUpdateRequest,
+    current_user: User = Depends(get_admin_user)
+) -> LoanLimitResponse:
+    """Update loan limit configuration (Admin only)"""
+    try:
+        return await CustomerService.update_loan_limit_config(
+            request=request,
+            admin_user_id=current_user.user_id
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update loan limit configuration. Please try again later."
+        )
 
 
 @customer_router.get(
@@ -405,3 +461,5 @@ async def check_loan_eligibility(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to check loan eligibility. Please try again later."
         )
+
+

@@ -150,6 +150,14 @@ class Customer(Document):
         description="Maximum loan amount allowed"
     )
     
+    # Individual loan limit (overrides system default)
+    custom_loan_limit: Optional[int] = Field(
+        None,
+        ge=1,
+        le=50,
+        description="Custom maximum active loans for this customer (overrides system default)"
+    )
+    
     @field_validator("phone_number")
     @classmethod
     def validate_phone_number(cls, v):

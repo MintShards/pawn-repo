@@ -67,7 +67,6 @@ class CustomerService {
     }
   }
 
-
   // Format phone number for display (123) 456-7890
   formatPhoneNumber(phoneNumber) {
     if (!phoneNumber) return '';
@@ -78,8 +77,6 @@ class CustomerService {
     }
     return phoneNumber;
   }
-
-
 
   // Get customer full name
   getCustomerFullName(customer) {
@@ -112,6 +109,62 @@ class CustomerService {
     }
   }
 
+  // Get current loan limit configuration (admin only)
+  async getLoanLimitConfig() {
+    try {
+      // Check for cached config first
+      const cacheKey = 'loan_limit_config';
+      const cached = this._getFromCache(cacheKey);
+      if (cached) {
+        return cached;
+      }
+
+      const config = await authService.apiRequest('/api/v1/customer/loan-limit-config', {
+        method: 'GET',
+      });
+
+      // Cache config for 10 minutes (longer since it changes less frequently)
+      this._setCache(cacheKey, config, 10 * 60 * 1000);
+      
+      return config;
+    } catch (error) {
+      // Fallback to default limit if API call fails
+      console.warn('Failed to fetch loan limit config, using default:', error);
+      return { current_limit: 8, updated_by: 'system', reason: 'Default fallback' };
+    }
+  }
+
+  // Update loan limit configuration (admin only)
+  async updateLoanLimitConfig(maxActiveLoans, reason) {
+    try {
+      const config = await authService.apiRequest('/api/v1/customer/loan-limit-config', {
+        method: 'PUT',
+        body: JSON.stringify({
+          max_active_loans: maxActiveLoans,
+          reason: reason
+        })
+      });
+
+      // Clear cache after update
+      this._removeFromCache('loan_limit_config');
+      
+      return config;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  // Get current max active loans limit (for UI components)
+  async getCurrentMaxLoans() {
+    try {
+      const config = await this.getLoanLimitConfig();
+      return config.current_limit || 8; // Default fallback
+    } catch (error) {
+      console.warn('Failed to get max loans, using default:', error);
+      return 8; // Default fallback
+    }
+  }
+
   // Simple local cache implementation
   _getFromCache(key) {
     const cached = localStorage.getItem(`customer_cache_${key}`);
@@ -134,6 +187,9 @@ class CustomerService {
     localStorage.setItem(`customer_cache_${key}`, JSON.stringify(data));
   }
 
+  _removeFromCache(key) {
+    localStorage.removeItem(`customer_cache_${key}`);
+  }
 
   // Archive customer account (admin only)
   async archiveCustomer(phoneNumber, reason = '') {
@@ -196,7 +252,6 @@ class CustomerService {
     }
   }
 
-
   // Get customer borrow amount display
   getBorrowAmountDisplay(customer) {
     if (!customer || typeof customer.can_borrow_amount !== 'number') return '$0';
@@ -226,7 +281,7 @@ class CustomerService {
       authService.clearCache('/api/v1/customer/');
     }
   }
-  
+
   // Force refresh - clears cache and returns fresh data immediately
   async forceRefresh() {
     this.clearCustomerCache();

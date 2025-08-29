@@ -157,6 +157,12 @@ class CustomerUpdate(CustomerBase):
         le=Decimal("50000.00"),
         description="Maximum loan amount allowed (admin only)"
     )
+    custom_loan_limit: Optional[int] = Field(
+        None,
+        ge=1,
+        le=50,
+        description="Custom maximum active loans for this customer (admin only, overrides system default)"
+    )
     
     @validator('first_name', 'last_name')
     def validate_names(cls, v):
@@ -243,6 +249,7 @@ class CustomerResponse(CustomerBase):
     )
     credit_limit: Decimal = Field(..., description="Maximum loan amount allowed")
     can_borrow_amount: Decimal = Field(..., description="Available borrowing amount")
+    custom_loan_limit: Optional[int] = Field(None, description="Custom maximum active loans (overrides system default)")
     
     model_config = ConfigDict(
         from_attributes=True,
@@ -367,6 +374,47 @@ class CustomerArchiveRequest(BaseModel):
         json_schema_extra={
             "example": {
                 "reason": "Admin action - permanent archive"
+            }
+        }
+    )
+
+
+class LoanLimitUpdateRequest(BaseModel):
+    """Schema for updating maximum active loan limit (admin only)"""
+    max_active_loans: int = Field(
+        ge=1,
+        le=20,
+        description="Maximum active loans allowed per customer (1-20)"
+    )
+    reason: str = Field(
+        max_length=500,
+        description="Reason for changing the loan limit"
+    )
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "max_active_loans": 8,
+                "reason": "Increased limit to accommodate business growth"
+            }
+        }
+    )
+
+
+class LoanLimitResponse(BaseModel):
+    """Schema for loan limit configuration response"""
+    current_limit: int = Field(..., description="Current maximum active loans limit")
+    updated_at: str = Field(..., description="When the limit was last updated")
+    updated_by: str = Field(..., description="Admin user who updated the limit")
+    reason: str = Field(..., description="Reason for the current limit")
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "current_limit": 8,
+                "updated_at": "2024-01-15T10:30:00Z",
+                "updated_by": "admin_69",
+                "reason": "Increased limit to accommodate business growth"
             }
         }
     )

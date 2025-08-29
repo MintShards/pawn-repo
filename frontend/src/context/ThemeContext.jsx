@@ -11,21 +11,18 @@ export const useTheme = () => {
 };
 
 export const ThemeProvider = ({ children }) => {
-  const [theme, setTheme] = useState('dark');
+  const [theme, setTheme] = useState(() => {
+    // Initialize theme from localStorage immediately
+    const savedTheme = localStorage.getItem('pawn_repo_theme') || localStorage.getItem('pawn_shop_theme');
+    return savedTheme || 'dark'; // Default to dark if no saved theme
+  });
 
   useEffect(() => {
-    // Get theme from localStorage or default to dark mode
-    const savedTheme = localStorage.getItem('pawn_repo_theme') || localStorage.getItem('pawn_shop_theme');
-    if (savedTheme) {
-      setTheme(savedTheme);
-      // If we found old theme, migrate it and remove old key
-      if (localStorage.getItem('pawn_shop_theme') && !localStorage.getItem('pawn_repo_theme')) {
-        localStorage.setItem('pawn_repo_theme', savedTheme);
-        localStorage.removeItem('pawn_shop_theme');
-      }
-    } else {
-      // Default to dark mode instead of system preference
-      setTheme('dark');
+    // Handle theme migration if needed
+    if (localStorage.getItem('pawn_shop_theme') && !localStorage.getItem('pawn_repo_theme')) {
+      const oldTheme = localStorage.getItem('pawn_shop_theme');
+      localStorage.setItem('pawn_repo_theme', oldTheme);
+      localStorage.removeItem('pawn_shop_theme');
     }
   }, []);
 

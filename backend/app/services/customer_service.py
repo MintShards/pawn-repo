@@ -16,8 +16,10 @@ from pymongo import ASCENDING, DESCENDING
 from app.models.customer_model import Customer, CustomerStatus
 from app.schemas.customer_schema import (
     CustomerCreate, CustomerUpdate, CustomerResponse, CustomerListResponse,
-    CustomerStatsResponse
+    CustomerStatsResponse, LoanLimitUpdateRequest, LoanLimitResponse
 )
+from app.core.config import settings
+from app.models.loan_config_model import LoanConfig
 
 
 class CustomerService:
@@ -315,7 +317,7 @@ class CustomerService:
     @staticmethod
     async def check_loan_limit(phone_number: str) -> bool:
         """
-        Check if customer can take additional loan (max 5 active loans)
+        Check if customer can take additional loan (configurable max active loans)
         
         Args:
             phone_number: Customer's phone number
@@ -333,8 +335,16 @@ class CustomerService:
                 detail="Customer not found"
             )
         
-        # Check if customer has reached the maximum loan limit (5)
-        return customer.active_loans < 5
+        # Check if customer has reached the maximum loan limit
+        # Priority: Customer custom limit > System config > Settings default
+        max_loans = customer.custom_loan_limit
+        if max_loans is None:
+            # No custom limit, use system config
+            max_loans = await LoanConfig.get_max_active_loans()
+            if max_loans == 8:  # If no database config, use settings
+                max_loans = settings.MAX_ACTIVE_LOANS
+        
+        return customer.active_loans < max_loans
 
     @staticmethod
     async def validate_loan_eligibility(phone_number: str, loan_amount: float = None) -> dict:
@@ -355,11 +365,20 @@ class CustomerService:
                 detail="Customer not found"
             )
         
+        # Get effective loan limit for this customer
+        # Priority: Customer custom limit > System config > Settings default
+        max_loans = customer.custom_loan_limit
+        if max_loans is None:
+            # No custom limit, use system config
+            max_loans = await LoanConfig.get_max_active_loans()
+            if max_loans == 8:  # If no database config, use settings
+                max_loans = settings.MAX_ACTIVE_LOANS
+        
         eligibility = {
             "eligible": True,
             "reasons": [],
             "active_loans": customer.active_loans,
-            "max_loans": 5,
+            "max_loans": max_loans,
             "credit_limit": float(customer.credit_limit),
             "max_loan_amount": float(customer.credit_limit),  # For backward compatibility
             "available_credit": float(customer.can_borrow_amount)
@@ -371,9 +390,9 @@ class CustomerService:
             eligibility["reasons"].append(f"Account status is {customer.status.value}")
         
         # Check loan count limit
-        if customer.active_loans >= 5:
+        if customer.active_loans >= max_loans:
             eligibility["eligible"] = False
-            eligibility["reasons"].append("Maximum active loan limit reached (5)")
+            eligibility["reasons"].append(f"Maximum active loan limit reached ({max_loans})")
         
         # Check loan amount against credit limit
         if loan_amount is not None:
@@ -383,6 +402,52 @@ class CustomerService:
         
         
         return eligibility
+    
+    @staticmethod
+    async def get_loan_limit_config() -> LoanLimitResponse:
+        """Get current loan limit configuration"""
+        config = await LoanConfig.get_current_config()
+        
+        if not config:
+            # Return default configuration
+            return LoanLimitResponse(
+                current_limit=settings.MAX_ACTIVE_LOANS,
+                updated_at=datetime.utcnow().isoformat(),
+                updated_by="system",
+                reason="Default configuration"
+            )
+        
+        return LoanLimitResponse(
+            current_limit=config.max_active_loans,
+            updated_at=config.updated_at.isoformat(),
+            updated_by=config.updated_by,
+            reason=config.reason
+        )
+    
+    @staticmethod
+    async def update_loan_limit_config(
+        request: LoanLimitUpdateRequest,
+        admin_user_id: str
+    ) -> LoanLimitResponse:
+        """Update loan limit configuration (admin only)"""
+        
+        # Create new configuration
+        new_config = LoanConfig(
+            max_active_loans=request.max_active_loans,
+            updated_by=admin_user_id,
+            reason=request.reason,
+            is_active=True
+        )
+        
+        # Set as active (deactivates others)
+        await new_config.set_as_active()
+        
+        return LoanLimitResponse(
+            current_limit=new_config.max_active_loans,
+            updated_at=new_config.updated_at.isoformat(),
+            updated_by=new_config.updated_by,
+            reason=new_config.reason
+        )
 
     @staticmethod
     async def get_customer_statistics() -> CustomerStatsResponse:

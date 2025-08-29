@@ -13,7 +13,7 @@ import {
   CreditCard,
   Mail,
   Phone,
-  Settings,
+  Gauge,
   CheckCircle,
   AlertCircle,
   AlertTriangle,
@@ -38,6 +38,7 @@ import {
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
   SheetTrigger,
@@ -81,6 +82,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useAlertCount } from '../../context/AlertCountContext';
 import { isAdmin as isAdminRole } from '../../utils/roleUtils';
 import CustomerCard from './CustomerCard';
+import CustomLoanLimitDialog from './CustomLoanLimitDialog';
 
 const EnhancedCustomerManagement = () => {
   const { toast } = useToast();
@@ -144,10 +146,17 @@ const EnhancedCustomerManagement = () => {
   const [showBulkSuspendDialog, setShowBulkSuspendDialog] = useState(false);
   const [showBulkArchiveDialog, setShowBulkArchiveDialog] = useState(false);
   
+  // Loan limit configuration state
+  const [maxActiveLoans, setMaxActiveLoans] = useState(8); // Default fallback
+  
   // Service Alert Dialog State
   const [showServiceAlertDialog, setShowServiceAlertDialog] = useState(false);
   const [selectedCustomerForAlert, setSelectedCustomerForAlert] = useState(null);
   const [bulkConfirmation, setBulkConfirmation] = useState('');
+  
+  // Custom Loan Limit Dialog State
+  const [showCustomLimitDialog, setShowCustomLimitDialog] = useState(false);
+  const [selectedCustomerForLimit, setSelectedCustomerForLimit] = useState(null);
   const [isMobile, setIsMobile] = useState(false);
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [notesText, setNotesText] = useState('');
@@ -164,6 +173,21 @@ const EnhancedCustomerManagement = () => {
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Fetch current loan limit on component mount
+  useEffect(() => {
+    const fetchLoanLimit = async () => {
+      try {
+        const currentLimit = await customerService.getCurrentMaxLoans();
+        setMaxActiveLoans(currentLimit);
+      } catch (error) {
+        console.warn('Failed to fetch loan limit, using default:', error);
+        // Keep the default fallback value of 8
+      }
+    };
+
+    fetchLoanLimit();
   }, []);
 
   // Debounce search query (500ms delay)
@@ -213,8 +237,26 @@ const EnhancedCustomerManagement = () => {
     };
   }, [searchFields, debouncedSearchFields]);
 
-  // Load customer statistics using optimized backend API - MOVED HERE TO FIX HOISTING ISSUE
+  // Add debounce ref for stats loading to prevent duplicate calls
+  const statsLoadingRef = useRef(false);
+  const statsTimeoutRef = useRef(null);
+
+  // Load customer statistics using optimized backend API with debounce protection
   const loadCustomerStats = useCallback(async () => {
+    // Prevent duplicate simultaneous calls
+    if (statsLoadingRef.current) {
+      return;
+    }
+
+    // Clear any pending timeout
+    if (statsTimeoutRef.current) {
+      clearTimeout(statsTimeoutRef.current);
+      statsTimeoutRef.current = null;
+    }
+
+    // Set loading flag
+    statsLoadingRef.current = true;
+
     try {
       // Use the optimized backend stats endpoint - single efficient API call
       const stats = await customerService.getCustomerStatistics();
@@ -251,16 +293,32 @@ const EnhancedCustomerManagement = () => {
         description: 'Unable to load customer statistics. Please refresh the page.',
         variant: 'destructive'
       });
+    } finally {
+      // Reset loading flag after a short delay to prevent rapid successive calls
+      setTimeout(() => {
+        statsLoadingRef.current = false;
+      }, 1000);
     }
   }, [toast]);
+
+  // Debounced version of loadCustomerStats
+  const debouncedLoadCustomerStats = useCallback(() => {
+    if (statsTimeoutRef.current) {
+      clearTimeout(statsTimeoutRef.current);
+    }
+    
+    statsTimeoutRef.current = setTimeout(() => {
+      loadCustomerStats();
+    }, 300); // 300ms debounce
+  }, [loadCustomerStats]);
 
   // Listen for service alert changes and auto-refresh stats
   useEffect(() => {
     const handleServiceAlertUpdate = async () => {
-      // Refresh customer stats when service alerts change
+      // Refresh customer stats when service alerts change (debounced)
       try {
         await customerService.forceRefresh(); // Clear cache
-        await loadCustomerStats(); // Reload stats
+        debouncedLoadCustomerStats(); // Use debounced version
       } catch (error) {
         // Error handled
       }
@@ -270,17 +328,22 @@ const EnhancedCustomerManagement = () => {
     window.addEventListener('refreshAlertCounts', handleServiceAlertUpdate);
     window.addEventListener('refreshCustomerAlerts', handleServiceAlertUpdate);
     
-    // Set up periodic refresh for stats (every 30 seconds)
+    // Set up periodic refresh for stats (every 30 seconds, but debounced)
     const statsRefreshInterval = setInterval(() => {
-      loadCustomerStats();
+      debouncedLoadCustomerStats();
     }, 30000);
     
     return () => {
       window.removeEventListener('refreshAlertCounts', handleServiceAlertUpdate);
       window.removeEventListener('refreshCustomerAlerts', handleServiceAlertUpdate);
       clearInterval(statsRefreshInterval);
+      
+      // Clean up timeout on unmount
+      if (statsTimeoutRef.current) {
+        clearTimeout(statsTimeoutRef.current);
+      }
     };
-  }, [loadCustomerStats]);
+  }, [debouncedLoadCustomerStats]);
 
   // Helper function to check if advanced search is active (for Clear button logic)
   const isAdvancedSearchActive = () => {
@@ -829,6 +892,35 @@ const EnhancedCustomerManagement = () => {
     setShowDetails(true);
   };
 
+  const handleSetCustomLimit = (customer) => {
+    if (isAdmin) {
+      setSelectedCustomerForLimit(customer);
+      setShowCustomLimitDialog(true);
+    } else {
+      toast({
+        title: "Access Denied",
+        description: "Only admin users can set custom loan limits.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleCustomerUpdate = (updatedCustomer) => {
+    // Update the customer in the list
+    setCustomers(prevCustomers => 
+      prevCustomers.map(customer => 
+        customer.phone_number === updatedCustomer.phone_number 
+          ? updatedCustomer 
+          : customer
+      )
+    );
+    
+    // Update selected customer if it's the same one
+    if (selectedCustomer && selectedCustomer.phone_number === updatedCustomer.phone_number) {
+      setSelectedCustomer(updatedCustomer);
+    }
+  };
+
   const handleEditCustomer = (customer) => {
     if (isAdminRole(user)) {
       // For admins, use the tabbed interface
@@ -1036,6 +1128,7 @@ const EnhancedCustomerManagement = () => {
 
   return (
     <div className="space-y-8">
+      
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -1058,15 +1151,19 @@ const EnhancedCustomerManagement = () => {
             Add Customer
           </Button>
           <Button 
-            onClick={forceRefreshAllData}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              forceRefreshAllData();
+            }}
             variant="outline"
             disabled={loading}
-            className="border-slate-200 hover:border-blue-300 hover:bg-blue-50 text-slate-700 hover:text-blue-700"
+            className="border-slate-300 dark:border-slate-600 hover:border-blue-400 dark:hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/30 text-slate-700 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-400 shadow-sm dark:shadow-slate-800/50 transition-all duration-200"
           >
             {loading ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              <Loader2 className="h-4 w-4 mr-2 animate-spin text-blue-600 dark:text-blue-400" />
             ) : (
-              <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="h-4 w-4 mr-2 text-slate-600 dark:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
             )}
@@ -1284,6 +1381,9 @@ const EnhancedCustomerManagement = () => {
                     <SheetContent>
                       <SheetHeader>
                         <SheetTitle>Quick Filters</SheetTitle>
+                        <SheetDescription>
+                          Apply filters to refine the customer list display
+                        </SheetDescription>
                       </SheetHeader>
                       
                       <div className="mt-6 space-y-4">
@@ -1354,7 +1454,7 @@ const EnhancedCustomerManagement = () => {
                   onClick={() => setShowAdvancedSearch(!showAdvancedSearch)}
                   className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 h-8 px-2"
                 >
-                  <Settings className="w-4 h-4 mr-2" />
+                  <Gauge className="w-4 h-4 mr-2" />
                   Advanced Search
                   {showAdvancedSearch ? (
                     <ChevronUp className="w-4 h-4 ml-2" />
@@ -1563,6 +1663,8 @@ const EnhancedCustomerManagement = () => {
                       handleViewCustomer(customer);
                       setTimeout(() => setActiveTab('overview'), 100);
                     }}
+                    onSetCustomLimit={handleSetCustomLimit}
+                    maxActiveLoans={maxActiveLoans}
                   />
                 ))}
               </div>
@@ -1733,7 +1835,7 @@ const EnhancedCustomerManagement = () => {
                           <span>Active: {customer.active_loans || 0}</span>
                         </div>
                         <Progress 
-                          value={Math.min(((customer.active_loans || 0) / 5) * 100, 100)} 
+                          value={Math.min(((customer.active_loans || 0) / maxActiveLoans) * 100, 100)} 
                           className="h-1"
                         />
                         <p className="text-xs text-muted-foreground">
@@ -1781,6 +1883,20 @@ const EnhancedCustomerManagement = () => {
                           customerPhone={customer.phone_number}
                           onBellClick={handleBellClick}
                         />
+                        {isAdmin && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleSetCustomLimit(customer);
+                            }}
+                            title="Set Custom Loan Limit (Admin Only)"
+                          >
+                            <Gauge className="h-4 w-4" />
+                          </Button>
+                        )}
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button 
@@ -1837,6 +1953,12 @@ const EnhancedCustomerManagement = () => {
                               <TrendingUp className="h-4 w-4 mr-2" />
                               Manage Eligibility
                             </DropdownMenuItem>
+                            {isAdmin && (
+                              <DropdownMenuItem onClick={() => handleSetCustomLimit(customer)}>
+                                <Gauge className="h-4 w-4 mr-2" />
+                                Set Loan Limit
+                              </DropdownMenuItem>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
@@ -1933,9 +2055,9 @@ const EnhancedCustomerManagement = () => {
                   <SheetTitle className="text-2xl font-bold text-slate-900 dark:text-slate-100 truncate mb-1">
                     {selectedCustomer && customerService.getCustomerFullName(selectedCustomer)}
                   </SheetTitle>
-                  <p className="text-slate-600 dark:text-slate-400 font-mono text-lg mb-2">
+                  <SheetDescription className="text-slate-600 dark:text-slate-400 font-mono text-lg mb-2">
                     {selectedCustomer && customerService.formatPhoneNumber(selectedCustomer.phone_number)}
-                  </p>
+                  </SheetDescription>
                   {selectedCustomer && (
                     <StatusBadge status={selectedCustomer.status} className="shadow-sm" />
                   )}
@@ -1992,7 +2114,7 @@ const EnhancedCustomerManagement = () => {
                           : 'text-slate-600 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-100'
                     }`}
                     >
-                      <Settings className="w-4 h-4" />
+                      <Gauge className="w-4 h-4" />
                       <span className="hidden sm:inline">Admin</span>
                     </button>
                   )}
@@ -2221,7 +2343,7 @@ const EnhancedCustomerManagement = () => {
                   <div className="p-5 bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-2xl border border-amber-200/50 dark:border-amber-700/50 shadow-lg">
                     <div className="flex items-center space-x-3">
                       <div className="w-12 h-12 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl flex items-center justify-center shadow-lg">
-                        <Settings className="w-6 h-6 text-white" />
+                        <Gauge className="w-6 h-6 text-white" />
                       </div>
                       <div>
                         <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100">Admin Controls</h3>
@@ -2397,7 +2519,7 @@ const EnhancedCustomerManagement = () => {
                   {/* Audit Trail Notice */}
                   <div className="p-4 bg-slate-100/50 dark:bg-slate-800/30 rounded-xl border border-slate-300 dark:border-slate-600">
                     <div className="flex items-start space-x-3">
-                      <Settings className="w-4 h-4 text-slate-500 dark:text-slate-400 mt-0.5 shrink-0" />
+                      <Gauge className="w-4 h-4 text-slate-500 dark:text-slate-400 mt-0.5 shrink-0" />
                       <div>
                         <p className="text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
                           🔒 Security Notice
@@ -2472,7 +2594,7 @@ const EnhancedCustomerManagement = () => {
             {/* Security Notice */}
             <div className="p-4 bg-amber-100/50 dark:bg-amber-900/20 rounded-xl border border-amber-300 dark:border-amber-700">
               <div className="flex items-start space-x-3">
-                <Settings className="w-5 h-5 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+                <Gauge className="w-5 h-5 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
                 <div>
                   <p className="text-sm font-medium text-amber-900 dark:text-amber-100 mb-1">
                     Security & Audit Trail
@@ -2578,7 +2700,7 @@ const EnhancedCustomerManagement = () => {
             {/* Confirmation Required */}
             <div className="p-4 bg-slate-100/50 dark:bg-slate-800/20 rounded-xl border border-slate-300 dark:border-slate-600">
               <div className="flex items-start space-x-3">
-                <Settings className="w-5 h-5 text-slate-600 dark:text-slate-400 mt-0.5 shrink-0" />
+                <Gauge className="w-5 h-5 text-slate-600 dark:text-slate-400 mt-0.5 shrink-0" />
                 <div>
                   <p className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-1">
                     Security & Compliance
@@ -2908,6 +3030,19 @@ const EnhancedCustomerManagement = () => {
           onAlertResolved={handleAlertResolved}
         />
       )}
+
+      {/* Custom Loan Limit Dialog */}
+      <CustomLoanLimitDialog
+        open={showCustomLimitDialog}
+        onOpenChange={(open) => {
+          setShowCustomLimitDialog(open);
+          if (!open) {
+            setSelectedCustomerForLimit(null);
+          }
+        }}
+        customer={selectedCustomerForLimit}
+        onCustomerUpdate={handleCustomerUpdate}
+      />
     </div>
   );
 };

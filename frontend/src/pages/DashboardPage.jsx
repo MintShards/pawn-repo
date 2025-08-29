@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/button';
 import { ThemeToggle } from '../components/ui/theme-toggle';
+import LoanLimitConfig from '../components/admin/LoanLimitConfig';
 import { Avatar, AvatarImage, AvatarFallback } from '../components/ui/avatar';
 import {
   Card,
@@ -30,7 +31,8 @@ import {
   Calendar,
   ArrowUpRight,
   RefreshCw,
-  Bell
+  Bell,
+  Settings
 } from 'lucide-react';
 import { getRoleTitle, getWelcomeMessage, getUserDisplayString } from '../utils/roleUtils';
 import serviceAlertService from '../services/serviceAlertService';
@@ -43,6 +45,7 @@ const DashboardPage = () => {
     total_alert_count: 0
   });
   const [alertStatsLoading, setAlertStatsLoading] = React.useState(true);
+  const [showAdminSettings, setShowAdminSettings] = useState(false);
 
   // Fetch user data if needed on component mount
   React.useEffect(() => {
@@ -359,6 +362,35 @@ const DashboardPage = () => {
             </CardContent>
           </Card>
         </div>
+
+        {/* Admin Settings Section */}
+        {user?.role === 'admin' && (
+          <div className="mb-8">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <Settings className="h-5 w-5" />
+                  Admin Settings
+                </h2>
+                <p className="text-sm text-slate-600 dark:text-slate-400">
+                  System configuration and management tools
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => setShowAdminSettings(!showAdminSettings)}
+              >
+                {showAdminSettings ? 'Hide Settings' : 'Show Settings'}
+              </Button>
+            </div>
+            
+            {showAdminSettings && (
+              <div className="mt-6">
+                <LoanLimitConfig />
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
