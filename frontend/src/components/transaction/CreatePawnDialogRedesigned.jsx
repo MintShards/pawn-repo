@@ -78,6 +78,15 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel }) => {
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
   const [showCustomerSearch, setShowCustomerSearch] = useState(false);
+  const [showNewCustomerForm, setShowNewCustomerForm] = useState(false);
+  const [newCustomerData, setNewCustomerData] = useState({
+    phone_number: '',
+    first_name: '',
+    last_name: '',
+    email: '',
+    notes: ''
+  });
+  const [creatingCustomer, setCreatingCustomer] = useState(false);
   const debouncedSearchTerm = useDebounce(customerSearchTerm, 300);
 
   // Load customers on mount
@@ -164,6 +173,65 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel }) => {
       checkLoanEligibility(customer.phone_number, formData.loan_amount);
     }
   }, [updateField, formData.loan_amount, checkLoanEligibility]);
+
+  // Handle new customer creation
+  const handleCreateCustomer = useCallback(async () => {
+    if (!newCustomerData.phone_number || !newCustomerData.first_name || !newCustomerData.last_name) {
+      handleError({ message: 'Phone number, first name, and last name are required' }, 'Customer validation');
+      return;
+    }
+
+    if (newCustomerData.phone_number.length !== 10 || !/^\d{10}$/.test(newCustomerData.phone_number)) {
+      handleError({ message: 'Phone number must be exactly 10 digits' }, 'Customer validation');
+      return;
+    }
+
+    try {
+      setCreatingCustomer(true);
+      
+      const customerPayload = {
+        phone_number: newCustomerData.phone_number,
+        first_name: newCustomerData.first_name.trim(),
+        last_name: newCustomerData.last_name.trim(),
+        email: newCustomerData.email.trim() || null,
+        notes: newCustomerData.notes.trim() || null
+      };
+
+      const response = await customerService.createCustomer(customerPayload);
+      
+      if (response && response.phone_number) {
+        // Add new customer to the list
+        setCustomers(prev => [response, ...prev]);
+        
+        // Select the new customer
+        handleCustomerSelect(response);
+        
+        // Reset form and close
+        setNewCustomerData({
+          phone_number: '',
+          first_name: '',
+          last_name: '',
+          email: '',
+          notes: ''
+        });
+        setShowNewCustomerForm(false);
+        
+        handleSuccess(`Customer ${response.first_name} ${response.last_name} created successfully`);
+      }
+    } catch (err) {
+      handleError(err, 'Creating customer');
+    } finally {
+      setCreatingCustomer(false);
+    }
+  }, [newCustomerData, handleCustomerSelect]);
+
+  // Handle new customer form field updates
+  const updateNewCustomerField = useCallback((field, value) => {
+    setNewCustomerData(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  }, []);
 
   // Handle tab changes with validation
   const handleTabChange = useCallback((newTab) => {
@@ -371,22 +439,34 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel }) => {
                     onChange={(e) => setCustomerSearchTerm(e.target.value)}
                     onFocus={() => setShowCustomerSearch(true)}
                     onBlur={() => setTimeout(() => setShowCustomerSearch(false), 200)}
-                    className="pl-10 h-12"
+                    className="pl-10 pr-20 h-12"
                   />
-                  {customerSearchTerm && (
+                  <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center space-x-1">
                     <Button
                       type="button"
-                      variant="ghost"
+                      variant="default"
                       size="sm"
-                      onClick={() => {
-                        setCustomerSearchTerm('');
-                        setShowCustomerSearch(false);
-                      }}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6 p-0 hover:bg-slate-100 dark:hover:bg-slate-700"
+                      onClick={() => setShowNewCustomerForm(true)}
+                      className="bg-pawn-accent hover:bg-pawn-accent/90 text-white h-8 px-3 text-xs font-medium shadow-sm"
                     >
-                      <X className="h-3 w-3" />
+                      <Plus className="h-3 w-3 mr-1" />
+                      New
                     </Button>
-                  )}
+                    {customerSearchTerm && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setCustomerSearchTerm('');
+                          setShowCustomerSearch(false);
+                        }}
+                        className="h-6 w-6 p-0 hover:bg-slate-100 dark:hover:bg-slate-700"
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
                 
                 {/* Search Results Dropdown */}
@@ -464,6 +544,128 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel }) => {
                     </Button>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* New Customer Form Modal */}
+            {showNewCustomerForm && (
+              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                <Card className="w-full max-w-md mx-4 bg-white dark:bg-slate-800 shadow-2xl">
+                  <CardHeader className="border-b">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="flex items-center space-x-2">
+                        <Plus className="w-5 h-5 text-pawn-accent" />
+                        <span>Create New Customer</span>
+                      </CardTitle>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setShowNewCustomerForm(false)}
+                        className="h-6 w-6 p-0"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-6 space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="new_phone" className="text-sm font-medium">
+                        Phone Number *
+                      </Label>
+                      <Input
+                        id="new_phone"
+                        type="tel"
+                        maxLength="10"
+                        value={newCustomerData.phone_number}
+                        onChange={(e) => updateNewCustomerField('phone_number', e.target.value.replace(/\D/g, ''))}
+                        placeholder="1234567890"
+                        className="font-mono"
+                      />
+                      <p className="text-xs text-slate-500">10 digits, no spaces or dashes</p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="new_first_name" className="text-sm font-medium">
+                          First Name *
+                        </Label>
+                        <Input
+                          id="new_first_name"
+                          value={newCustomerData.first_name}
+                          onChange={(e) => updateNewCustomerField('first_name', e.target.value)}
+                          placeholder="John"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="new_last_name" className="text-sm font-medium">
+                          Last Name *
+                        </Label>
+                        <Input
+                          id="new_last_name"
+                          value={newCustomerData.last_name}
+                          onChange={(e) => updateNewCustomerField('last_name', e.target.value)}
+                          placeholder="Doe"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="new_email" className="text-sm font-medium">
+                        Email (optional)
+                      </Label>
+                      <Input
+                        id="new_email"
+                        type="email"
+                        value={newCustomerData.email}
+                        onChange={(e) => updateNewCustomerField('email', e.target.value)}
+                        placeholder="john@example.com"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="new_notes" className="text-sm font-medium">
+                        Staff Notes (optional)
+                      </Label>
+                      <Textarea
+                        id="new_notes"
+                        value={newCustomerData.notes}
+                        onChange={(e) => updateNewCustomerField('notes', e.target.value)}
+                        placeholder="Any additional notes about this customer..."
+                        rows={2}
+                      />
+                    </div>
+
+                    <div className="flex justify-end space-x-3 pt-4">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setShowNewCustomerForm(false)}
+                        disabled={creatingCustomer}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="button"
+                        onClick={handleCreateCustomer}
+                        disabled={creatingCustomer || !newCustomerData.phone_number || !newCustomerData.first_name || !newCustomerData.last_name}
+                        className="bg-pawn-accent hover:bg-pawn-accent/90 text-white"
+                      >
+                        {creatingCustomer ? (
+                          <>
+                            <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full mr-2" />
+                            Creating...
+                          </>
+                        ) : (
+                          <>
+                            <Plus className="w-4 h-4 mr-2" />
+                            Create Customer
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
             )}
 
