@@ -5,7 +5,8 @@
 // Main components
 export { default as TransactionCard } from './TransactionCard';
 export { default as TransactionList } from './TransactionList';
-export { default as CreatePawnForm } from './CreatePawnForm';
+export { default as CreatePawnFormRedesigned } from './CreatePawnFormRedesigned';
+export { default as CreatePawnDialogRedesigned } from './CreatePawnDialogRedesigned';
 
 // Sub-components
 export * from './components';

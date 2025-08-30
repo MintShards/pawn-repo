@@ -994,8 +994,29 @@ class ExtensionService:
         
         # Revert transaction dates to original maturity date
         transaction.maturity_date = extension.original_maturity_date
-        # Recalculate grace period from original maturity
-        transaction.grace_period_end = extension.original_maturity_date + timedelta(days=7)
+        
+        # Recalculate grace period from original maturity (1 month, not 7 days)
+        # Use same calendar arithmetic as main transaction model
+        grace_year = extension.original_maturity_date.year
+        grace_month = extension.original_maturity_date.month + 1
+        grace_day = extension.original_maturity_date.day
+        
+        # Handle month overflow
+        if grace_month > 12:
+            grace_year += grace_month // 12
+            grace_month = grace_month % 12
+            if grace_month == 0:
+                grace_month = 12
+                grace_year -= 1
+        
+        # Handle day overflow for shorter months
+        try:
+            transaction.grace_period_end = extension.original_maturity_date.replace(year=grace_year, month=grace_month, day=grace_day)
+        except ValueError:
+            # Day doesn't exist in target month
+            import calendar
+            last_day = calendar.monthrange(grace_year, grace_month)[1]
+            transaction.grace_period_end = extension.original_maturity_date.replace(year=grace_year, month=grace_month, day=last_day)
         
         # Revert status if it was extended
         if transaction.status == TransactionStatus.EXTENDED:

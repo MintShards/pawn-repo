@@ -13,21 +13,11 @@ from typing import List, Optional, Dict, Any
 from app.models.payment_model import Payment
 from app.models.pawn_transaction_model import PawnTransaction, TransactionStatus
 from app.models.user_model import User, UserStatus
-
-
-def get_enum_value(enum_field) -> str:
-    """
-    Helper to safely get enum value, handling both enum objects and strings.
-    
-    Args:
-        enum_field: Enum object or string
-        
-    Returns:
-        String value of the enum
-    """
-    if isinstance(enum_field, str):
-        return enum_field
-    return enum_field.value
+from app.schemas.payment_schema import (
+    PaymentHistoryResponse, PaymentResponse, PaymentSummaryResponse,
+    PaymentListResponse, PaymentValidationResponse
+)
+from app.core.utils import get_enum_value
 
 
 class PaymentError(Exception):
@@ -57,6 +47,12 @@ class PaymentService:
     Handles cash payment processing, balance calculations, payment validation,
     audit trails, and automatic status updates for pawn transactions.
     """
+    
+    @staticmethod
+    async def _get_balance_info(transaction_id: str) -> Dict[str, Any]:
+        """Helper method to get balance info without circular import"""
+        from app.services.pawn_transaction_service import PawnTransactionService
+        return await PawnTransactionService.calculate_current_balance(transaction_id)
     
     @staticmethod
     async def process_payment(
@@ -108,8 +104,7 @@ class PaymentService:
             )
         
         # Calculate current balance
-        from app.services.pawn_transaction_service import PawnTransactionService
-        balance_info = await PawnTransactionService.calculate_current_balance(transaction_id)
+        balance_info = await PaymentService._get_balance_info(transaction_id)
         current_balance = balance_info["current_balance"]
         
         # Validate payment amount
@@ -123,13 +118,20 @@ class PaymentService:
         balance_after_payment = max(0, current_balance - payment_amount)
         is_overpayment = payment_amount > current_balance
         
-        # Calculate payment allocation (interest first, then principal)
+        # Calculate payment allocation (priority: interest → extension fees → principal)
         interest_due = balance_info.get("interest_balance", 0)
+        extension_fees_due = balance_info.get("extension_fees_balance", 0)
         principal_due = balance_info.get("principal_balance", 0)
         
-        # Apply payment to interest first
+        # 1. Apply payment to interest first
         interest_portion = min(payment_amount, interest_due)
         remaining_payment = payment_amount - interest_portion
+        
+        # 2. Apply remaining to extension fees
+        extension_fees_portion = min(remaining_payment, extension_fees_due)
+        remaining_payment -= extension_fees_portion
+        
+        # 3. Apply remaining to principal last
         principal_portion = min(remaining_payment, principal_due)
         
         # Create payment record
@@ -141,6 +143,7 @@ class PaymentService:
             balance_after_payment=balance_after_payment,
             principal_portion=principal_portion,
             interest_portion=interest_portion,
+            extension_fees_portion=extension_fees_portion,
             payment_method="cash",
             receipt_number=receipt_number,
             internal_notes=internal_notes
@@ -174,8 +177,6 @@ class PaymentService:
         Raises:
             TransactionNotFoundError: Transaction not found
         """
-        from app.schemas.payment_schema import PaymentHistoryResponse, PaymentResponse
-        
         # Verify transaction exists
         transaction = await PawnTransaction.find_one(
             PawnTransaction.transaction_id == transaction_id
@@ -202,11 +203,9 @@ class PaymentService:
         total_paid = sum(payment.payment_amount for payment in payments)
         
         # Get current balance
-        from app.services.pawn_transaction_service import PawnTransactionService
-        balance_info = await PawnTransactionService.calculate_current_balance(transaction_id)
+        balance_info = await PaymentService._get_balance_info(transaction_id)
         
         # Create payment summary
-        from app.schemas.payment_schema import PaymentSummaryResponse
         
         # Calculate last payment date
         last_payment_date = payments[0].payment_date if payments else None
@@ -219,9 +218,11 @@ class PaymentService:
             last_payment_date=last_payment_date,
             total_principal_paid=balance_info.get("principal_paid", 0),
             total_interest_paid=balance_info.get("interest_paid", 0),
+            total_extension_fees_paid=balance_info.get("extension_fees_paid", 0),
             current_balance=balance_info.get("current_balance", 0),
             principal_balance=balance_info.get("principal_balance", 0),
-            interest_balance=balance_info.get("interest_balance", 0)
+            interest_balance=balance_info.get("interest_balance", 0),
+            extension_fees_balance=balance_info.get("extension_fees_balance", 0)
         )
         
         # Create transaction details (ensure dates are timezone-aware)
@@ -262,8 +263,6 @@ class PaymentService:
         Raises:
             TransactionNotFoundError: Transaction not found
         """
-        from app.schemas.payment_schema import PaymentSummaryResponse
-        
         # Verify transaction exists
         transaction = await PawnTransaction.find_one(
             PawnTransaction.transaction_id == transaction_id
@@ -281,10 +280,10 @@ class PaymentService:
         total_payments = sum(payment.payment_amount for payment in payments)
         total_principal_paid = sum(payment.principal_portion for payment in payments)
         total_interest_paid = sum(payment.interest_portion for payment in payments)
+        total_extension_fees_paid = sum(getattr(payment, 'extension_fees_portion', 0) for payment in payments)
         
         # Get current balance info
-        from app.services.pawn_transaction_service import PawnTransactionService
-        balance_info = await PawnTransactionService.calculate_current_balance(transaction_id)
+        balance_info = await PaymentService._get_balance_info(transaction_id)
         
         # Calculate last payment date
         last_payment_date = payments[0].payment_date if payments else None
@@ -296,9 +295,11 @@ class PaymentService:
             last_payment_date=last_payment_date,
             total_principal_paid=total_principal_paid,
             total_interest_paid=total_interest_paid,
+            total_extension_fees_paid=total_extension_fees_paid,
             current_balance=balance_info.get("current_balance", 0),
             principal_balance=balance_info.get("principal_balance", 0),
-            interest_balance=balance_info.get("interest_balance", 0)
+            interest_balance=balance_info.get("interest_balance", 0),
+            extension_fees_balance=balance_info.get("extension_fees_balance", 0)
         )
     
     @staticmethod
@@ -486,8 +487,7 @@ class PaymentService:
             raise PaymentValidationError("Payment amount cannot exceed $50,000")
         
         # Get current balance
-        from app.services.pawn_transaction_service import PawnTransactionService
-        balance_info = await PawnTransactionService.calculate_current_balance(transaction_id)
+        balance_info = await PaymentService._get_balance_info(transaction_id)
         current_balance = balance_info["current_balance"]
         
         # Calculate projected balance
@@ -495,12 +495,19 @@ class PaymentService:
         is_overpayment = payment_amount > current_balance
         will_be_paid_off = projected_balance == 0
         
-        # Calculate payment breakdown (interest first, then principal)
+        # Calculate payment breakdown (priority: interest → extension fees → principal)
         interest_balance = balance_info["interest_balance"]
+        extension_fees_balance = balance_info.get("extension_fees_balance", 0)
         principal_balance = balance_info["principal_balance"]
         
+        # Apply payment with proper priority
         interest_payment = min(payment_amount, interest_balance)
-        principal_payment = max(0, payment_amount - interest_payment)
+        remaining_after_interest = payment_amount - interest_payment
+        
+        extension_fees_payment = min(remaining_after_interest, extension_fees_balance)
+        remaining_after_extensions = remaining_after_interest - extension_fees_payment
+        
+        principal_payment = min(remaining_after_extensions, principal_balance)
         
         return {
             "transaction_id": transaction_id,
@@ -515,8 +522,10 @@ class PaymentService:
             "overpayment_amount": payment_amount - current_balance if is_overpayment else 0,
             "payment_breakdown": {
                 "interest_payment": interest_payment,
+                "extension_fees_payment": extension_fees_payment,
                 "principal_payment": principal_payment,
                 "interest_balance_after": max(0, interest_balance - interest_payment),
+                "extension_fees_balance_after": max(0, extension_fees_balance - extension_fees_payment),
                 "principal_balance_after": max(0, principal_balance - principal_payment)
             },
             "status_after_payment": "redeemed" if will_be_paid_off else transaction.status,
@@ -735,8 +744,6 @@ class PaymentService:
             TransactionNotFoundError: Transaction not found
             PaymentValidationError: Invalid payment parameters
         """
-        from app.schemas.payment_schema import PaymentValidationResponse
-        
         try:
             validation_data = await PaymentService.validate_payment_amount(
                 transaction_id=transaction_id,
@@ -778,8 +785,6 @@ class PaymentService:
         Returns:
             PaymentListResponse with paginated payment data
         """
-        from app.schemas.payment_schema import PaymentListResponse, PaymentResponse
-        
         # Build query filters
         query_filters = []
         

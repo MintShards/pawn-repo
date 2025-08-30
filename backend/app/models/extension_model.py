@@ -243,10 +243,34 @@ class Extension(Document):
         return new_maturity
     
     def calculate_new_grace_period_end(self) -> datetime:
-        """Calculate new grace period end date (new maturity + 7 days)"""
+        """Calculate new grace period end date (new maturity + 1 month)"""
         if not self.new_maturity_date:
             raise ValueError('New maturity date is required for grace period calculation')
-        return self.new_maturity_date + timedelta(days=7)
+        
+        # Calculate 1 month after new maturity date using same calendar arithmetic
+        # This matches the main transaction model's grace period calculation
+        grace_year = self.new_maturity_date.year
+        grace_month = self.new_maturity_date.month + 1
+        grace_day = self.new_maturity_date.day
+        
+        # Handle month overflow
+        if grace_month > 12:
+            grace_year += grace_month // 12
+            grace_month = grace_month % 12
+            if grace_month == 0:
+                grace_month = 12
+                grace_year -= 1
+        
+        # Handle day overflow for shorter months
+        try:
+            new_grace_end = self.new_maturity_date.replace(year=grace_year, month=grace_month, day=grace_day)
+        except ValueError:
+            # Day doesn't exist in target month
+            import calendar
+            last_day = calendar.monthrange(grace_year, grace_month)[1]
+            new_grace_end = self.new_maturity_date.replace(year=grace_year, month=grace_month, day=last_day)
+        
+        return new_grace_end
     
     def validate_extension_timing(self) -> None:
         """
@@ -255,8 +279,28 @@ class Extension(Document):
         """
         current_date = datetime.now(UTC)
         
-        # Calculate original grace period end (7 days after original maturity)
-        original_grace_end = self.original_maturity_date + timedelta(days=7)
+        # Calculate original grace period end (1 month after original maturity)
+        # Use same calendar arithmetic as main transaction model
+        grace_year = self.original_maturity_date.year
+        grace_month = self.original_maturity_date.month + 1
+        grace_day = self.original_maturity_date.day
+        
+        # Handle month overflow
+        if grace_month > 12:
+            grace_year += grace_month // 12
+            grace_month = grace_month % 12
+            if grace_month == 0:
+                grace_month = 12
+                grace_year -= 1
+        
+        # Handle day overflow for shorter months
+        try:
+            original_grace_end = self.original_maturity_date.replace(year=grace_year, month=grace_month, day=grace_day)
+        except ValueError:
+            # Day doesn't exist in target month
+            import calendar
+            last_day = calendar.monthrange(grace_year, grace_month)[1]
+            original_grace_end = self.original_maturity_date.replace(year=grace_year, month=grace_month, day=last_day)
         
         if current_date > original_grace_end:
             raise ValueError(
@@ -277,8 +321,7 @@ class Extension(Document):
             self.new_grace_period_end = self.calculate_new_grace_period_end()
         
         # Validate extension timing (business rule check)
-        # Note: Timing validation is handled at service level
-        # self.validate_extension_timing()
+        # Timing validation is handled at service level to allow late extensions
         
         # Update timestamp
         self.updated_at = datetime.now(UTC)

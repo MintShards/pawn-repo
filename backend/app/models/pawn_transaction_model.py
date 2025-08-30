@@ -57,11 +57,11 @@ class PawnTransaction(Document):
     )
     maturity_date: datetime = Field(
         default=None,
-        description="Date when loan matures (pawn_date + 90 days)"
+        description="Date when loan matures (pawn_date + 3 months)"
     )
     grace_period_end: datetime = Field(
         default=None,
-        description="End of grace period (pawn_date + 97 days)"
+        description="End of grace period (maturity_date + 1 month, when item becomes eligible for forfeiture)"
     )
     
     # Financial fields (integers only - whole dollars)
@@ -153,7 +153,7 @@ class PawnTransaction(Document):
             if pawn_date.tzinfo is None:
                 pawn_date = pawn_date.replace(tzinfo=UTC)
             
-            # Maturity is 3 months from pawn date (calendar months, not days)
+            # Maturity is 3 months from pawn date (customer can redeem during this period)
             year = pawn_date.year
             month = pawn_date.month + 3
             day = pawn_date.day
@@ -177,8 +177,28 @@ class PawnTransaction(Document):
                 self.maturity_date = pawn_date.replace(year=year, month=month, day=last_day)
         
         if not self.grace_period_end:
-            # Grace period is 7 days after maturity date
-            self.grace_period_end = self.maturity_date + timedelta(days=7)
+            # Grace period is 4th month (when item becomes overdue and eligible for forfeiture)
+            # Calculate 1 month after maturity date using same calendar arithmetic
+            grace_year = self.maturity_date.year
+            grace_month = self.maturity_date.month + 1
+            grace_day = self.maturity_date.day
+            
+            # Handle month overflow
+            if grace_month > 12:
+                grace_year += grace_month // 12
+                grace_month = grace_month % 12
+                if grace_month == 0:
+                    grace_month = 12
+                    grace_year -= 1
+            
+            # Handle day overflow for shorter months
+            try:
+                self.grace_period_end = self.maturity_date.replace(year=grace_year, month=grace_month, day=grace_day)
+            except ValueError:
+                # Day doesn't exist in target month
+                import calendar
+                last_day = calendar.monthrange(grace_year, grace_month)[1]
+                self.grace_period_end = self.maturity_date.replace(year=grace_year, month=grace_month, day=last_day)
     
     def calculate_total_due(self, as_of_date: Optional[datetime] = None) -> int:
         """
@@ -212,11 +232,11 @@ class PawnTransaction(Document):
         
         # Defensive programming - ensure valid dates
         if not isinstance(as_of_date, datetime):
-            print(f"Warning: Invalid as_of_date type {type(as_of_date)}, using current date")
+            # Use logger instead of print for production code
             as_of_date = datetime.now(UTC)
         
         if not hasattr(self, 'pawn_date') or not self.pawn_date:
-            print(f"Warning: Invalid pawn_date for transaction, defaulting to 1 month")
+            # Use logger instead of print for production code
             return 1
         
         # Calculate months completed based on calendar months
@@ -253,29 +273,25 @@ class PawnTransaction(Document):
     def update_status(self) -> None:
         """
         Update transaction status based on current date.
-        Automatically transitions: active -> overdue -> forfeited.
+        Automatically transitions: active -> overdue (STOPS HERE - no automatic forfeiture).
+        Staff/admin must manually change overdue to forfeited.
         """
         current_date = datetime.now(UTC)
         
-        # Skip if already in terminal state
+        # Skip if already in terminal state or overdue (no automatic forfeiture)
         if self.status in [TransactionStatus.REDEEMED, TransactionStatus.SOLD, 
-                          TransactionStatus.FORFEITED, TransactionStatus.DAMAGED]:
+                          TransactionStatus.FORFEITED, TransactionStatus.DAMAGED, 
+                          TransactionStatus.OVERDUE]:
             return
         
         # Ensure dates are timezone-aware before comparison
-        grace_period_end = self.grace_period_end
-        if grace_period_end.tzinfo is None:
-            grace_period_end = grace_period_end.replace(tzinfo=UTC)
-            
         maturity_date = self.maturity_date
         if maturity_date.tzinfo is None:
             maturity_date = maturity_date.replace(tzinfo=UTC)
         
-        # Check if forfeited (past grace period)
-        if current_date > grace_period_end:
-            self.status = TransactionStatus.FORFEITED
-        # Check if overdue (past maturity but within grace period)
-        elif current_date > maturity_date:
+        # Check if overdue (past maturity date)
+        # Once overdue, stays overdue until manually changed by staff
+        if current_date > maturity_date:
             self.status = TransactionStatus.OVERDUE
         # Otherwise keep current status (active, extended, hold)
     

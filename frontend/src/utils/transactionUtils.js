@@ -30,7 +30,6 @@ const loadSequenceData = () => {
       nextExtensionNumber = parseInt(savedNextExtension, 10) || 1;
     }
   } catch (e) {
-    // Warning handled
     // Reset to defaults if loading fails
     transactionSequence = new Map();
     extensionSequence = new Map();
@@ -47,7 +46,7 @@ const saveSequenceData = () => {
     localStorage.setItem('nextSequenceNumber', nextSequenceNumber.toString());
     localStorage.setItem('nextExtensionNumber', nextExtensionNumber.toString());
   } catch (e) {
-    // Warning handled
+    // Silently handle localStorage errors
   }
 };
 
@@ -157,7 +156,7 @@ export const clearSequenceData = () => {
     localStorage.removeItem('nextSequenceNumber');
     localStorage.removeItem('nextExtensionNumber');
   } catch (e) {
-    // Warning handled
+    // Silently handle localStorage errors
   }
 };
 
@@ -169,7 +168,7 @@ export const clearSequenceData = () => {
  */
 export const formatTransactionId = (transaction) => {
   if (!transaction?.transaction_id) {
-    return 'N/A';
+    return 'TXN-PENDING';
   }
   
   const sequenceNumber = getSequenceNumber(transaction.transaction_id);
@@ -188,7 +187,7 @@ export const formatTransactionId = (transaction) => {
  */
 export const formatExtensionId = (extension) => {
   if (!extension?.extension_id) {
-    return 'N/A';
+    return 'EXT-PENDING';
   }
   
   const sequenceNumber = getExtensionSequenceNumber(extension.extension_id);

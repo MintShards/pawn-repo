@@ -49,6 +49,7 @@ class PaymentResponse(PaymentBase):
     balance_after_payment: int = Field(..., description="Balance after this payment")
     principal_portion: int = Field(..., description="Amount applied to principal")
     interest_portion: int = Field(..., description="Amount applied to interest")
+    extension_fees_portion: int = Field(default=0, description="Amount applied to extension fees")
     
     # Payment details
     payment_type: str = Field(..., description="Payment type (always 'cash')")
@@ -86,11 +87,13 @@ class PaymentSummaryResponse(BaseModel):
     # Payment allocation breakdown
     total_principal_paid: int = Field(..., description="Total principal payments")
     total_interest_paid: int = Field(..., description="Total interest payments")
+    total_extension_fees_paid: int = Field(default=0, description="Total extension fee payments")
     
     # Current balance information
     current_balance: int = Field(..., description="Remaining balance")
     principal_balance: int = Field(..., description="Remaining principal balance")
     interest_balance: int = Field(..., description="Remaining interest balance")
+    extension_fees_balance: int = Field(default=0, description="Remaining extension fees balance")
 
 
 class PaymentReceiptResponse(BaseModel):

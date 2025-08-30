@@ -157,17 +157,20 @@ class BalanceResponse(BaseModel):
     # Main balance components
     loan_amount: int = Field(..., description="Original loan amount")
     monthly_interest: int = Field(..., description="Monthly interest fee")
-    total_due: int = Field(..., description="Total amount due with interest")
+    total_due: int = Field(..., description="Total amount due with interest and extension fees")
     total_paid: int = Field(..., description="Total payments made")
     current_balance: int = Field(..., description="Remaining balance")
     
     # Payment allocation breakdown
     principal_due: int = Field(..., description="Total principal due")
     interest_due: int = Field(..., description="Total interest due")
+    extension_fees_due: int = Field(default=0, description="Total extension fees due")
     principal_paid: int = Field(..., description="Principal payments made")
     interest_paid: int = Field(..., description="Interest payments made")
+    extension_fees_paid: int = Field(default=0, description="Extension fee payments made")
     principal_balance: int = Field(..., description="Remaining principal balance")
     interest_balance: int = Field(..., description="Remaining interest balance")
+    extension_fees_balance: int = Field(default=0, description="Remaining extension fees balance")
     
     # Transaction details
     payment_count: int = Field(..., description="Number of payments made")

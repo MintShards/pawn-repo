@@ -61,6 +61,11 @@ class Payment(Document):
         ge=0,
         description="Amount of payment applied to interest"
     )
+    extension_fees_portion: int = Field(
+        default=0,
+        ge=0,
+        description="Amount of payment applied to extension fees"
+    )
     
     # Payment metadata
     payment_method: str = Field(
@@ -220,12 +225,21 @@ class Payment(Document):
         """
         Validate that payment math is correct.
         balance_before_payment - payment_amount should equal balance_after_payment
+        Also validate that payment portions sum to payment amount
         """
         expected_balance = self.balance_before_payment - self.payment_amount
         if self.balance_after_payment != expected_balance:
             raise ValueError(
                 f'Payment math incorrect: {self.balance_before_payment} - {self.payment_amount} '
                 f'should equal {expected_balance}, but balance_after_payment is {self.balance_after_payment}'
+            )
+        
+        # Validate that payment portions sum to total payment amount
+        total_portions = self.principal_portion + self.interest_portion + self.extension_fees_portion
+        if total_portions != self.payment_amount:
+            raise ValueError(
+                f'Payment portions incorrect: principal ({self.principal_portion}) + interest ({self.interest_portion}) + '
+                f'extension fees ({self.extension_fees_portion}) = {total_portions}, but payment_amount is {self.payment_amount}'
             )
     
     def void_payment(self, voided_by_user_id: str, void_reason: Optional[str] = None) -> None:

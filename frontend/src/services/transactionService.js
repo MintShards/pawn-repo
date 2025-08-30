@@ -5,7 +5,8 @@ import { matchesExtensionSearch } from '../utils/transactionUtils';
 class TransactionService {
   constructor() {
     this.cache = new Map();
-    this.cacheExpiry = 5000; // 5 second cache
+    this.cacheExpiry = 30000; // 30 second cache to reduce API calls
+    this.pendingRequests = new Map(); // Track pending requests to prevent duplicates
   }
 
   // Get all transactions with optional parameters
@@ -19,15 +20,49 @@ class TransactionService {
       const queryString = new URLSearchParams(cleanParams).toString();
       const endpoint = queryString ? `/api/v1/pawn-transaction/?${queryString}` : '/api/v1/pawn-transaction/';
       
-      const result = await authService.apiRequest(endpoint, {
-        method: 'GET',
-      });
-      
-      // Handle paginated response
-      if (result && result.transactions && Array.isArray(result.transactions)) {
-        return result;
+      // Check cache first
+      const cacheKey = endpoint;
+      const cached = this.cache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < this.cacheExpiry) {
+        return cached.data;
       }
-      return Array.isArray(result) ? { transactions: result, total: result.length } : { transactions: [], total: 0 };
+      
+      // Check if request is already pending to prevent duplicate calls
+      if (this.pendingRequests.has(cacheKey)) {
+        return await this.pendingRequests.get(cacheKey);
+      }
+      
+      // Create pending request promise
+      const requestPromise = (async () => {
+        try {
+          const result = await authService.apiRequest(endpoint, {
+            method: 'GET',
+          });
+          
+          // Handle paginated response
+          const processedResult = result && result.transactions && Array.isArray(result.transactions) 
+            ? result 
+            : Array.isArray(result) 
+              ? { transactions: result, total: result.length } 
+              : { transactions: [], total: 0 };
+          
+          // Cache the result
+          this.cache.set(cacheKey, {
+            data: processedResult,
+            timestamp: Date.now()
+          });
+          
+          return processedResult;
+        } finally {
+          // Remove from pending requests
+          this.pendingRequests.delete(cacheKey);
+        }
+      })();
+      
+      // Store pending request
+      this.pendingRequests.set(cacheKey, requestPromise);
+      
+      return await requestPromise;
     } catch (error) {
       // Error handled
       throw error;
@@ -60,6 +95,20 @@ class TransactionService {
         throw new Error(`Transaction ${transactionId} not found`);
       }
       // Error handled
+      throw error;
+    }
+  }
+
+  // Get transaction summary with items and balance
+  async getTransactionSummary(transactionId) {
+    try {
+      return await authService.apiRequest(`/api/v1/pawn-transaction/${transactionId}/summary`, {
+        method: 'GET',
+      });
+    } catch (error) {
+      if (error.message.includes('404')) {
+        throw new Error(`Transaction ${transactionId} not found`);
+      }
       throw error;
     }
   }
@@ -224,9 +273,16 @@ class TransactionService {
     }
   }
 
-  // Clear cache
+  // Clear cache and pending requests
   clearTransactionCache() {
     this.cache.clear();
+    this.pendingRequests.clear();
+  }
+  
+  // Clear cache for specific endpoint
+  clearCacheForEndpoint(endpoint) {
+    this.cache.delete(endpoint);
+    this.pendingRequests.delete(endpoint);
   }
 }
 

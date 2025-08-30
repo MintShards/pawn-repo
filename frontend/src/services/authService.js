@@ -13,7 +13,7 @@ class AuthService {
     this.lastRequestTime = 0;
     this.minRequestInterval = 100; // Minimum 100ms between requests
     this.rateLimitRetryDelay = 2000; // 2 second delay for rate limit retries
-    this.cacheExpiry = 5000; // 5 second cache for GET requests - more responsive to changes
+    this.cacheExpiry = 30000; // 30 second cache for GET requests to reduce API calls
   }
 
   async login(userCredentials) {

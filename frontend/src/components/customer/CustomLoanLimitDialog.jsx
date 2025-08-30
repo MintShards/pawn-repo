@@ -21,7 +21,6 @@ import { Textarea } from '../ui/textarea';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '../ui/dialog';
@@ -136,6 +135,9 @@ const CustomLoanLimitDialog = ({
       case 'business':
         setCustomLimit('20');
         setReason('Business client requiring higher transaction volume for operations');
+        break;
+      default:
+        // No action needed for unknown use cases
         break;
     }
   };

@@ -8,6 +8,7 @@ import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import CustomersPage from './pages/CustomersPage';
 import TransactionHub from './pages/TransactionHub';
+import { Toaster } from './components/ui/sonner';
 
 function App() {
   return (
@@ -62,6 +63,7 @@ function App() {
             
             </div>
           </Router>
+          <Toaster />
         </AlertCountProvider>
       </AuthProvider>
     </ThemeProvider>

@@ -443,19 +443,20 @@ class PawnTransactionService:
         Bulk update transaction statuses based on current date.
         Should be run daily to keep statuses current.
         
+        ONLY moves active/extended transactions to overdue.
+        NO automatic forfeiture - staff must manually change overdue to forfeited.
+        
         Returns:
             Dictionary with count of updated transactions by status
         """
         current_date = datetime.now(UTC)
-        updated_counts = {"overdue": 0, "forfeited": 0}
+        updated_counts = {"overdue": 0}
         
         # Find transactions that should be marked overdue
-        # Note: MongoDB queries work with timezone-naive dates, so we don't need to convert here
-        # The comparison happens in MongoDB, not Python
+        # Only move ACTIVE or EXTENDED transactions past maturity date to OVERDUE
         overdue_candidates = await PawnTransaction.find(
-            PawnTransaction.status == TransactionStatus.ACTIVE,
-            PawnTransaction.maturity_date < current_date,
-            PawnTransaction.grace_period_end > current_date
+            In(PawnTransaction.status, [TransactionStatus.ACTIVE, TransactionStatus.EXTENDED]),
+            PawnTransaction.maturity_date < current_date
         ).to_list()
         
         for transaction in overdue_candidates:
@@ -463,30 +464,8 @@ class PawnTransactionService:
             await transaction.save()
             updated_counts["overdue"] += 1
         
-        # Find transactions that should be forfeited
-        forfeiture_candidates = await PawnTransaction.find(
-            In(PawnTransaction.status, [
-                TransactionStatus.ACTIVE, 
-                TransactionStatus.OVERDUE, 
-                TransactionStatus.EXTENDED
-            ]),
-            PawnTransaction.grace_period_end < current_date
-        ).to_list()
-        
-        for transaction in forfeiture_candidates:
-            transaction.status = TransactionStatus.FORFEITED
-            await transaction.save()
-            updated_counts["forfeited"] += 1
-            
-            # Update customer statistics
-            customer = await Customer.find_one(Customer.phone_number == transaction.customer_id)
-            if customer:
-                customer.active_loans = max(0, customer.active_loans - 1)
-                customer.total_loan_value = max(0, customer.total_loan_value - transaction.loan_amount)
-                customer.default_count += 1
-                # Reduce payment history score for defaults
-                customer.payment_history_score = max(1, customer.payment_history_score - 10)
-                await customer.save()
+        # NO AUTOMATIC FORFEITURE - removed this section
+        # Staff/admin must manually change overdue to forfeited via UI
         
         return updated_counts
     

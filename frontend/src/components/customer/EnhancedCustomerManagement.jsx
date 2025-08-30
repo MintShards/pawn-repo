@@ -715,7 +715,7 @@ const EnhancedCustomerManagement = () => {
     } finally {
       setLoading(false);
     }
-  }, [loadCustomerStats, loadCustomerList, currentPage, getCurrentSearchTerm, statusFilter, toast]);
+  }, [loadCustomerStats, loadCustomerList, currentPage, getCurrentSearchTerm, statusFilter, alertFilter, toast]);
 
   // Load full page data (initial load with stats)
   const loadCustomers = useCallback(async (page = 1, search = '', status = null, forceRefresh = false, filterByAlerts = null) => {

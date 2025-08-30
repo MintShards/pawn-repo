@@ -15,6 +15,7 @@ from app.models.pawn_transaction_model import PawnTransaction, TransactionStatus
 from app.models.payment_model import Payment
 from app.models.extension_model import Extension
 from app.models.user_model import User, UserStatus
+from app.schemas.pawn_transaction_schema import BalanceResponse
 
 # Configure logger
 logger = structlog.get_logger("interest_calculation")
@@ -604,7 +605,6 @@ class InterestCalculationService:
         Returns:
             Dictionary containing balance information
         """
-        from app.schemas.pawn_transaction_schema import BalanceResponse
         
         if as_of_date is None:
             as_of_date = datetime.now(UTC)
@@ -632,8 +632,15 @@ class InterestCalculationService:
         capped_months = min(months_elapsed, 3)
         total_interest_due = monthly_interest * capped_months
         
-        # Calculate total due
-        total_due = loan_amount + total_interest_due
+        # Get all extensions to include extension fees
+        extensions = await Extension.find(
+            Extension.transaction_id == transaction_id
+        ).to_list()
+        
+        total_extension_fees = sum(extension.total_extension_fee for extension in extensions)
+        
+        # Calculate total due INCLUDING extension fees
+        total_due = loan_amount + total_interest_due + total_extension_fees
         
         # Calculate total payments (defensive programming)
         try:
@@ -649,13 +656,23 @@ class InterestCalculationService:
         # Calculate current balance
         current_balance = max(0, total_due - total_paid)
         
-        # Payment allocation (oldest interest first, then principal)
+        # Payment allocation (priority: interest → extension fees → principal)
         remaining_payments = total_paid
+        
+        # 1. Pay interest first
         interest_paid = min(remaining_payments, total_interest_due)
-        principal_paid = max(0, remaining_payments - total_interest_due)
+        remaining_payments -= interest_paid
+        
+        # 2. Pay extension fees second
+        extension_fees_paid = min(remaining_payments, total_extension_fees)
+        remaining_payments -= extension_fees_paid
+        
+        # 3. Pay principal last
+        principal_paid = min(remaining_payments, loan_amount)
         
         # Remaining balances
         interest_balance = max(0, total_interest_due - interest_paid)
+        extension_fees_balance = max(0, total_extension_fees - extension_fees_paid)
         principal_balance = max(0, loan_amount - principal_paid)
         
         # Status checks (defensive programming)
@@ -700,10 +717,13 @@ class InterestCalculationService:
             # Payment allocation breakdown
             principal_due=loan_amount,
             interest_due=total_interest_due,
+            extension_fees_due=total_extension_fees,
             principal_paid=principal_paid,
             interest_paid=interest_paid,
+            extension_fees_paid=extension_fees_paid,
             principal_balance=principal_balance,
             interest_balance=interest_balance,
+            extension_fees_balance=extension_fees_balance,
             
             # Transaction details
             payment_count=len(payments),

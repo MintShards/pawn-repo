@@ -94,7 +94,7 @@ export const AlertCountProvider = ({ children }) => {
     }, 1000); // 1000ms for better batching efficiency (target: 5+ requests per batch)
 
     return 0; // Return 0 for new customers while loading
-  }, [batchFetchAlertCounts]); // Only depend on stable batchFetchAlertCounts
+  }, [batchFetchAlertCounts, alertCounts]); // Include alertCounts dependency
 
   // Optimized debounced refresh with request deduplication
   const refreshAlertCount = useCallback(async (customerPhone) => {
@@ -139,7 +139,7 @@ export const AlertCountProvider = ({ children }) => {
     if (allPhones.length > 0) {
       await batchFetchAlertCounts(allPhones);
     }
-  }, [batchFetchAlertCounts]); // Remove alertCounts dependency to stabilize
+  }, [batchFetchAlertCounts, alertCounts]); // Include alertCounts dependency
 
   // Initialize alert counts for a list of customers
   const initializeAlertCounts = useCallback(async (customerPhones) => {
@@ -151,7 +151,7 @@ export const AlertCountProvider = ({ children }) => {
     if (phonesToFetch.length > 0) {
       await batchFetchAlertCounts(phonesToFetch);
     }
-  }, [batchFetchAlertCounts]); // Remove alertCounts/loading deps to stabilize
+  }, [batchFetchAlertCounts, alertCounts, loading]); // Include alertCounts/loading deps
 
   // Cleanup function for performance monitoring
   const cleanup = useCallback(() => {
