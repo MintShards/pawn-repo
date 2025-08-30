@@ -248,13 +248,38 @@ export const matchesExtensionSearch = (extension, searchTerm) => {
   );
 };
 
+/**
+ * Format storage location for display with proper capitalization
+ * @param {string} location - Raw storage location from database
+ * @returns {string} Properly capitalized location
+ */
+export const formatStorageLocation = (location) => {
+  if (!location) return '';
+  
+  // Handle known locations with proper capitalization
+  const locationMap = {
+    'safe': 'Safe',
+    'fire exit': 'Fire Exit',
+    'small bins': 'Small Bins',
+    'back room': 'Back Room',
+    '152nd st': '152nd St',
+    'large bins': 'Large Bins',
+    'other': 'Other',
+    'others': 'Other'
+  };
+  
+  const lowerLocation = location.toLowerCase();
+  return locationMap[lowerLocation] || location;
+};
+
 const transactionUtils = {
   formatTransactionId,
   formatExtensionId,
   initializeSequenceNumbers,
   extractTransactionNumber,
   matchesTransactionSearch,
-  matchesExtensionSearch
+  matchesExtensionSearch,
+  formatStorageLocation
 };
 
 export default transactionUtils;

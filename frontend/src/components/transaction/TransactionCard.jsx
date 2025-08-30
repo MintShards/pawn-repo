@@ -11,7 +11,7 @@ import {
 } from '../ui/dropdown-menu';
 import StatusBadge from './components/StatusBadge';
 import transactionService from '../../services/transactionService';
-import { formatTransactionId } from '../../utils/transactionUtils';
+import { formatTransactionId, formatStorageLocation } from '../../utils/transactionUtils';
 
 const TransactionCard = ({ 
   transaction, 
@@ -208,7 +208,7 @@ const TransactionCard = ({
                 <span className="text-sm text-slate-600 dark:text-slate-400">Location:</span>
               </div>
               <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                {transaction.storage_location}
+                {formatStorageLocation(transaction.storage_location)}
               </span>
             </div>
           )}

@@ -8,6 +8,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Alert, AlertDescription } from '../ui/alert';
 import { Progress } from '../ui/progress';
@@ -19,6 +20,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/
 import { Badge } from '../ui/badge';
 import transactionService from '../../services/transactionService';
 import customerService from '../../services/customerService';
+import { formatStorageLocation } from '../../utils/transactionUtils';
 import { useFormValidation, validateRequired, validateAmount, validateItemDescription, createValidationResult } from '../../utils/formValidation';
 import { handleError, handleSuccess } from '../../utils/errorHandling';
 import { useDebounce } from '../../hooks/useDebounce';
@@ -233,6 +235,42 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel }) => {
     }));
   }, []);
 
+  // Handle opening new customer form with pre-filled data
+  const handleOpenNewCustomerForm = useCallback(() => {
+    const searchTerm = customerSearchTerm.trim();
+    let prefilledData = {
+      phone_number: '',
+      first_name: '',
+      last_name: '',
+      email: '',
+      notes: ''
+    };
+
+    if (searchTerm) {
+      // Check if search term is a phone number (10 digits)
+      if (/^\d{10}$/.test(searchTerm)) {
+        prefilledData.phone_number = searchTerm;
+      }
+      // Check if search term looks like a phone number with formatting
+      else if (/^\d{3}[\s\-]?\d{3}[\s\-]?\d{4}$/.test(searchTerm)) {
+        prefilledData.phone_number = searchTerm.replace(/\D/g, '');
+      }
+      // If it's text, try to parse as name
+      else {
+        const nameParts = searchTerm.split(/\s+/);
+        if (nameParts.length >= 1) {
+          prefilledData.first_name = nameParts[0];
+        }
+        if (nameParts.length >= 2) {
+          prefilledData.last_name = nameParts.slice(1).join(' ');
+        }
+      }
+    }
+
+    setNewCustomerData(prefilledData);
+    setShowNewCustomerForm(true);
+  }, [customerSearchTerm]);
+
   // Handle tab changes with validation
   const handleTabChange = useCallback((newTab) => {
     const tabs = ['customer', 'items', 'loan', 'review'];
@@ -446,7 +484,7 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel }) => {
                       type="button"
                       variant="default"
                       size="sm"
-                      onClick={() => setShowNewCustomerForm(true)}
+                      onClick={handleOpenNewCustomerForm}
                       className="bg-pawn-accent hover:bg-pawn-accent/90 text-white h-8 px-3 text-xs font-medium shadow-sm"
                     >
                       <Plus className="h-3 w-3 mr-1" />
@@ -501,9 +539,18 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel }) => {
                 {showCustomerSearch && customerSearchTerm.trim() && filteredCustomers.length === 0 && (
                   <div className="absolute z-10 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg p-3">
                     <div className="text-center text-slate-500 dark:text-slate-400">
-                      <User className="w-6 h-6 mx-auto mb-1 text-slate-300 dark:text-slate-600" />
-                      <p className="text-sm">No customers found for "{customerSearchTerm}"</p>
-                      <p className="text-xs mt-1">Try searching by name or phone number</p>
+                      <User className="w-6 h-6 mx-auto mb-2 text-slate-300 dark:text-slate-600" />
+                      <p className="text-sm mb-2">No customers found for "{customerSearchTerm}"</p>
+                      <p className="text-xs mb-3">Try searching by name or phone number</p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={handleOpenNewCustomerForm}
+                        className="bg-pawn-accent hover:bg-pawn-accent/90 text-white text-xs"
+                      >
+                        <Plus className="w-3 h-3 mr-1" />
+                        Create New Customer
+                      </Button>
                     </div>
                   </div>
                 )}
@@ -549,8 +596,14 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel }) => {
 
             {/* New Customer Form Modal */}
             {showNewCustomerForm && (
-              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                <Card className="w-full max-w-md mx-4 bg-white dark:bg-slate-800 shadow-2xl">
+              <div 
+                className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+                onClick={() => setShowNewCustomerForm(false)}
+              >
+                <Card 
+                  className="w-full max-w-md mx-4 bg-white dark:bg-slate-800 shadow-2xl"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <CardHeader className="border-b">
                     <div className="flex items-center justify-between">
                       <CardTitle className="flex items-center space-x-2">
@@ -579,7 +632,7 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel }) => {
                         maxLength="10"
                         value={newCustomerData.phone_number}
                         onChange={(e) => updateNewCustomerField('phone_number', e.target.value.replace(/\D/g, ''))}
-                        placeholder="1234567890"
+                        placeholder="Phone"
                         className="font-mono"
                       />
                       <p className="text-xs text-slate-500">10 digits, no spaces or dashes</p>
@@ -594,7 +647,7 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel }) => {
                           id="new_first_name"
                           value={newCustomerData.first_name}
                           onChange={(e) => updateNewCustomerField('first_name', e.target.value)}
-                          placeholder="John"
+                          placeholder="First"
                         />
                       </div>
                       <div className="space-y-2">
@@ -605,7 +658,7 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel }) => {
                           id="new_last_name"
                           value={newCustomerData.last_name}
                           onChange={(e) => updateNewCustomerField('last_name', e.target.value)}
-                          placeholder="Doe"
+                          placeholder="Last"
                         />
                       </div>
                     </div>
@@ -619,7 +672,7 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel }) => {
                         type="email"
                         value={newCustomerData.email}
                         onChange={(e) => updateNewCustomerField('email', e.target.value)}
-                        placeholder="john@example.com"
+                        placeholder="Email"
                       />
                     </div>
 
@@ -631,7 +684,7 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel }) => {
                         id="new_notes"
                         value={newCustomerData.notes}
                         onChange={(e) => updateNewCustomerField('notes', e.target.value)}
-                        placeholder="Any additional notes about this customer..."
+                        placeholder="Notes"
                         rows={2}
                       />
                     </div>
@@ -918,7 +971,7 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel }) => {
                         checkLoanEligibility(selectedCustomer.phone_number, e.target.value);
                       }
                     }}
-                    placeholder="Enter loan amount (e.g., 250.00)"
+                    placeholder="Amount"
                     className={getFieldError('loan_amount') ? 'border-red-500 focus:border-red-500 h-12 text-lg' : 'focus:ring-pawn-accent focus:border-pawn-accent h-12 text-lg font-medium'}
                   />
                   {getFieldError('loan_amount') && (
@@ -958,7 +1011,7 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel }) => {
                     max="10000"
                     value={formData.monthly_interest_amount}
                     onChange={(e) => updateField('monthly_interest_amount', e.target.value)}
-                    placeholder="Enter monthly interest (e.g., 37.50)"
+                    placeholder="Interest"
                     className={getFieldError('monthly_interest_amount') ? 'border-red-500 focus:border-red-500 h-12 text-lg' : 'focus:ring-pawn-accent focus:border-pawn-accent h-12 text-lg font-medium'}
                   />
                   {getFieldError('monthly_interest_amount') && (
@@ -990,13 +1043,23 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel }) => {
                       </Tooltip>
                     </TooltipProvider>
                   </Label>
-                  <Input
-                    id="storage_location"
+                  <Select
                     value={formData.storage_location}
-                    onChange={(e) => updateField('storage_location', e.target.value)}
-                    placeholder="e.g., Shelf A-1, Box 42, Vault Section B"
-                    className="focus:ring-pawn-accent focus:border-pawn-accent h-10"
-                  />
+                    onValueChange={(value) => updateField('storage_location', value)}
+                  >
+                    <SelectTrigger className="h-10 focus:ring-pawn-accent focus:border-pawn-accent">
+                      <SelectValue placeholder="Select location" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Safe">Safe</SelectItem>
+                      <SelectItem value="Fire Exit">Fire Exit</SelectItem>
+                      <SelectItem value="Small Bins">Small Bins</SelectItem>
+                      <SelectItem value="Back Room">Back Room</SelectItem>
+                      <SelectItem value="152nd St">152nd St</SelectItem>
+                      <SelectItem value="Large Bins">Large Bins</SelectItem>
+                      <SelectItem value="Other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div className="space-y-2">
@@ -1005,7 +1068,7 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel }) => {
                     id="internal_notes"
                     value={formData.internal_notes}
                     onChange={(e) => updateField('internal_notes', e.target.value)}
-                    placeholder="Optional staff notes about this transaction..."
+                    placeholder="Staff notes"
                     rows={3}
                     className="focus:ring-pawn-accent focus:border-pawn-accent"
                   />
@@ -1243,7 +1306,7 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel }) => {
                       {formData.storage_location && (
                         <div className="flex justify-between items-center mb-2">
                           <span className="text-sm text-pawn-medium dark:text-pawn-light/80">Storage:</span>
-                          <span className="font-mono text-sm text-pawn-dark dark:text-pawn-light">{formData.storage_location}</span>
+                          <span className="font-mono text-sm text-pawn-dark dark:text-pawn-light">{formatStorageLocation(formData.storage_location)}</span>
                         </div>
                       )}
                       {formData.internal_notes && (
@@ -1358,7 +1421,7 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel }) => {
           {formData.storage_location && (
             <div className="flex justify-between">
               <span>Storage:</span>
-              <span className="font-mono text-xs">{formData.storage_location}</span>
+              <span className="font-mono text-xs">{formatStorageLocation(formData.storage_location)}</span>
             </div>
           )}
         </div>

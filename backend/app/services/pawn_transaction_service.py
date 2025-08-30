@@ -207,7 +207,7 @@ class PawnTransactionService:
         if status:
             query = query.find(PawnTransaction.status == status)
         
-        return await query.sort(-PawnTransaction.pawn_date).limit(limit).to_list()
+        return await query.sort(-PawnTransaction.updated_at).limit(limit).to_list()
 
     @staticmethod
     async def get_transactions_by_status(
@@ -226,7 +226,7 @@ class PawnTransactionService:
         """
         return await PawnTransaction.find(
             PawnTransaction.status == status
-        ).sort(-PawnTransaction.pawn_date).limit(limit).to_list()
+        ).sort(-PawnTransaction.updated_at).limit(limit).to_list()
     
     @staticmethod
     async def get_overdue_transactions() -> List[PawnTransaction]:
@@ -519,8 +519,8 @@ class PawnTransactionService:
                 sort_field = getattr(PawnTransaction, sort_field_name)
                 query = query.sort([(sort_field, sort_direction)])
             else:
-                # Default sort by pawn_date if field doesn't exist
-                query = query.sort([(PawnTransaction.pawn_date, -1)])
+                # Default sort by updated_at if field doesn't exist
+                query = query.sort([(PawnTransaction.updated_at, -1)])
             
             # Apply pagination
             skip = (filters.page - 1) * filters.page_size

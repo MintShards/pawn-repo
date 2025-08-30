@@ -29,7 +29,7 @@ import CreatePawnDialogRedesigned from '../components/transaction/CreatePawnDial
 import PaymentForm from '../components/transaction/components/PaymentForm';
 import ExtensionForm from '../components/transaction/components/ExtensionForm';
 import StatusUpdateForm from '../components/transaction/components/StatusUpdateForm';
-import { formatTransactionId, formatExtensionId } from '../utils/transactionUtils';
+import { formatTransactionId, formatExtensionId, formatStorageLocation } from '../utils/transactionUtils';
 import { getRoleTitle, getUserDisplayString } from '../utils/roleUtils';
 import transactionService from '../services/transactionService';
 import extensionService from '../services/extensionService';
@@ -805,7 +805,7 @@ const TransactionHub = () => {
                             <div className="flex justify-between items-center">
                               <div className="text-xs text-details-medium dark:text-slate-400">Storage:</div>
                               <div className="text-xs font-mono font-medium text-details-dark dark:text-details-secondary">
-                                {selectedTransaction?.transaction?.storage_location || selectedTransaction?.storage_location}
+                                {formatStorageLocation(selectedTransaction?.transaction?.storage_location || selectedTransaction?.storage_location)}
                               </div>
                             </div>
                           )}

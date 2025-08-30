@@ -203,7 +203,7 @@ async def get_pawn_transactions_list(
     storage_location: Optional[str] = Query(None, description="Storage location filter"),
     page: int = Query(1, description="Page number", ge=1),
     page_size: int = Query(20, description="Items per page", ge=1, le=100),
-    sort_by: str = Query("pawn_date", description="Sort field"),
+    sort_by: str = Query("updated_at", description="Sort field"),
     sort_order: str = Query("desc", description="Sort order", pattern="^(asc|desc)$"),
     current_user: User = Depends(get_staff_or_admin_user)
 ) -> PawnTransactionListResponse:
@@ -602,6 +602,43 @@ async def bulk_update_transaction_status(
         )
 
 
+@pawn_transaction_router.post(
+    "/update-all-statuses",
+    summary="Update all transaction statuses",
+    description="Update statuses for all transactions based on current date (Admin only)",
+    responses={
+        200: {"description": "Status update completed"},
+        403: {"description": "Forbidden - Admin access required"},
+        500: {"description": "Internal server error"}
+    }
+)
+async def update_all_transaction_statuses(
+    current_user: User = Depends(get_admin_user)
+):
+    """Update statuses for all transactions based on current date"""
+    try:
+        result = await PawnTransactionService.bulk_update_statuses()
+        
+        return {
+            "message": "Transaction statuses updated successfully",
+            "updated_counts": result,
+            "timestamp": datetime.now(UTC).isoformat()
+        }
+        
+    except PawnTransactionError as e:
+        print(f"PawnTransactionError in update_all_transaction_statuses: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to update transaction statuses: {e}"
+        )
+    except Exception as e:
+        print(f"Unexpected error in update_all_transaction_statuses: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update transaction statuses: {str(e)}"
+        )
+
+
 @pawn_transaction_router.get(
     "/customer/{customer_phone}/transactions",
     response_model=PawnTransactionListResponse,
@@ -619,7 +656,7 @@ async def get_customer_transactions(
     status_filter: Optional[TransactionStatus] = Query(None, alias="status", description="Filter by transaction status"),
     page: int = Query(1, description="Page number", ge=1),
     page_size: int = Query(20, description="Items per page", ge=1, le=100),
-    sort_by: str = Query("pawn_date", description="Sort field"),
+    sort_by: str = Query("updated_at", description="Sort field"),
     sort_order: str = Query("desc", description="Sort order", pattern="^(asc|desc)$"),
     current_user: User = Depends(get_staff_or_admin_user)
 ) -> PawnTransactionListResponse:

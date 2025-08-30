@@ -41,7 +41,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import TransactionCard from './TransactionCard';
 import StatusBadge from './components/StatusBadge';
 import transactionService from '../../services/transactionService';
-import { matchesTransactionSearch, initializeSequenceNumbers, formatTransactionId } from '../../utils/transactionUtils';
+import { matchesTransactionSearch, initializeSequenceNumbers, formatTransactionId, formatStorageLocation } from '../../utils/transactionUtils';
 
 const TransactionList = ({ 
   onCreateNew, 
@@ -61,14 +61,14 @@ const TransactionList = ({
   const [filters, setFilters] = useState({
     status: '',
     page_size: 10,
-    sortBy: 'created_at',  // Sort by creation timestamp instead of pawn_date
+    sortBy: 'updated_at',  // Sort by most recently modified
     sortOrder: 'desc'
   });
   const [isExtensionSearch, setIsExtensionSearch] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [selectedTransactionIds, setSelectedTransactionIds] = useState([]);
-  const [sortField, setSortField] = useState('created_at');  // Default to creation time
+  const [sortField, setSortField] = useState('updated_at');  // Sort by most recently modified
   const [sortDirection, setSortDirection] = useState('desc');
   const [transactionBalances, setTransactionBalances] = useState({});
   const [showItemsDialog, setShowItemsDialog] = useState(false);
@@ -271,7 +271,7 @@ const TransactionList = ({
   const clearSearchFields = () => {
     setSearchTerm('');
     setSearchFields({ transactionId: '', customerId: '', loanAmount: '', storageLocation: '' });
-    setFilters({ status: '', page_size: 10, sortBy: 'pawn_date', sortOrder: 'desc' });
+    setFilters({ status: '', page_size: 10, sortBy: 'updated_at', sortOrder: 'desc' });
     setCurrentPage(1);
   };
 
@@ -487,7 +487,7 @@ const TransactionList = ({
               size="sm"
               onClick={() => {
                 setSearchTerm('');
-                setFilters({ status: '', page_size: 10, sortBy: 'pawn_date', sortOrder: 'desc' });
+                setFilters({ status: '', page_size: 10, sortBy: 'updated_at', sortOrder: 'desc' });
                 setSearchFields({ transactionId: '', customerId: '', loanAmount: '', storageLocation: '' });
               }}
               className="h-8 px-3 text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-red-950/50"
@@ -708,7 +708,7 @@ const TransactionList = ({
                             {transaction.storage_location && (
                               <div className="text-xs text-slate-400 dark:text-slate-500 flex items-center space-x-1">
                                 <div className="w-2 h-2 bg-slate-400 rounded-full"></div>
-                                <span>{transaction.storage_location}</span>
+                                <span>{formatStorageLocation(transaction.storage_location)}</span>
                               </div>
                             )}
                           </div>
@@ -879,7 +879,7 @@ const TransactionList = ({
                   variant="outline"
                   onClick={() => {
                     setSearchTerm('');
-                    setFilters({ status: '', page_size: 10, sortBy: 'pawn_date', sortOrder: 'desc' });
+                    setFilters({ status: '', page_size: 10, sortBy: 'updated_at', sortOrder: 'desc' });
                     setSearchFields({ transactionId: '', customerId: '', loanAmount: '', storageLocation: '' });
                     setCurrentPage(1);
                   }}
