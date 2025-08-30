@@ -51,9 +51,9 @@ const TransactionHub = () => {
   const [transactionStats, setTransactionStats] = useState({
     total_active: 0,
     total_overdue: 0,
-    total_value: 0,
-    recent_payments: 0,
-    pending_extensions: 0
+    new_this_month: 0,
+    maturity_this_week: 0,
+    cash_collected_today: 0
   });
   const [statsLoading, setStatsLoading] = useState(true);
 
@@ -72,20 +72,48 @@ const TransactionHub = () => {
         const transactions = await transactionService.getAllTransactions();
         const transactionList = transactions.transactions || [];
         
+        const currentDate = new Date();
+        const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+        const startOfWeek = new Date(currentDate);
+        startOfWeek.setDate(currentDate.getDate() - currentDate.getDay());
+        const endOfWeek = new Date(startOfWeek);
+        endOfWeek.setDate(startOfWeek.getDate() + 6);
+        const startOfDay = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate());
+        const endOfDay = new Date(startOfDay);
+        endOfDay.setDate(startOfDay.getDate() + 1);
+        
         const stats = {
           total_active: transactionList.filter(t => t.status === 'active').length,
           total_overdue: transactionList.filter(t => t.status === 'overdue').length,
-          total_value: transactionList
-            .filter(t => ['active', 'overdue', 'extended'].includes(t.status))
-            .reduce((sum, t) => sum + (t.loan_amount || 0), 0),
-          recent_payments: transactionList.filter(t => 
-            t.payments && t.payments.length > 0 && 
-            new Date(t.payments[t.payments.length - 1].payment_date) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+          new_this_month: transactionList.filter(t => 
+            new Date(t.pawn_date || t.created_at) >= startOfMonth
           ).length,
-          pending_extensions: transactionList.filter(t => 
-            t.status === 'overdue' && !t.extensions?.length
-          ).length
+          maturity_this_week: transactionList.filter(t => {
+            if (!t.maturity_date) return false;
+            const maturityDate = new Date(t.maturity_date);
+            return maturityDate >= startOfWeek && maturityDate <= endOfWeek && 
+                   ['active', 'overdue', 'extended'].includes(t.status);
+          }).length,
+          cash_collected_today: 0 // Will be fetched separately from payments API
         };
+        
+        // Fetch today's cash collections
+        try {
+          const today = new Date().toISOString().split('T')[0];
+          const paymentsResponse = await fetch(`/api/v1/payment/?start_date=${today}T00:00:00&end_date=${today}T23:59:59`, {
+            headers: {
+              'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+            }
+          });
+          
+          if (paymentsResponse.ok) {
+            const paymentsData = await paymentsResponse.json();
+            const todayCash = paymentsData.payments?.reduce((sum, payment) => sum + payment.payment_amount, 0) || 0;
+            stats.cash_collected_today = todayCash;
+          }
+        } catch (cashError) {
+          console.error('Failed to fetch today\'s cash collections:', cashError);
+        }
         
         setTransactionStats(stats);
       } catch (error) {
@@ -93,9 +121,9 @@ const TransactionHub = () => {
         setTransactionStats({
           total_active: 0,
           total_overdue: 0,
-          total_value: 0,
-          recent_payments: 0,
-          pending_extensions: 0
+          new_this_month: 0,
+          maturity_this_week: 0,
+          cash_collected_today: 0
         });
       } finally {
         setStatsLoading(false);
@@ -382,6 +410,24 @@ const TransactionHub = () => {
             </CardContent>
           </Card>
 
+          {/* New This Month */}
+          <Card className="border-0 shadow-lg bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950/50 dark:to-emerald-950/50 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-20 h-20 bg-green-500/10 rounded-full -mr-10 -mt-10"></div>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-green-600 dark:text-green-400">New This Month</p>
+                  <p className="text-2xl font-bold text-green-900 dark:text-green-100">
+                    {statsLoading ? '-' : transactionStats.new_this_month}
+                  </p>
+                </div>
+                <div className="w-12 h-12 bg-green-500/20 rounded-xl flex items-center justify-center">
+                  <Plus className="w-6 h-6 text-green-600 dark:text-green-400" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Overdue Transactions */}
           <Card className="border-0 shadow-lg bg-gradient-to-br from-pink-50 to-rose-50 dark:from-pink-950/50 dark:to-rose-950/50 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-20 h-20 bg-pink-500/10 rounded-full -mr-10 -mt-10"></div>
@@ -400,55 +446,37 @@ const TransactionHub = () => {
             </CardContent>
           </Card>
 
-          {/* Total Value */}
-          <Card className="border-0 shadow-lg bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950/50 dark:to-emerald-950/50 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-20 h-20 bg-green-500/10 rounded-full -mr-10 -mt-10"></div>
+          {/* Maturity This Week */}
+          <Card className="border-0 shadow-lg bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/50 dark:to-orange-950/50 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-20 h-20 bg-amber-500/10 rounded-full -mr-10 -mt-10"></div>
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-green-600 dark:text-green-400">Total Value</p>
-                  <p className="text-2xl font-bold text-green-900 dark:text-green-100">
-                    {statsLoading ? '-' : `$${transactionStats.total_value.toLocaleString()}`}
+                  <p className="text-sm font-medium text-amber-600 dark:text-amber-400">Maturity This Week</p>
+                  <p className="text-2xl font-bold text-amber-900 dark:text-amber-100">
+                    {statsLoading ? '-' : transactionStats.maturity_this_week}
                   </p>
                 </div>
-                <div className="w-12 h-12 bg-green-500/20 rounded-xl flex items-center justify-center">
-                  <DollarSign className="w-6 h-6 text-green-600 dark:text-green-400" />
+                <div className="w-12 h-12 bg-amber-500/20 rounded-xl flex items-center justify-center">
+                  <Calendar className="w-6 h-6 text-amber-600 dark:text-amber-400" />
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* Recent Payments */}
-          <Card className="border-0 shadow-lg bg-gradient-to-br from-teal-50 to-cyan-50 dark:from-teal-950/50 dark:to-cyan-950/50 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-20 h-20 bg-teal-500/10 rounded-full -mr-10 -mt-10"></div>
+          {/* Cash Collected Today */}
+          <Card className="border-0 shadow-lg bg-gradient-to-br from-purple-50 to-violet-50 dark:from-purple-950/50 dark:to-violet-950/50 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-20 h-20 bg-purple-500/10 rounded-full -mr-10 -mt-10"></div>
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-teal-600 dark:text-teal-400">This Week</p>
-                  <p className="text-2xl font-bold text-teal-900 dark:text-teal-100">
-                    {statsLoading ? '-' : transactionStats.recent_payments}
+                  <p className="text-sm font-medium text-purple-600 dark:text-purple-400">Today's Collection</p>
+                  <p className="text-2xl font-bold text-purple-900 dark:text-purple-100">
+                    {statsLoading ? '-' : `$${transactionStats.cash_collected_today.toLocaleString()}`}
                   </p>
                 </div>
-                <div className="w-12 h-12 bg-teal-500/20 rounded-xl flex items-center justify-center">
-                  <TrendingUp className="w-6 h-6 text-teal-600 dark:text-teal-400" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Pending Extensions */}
-          <Card className="border-0 shadow-lg bg-gradient-to-br from-slate-50 to-gray-50 dark:from-slate-950/50 dark:to-gray-950/50 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-20 h-20 bg-slate-500/10 rounded-full -mr-10 -mt-10"></div>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-details-medium dark:text-slate-400">Need Extensions</p>
-                  <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">
-                    {statsLoading ? '-' : transactionStats.pending_extensions}
-                  </p>
-                </div>
-                <div className="w-12 h-12 bg-slate-500/20 rounded-xl flex items-center justify-center">
-                  <Clock className="w-6 h-6 text-details-medium dark:text-slate-400" />
+                <div className="w-12 h-12 bg-purple-500/20 rounded-xl flex items-center justify-center">
+                  <CreditCard className="w-6 h-6 text-purple-600 dark:text-purple-400" />
                 </div>
               </div>
             </CardContent>
