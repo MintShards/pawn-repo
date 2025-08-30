@@ -18,11 +18,6 @@ class PaymentBase(BaseModel):
         le=10000,
         description="Payment amount in whole dollars (max $10,000)"
     )
-    receipt_number: Optional[str] = Field(
-        None,
-        max_length=50,
-        description="Optional receipt number for tracking"
-    )
     internal_notes: Optional[str] = Field(
         None,
         max_length=500,
@@ -99,7 +94,6 @@ class PaymentSummaryResponse(BaseModel):
 class PaymentReceiptResponse(BaseModel):
     """Schema for payment receipt data"""
     payment_id: str = Field(..., description="Payment identifier")
-    receipt_number: Optional[str] = Field(None, description="Receipt number")
     
     # Transaction details
     transaction_id: str = Field(..., description="Transaction identifier")

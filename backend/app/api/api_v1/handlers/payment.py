@@ -141,7 +141,6 @@ async def process_payment(
             transaction_id=payment_data.transaction_id.strip(),
             payment_amount=payment_data.payment_amount,
             processed_by_user_id=current_user.user_id,
-            receipt_number=payment_data.receipt_number.strip() if payment_data.receipt_number else None,
             internal_notes=payment_data.internal_notes.strip() if payment_data.internal_notes else None
         )
         
@@ -386,7 +385,6 @@ async def get_payment_receipt(
         # Create PaymentReceiptResponse
         payment_receipt = PaymentReceiptResponse(
             payment_id=payment_id,
-            receipt_number=payment_details.get("receipt_number"),
             
             # Transaction details
             transaction_id=receipt_data.get("transaction_id"),

@@ -59,7 +59,6 @@ class PaymentService:
         transaction_id: str,
         payment_amount: int,
         processed_by_user_id: str,
-        receipt_number: Optional[str] = None,
         internal_notes: Optional[str] = None
     ) -> Payment:
         """
@@ -69,7 +68,6 @@ class PaymentService:
             transaction_id: Transaction to make payment on
             payment_amount: Amount paid in whole dollars (cash only)
             processed_by_user_id: Staff member processing payment
-            receipt_number: Optional receipt number for tracking
             internal_notes: Optional internal notes about the payment
             
         Returns:
@@ -118,21 +116,20 @@ class PaymentService:
         balance_after_payment = max(0, current_balance - payment_amount)
         is_overpayment = payment_amount > current_balance
         
-        # Calculate payment allocation (priority: interest → extension fees → principal)
+        # Calculate payment allocation (priority: interest → principal)
+        # Extension fees are handled separately by the extension system
         interest_due = balance_info.get("interest_balance", 0)
-        extension_fees_due = balance_info.get("extension_fees_balance", 0)
         principal_due = balance_info.get("principal_balance", 0)
         
         # 1. Apply payment to interest first
         interest_portion = min(payment_amount, interest_due)
         remaining_payment = payment_amount - interest_portion
         
-        # 2. Apply remaining to extension fees
-        extension_fees_portion = min(remaining_payment, extension_fees_due)
-        remaining_payment -= extension_fees_portion
-        
-        # 3. Apply remaining to principal last
+        # 2. Apply remaining to principal
         principal_portion = min(remaining_payment, principal_due)
+        
+        # Extension fees are not included in regular payment allocation
+        extension_fees_portion = 0
         
         # Create payment record
         payment = Payment(
@@ -145,7 +142,6 @@ class PaymentService:
             interest_portion=interest_portion,
             extension_fees_portion=extension_fees_portion,
             payment_method="cash",
-            receipt_number=receipt_number,
             internal_notes=internal_notes
         )
         
@@ -429,7 +425,6 @@ class PaymentService:
                 "balance_after": payment.balance_after_payment,
                 "balance_after_formatted": payment.balance_after_dollars,
                 "processed_by": payment.processed_by_user_id,
-                "receipt_number": payment.receipt_number,
                 "internal_notes": payment.internal_notes,
                 "created_at": payment.created_at.isoformat()
             })
@@ -495,19 +490,19 @@ class PaymentService:
         is_overpayment = payment_amount > current_balance
         will_be_paid_off = projected_balance == 0
         
-        # Calculate payment breakdown (priority: interest → extension fees → principal)
+        # Calculate payment breakdown (priority: interest → principal)
+        # Extension fees are handled separately by the extension system
         interest_balance = balance_info["interest_balance"]
-        extension_fees_balance = balance_info.get("extension_fees_balance", 0)
         principal_balance = balance_info["principal_balance"]
         
         # Apply payment with proper priority
         interest_payment = min(payment_amount, interest_balance)
         remaining_after_interest = payment_amount - interest_payment
         
-        extension_fees_payment = min(remaining_after_interest, extension_fees_balance)
-        remaining_after_extensions = remaining_after_interest - extension_fees_payment
+        # Extension fees are not included in regular payment allocation
+        extension_fees_payment = 0
         
-        principal_payment = min(remaining_after_extensions, principal_balance)
+        principal_payment = min(remaining_after_interest, principal_balance)
         
         return {
             "transaction_id": transaction_id,
@@ -522,10 +517,10 @@ class PaymentService:
             "overpayment_amount": payment_amount - current_balance if is_overpayment else 0,
             "payment_breakdown": {
                 "interest_payment": interest_payment,
-                "extension_fees_payment": extension_fees_payment,
+                "extension_fees_payment": 0,  # Extension fees handled separately
                 "principal_payment": principal_payment,
                 "interest_balance_after": max(0, interest_balance - interest_payment),
-                "extension_fees_balance_after": max(0, extension_fees_balance - extension_fees_payment),
+                "extension_fees_balance_after": 0,  # Extension fees not included
                 "principal_balance_after": max(0, principal_balance - principal_payment)
             },
             "status_after_payment": "redeemed" if will_be_paid_off else transaction.status,
@@ -602,8 +597,7 @@ class PaymentService:
                 "transaction_id": p.transaction_id,
                 "amount": p.payment_amount,
                 "payment_date": p.payment_date.isoformat(),
-                "processed_by": p.processed_by_user_id,
-                "receipt_number": p.receipt_number
+                "processed_by": p.processed_by_user_id
             }
             for p in payments
         ]

@@ -609,8 +609,8 @@ const TransactionList = ({
           {/* Transaction Display */}
           {!isMobile ? (
             /* Enhanced Table View */
-            <Card className="border-0 shadow-xl bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm overflow-hidden">
-              <div className="overflow-x-auto">
+            <Card className="border-0 shadow-xl bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm">
+              <div className="overflow-hidden">
                 <Table>
                   <TableHeader>
                     <TableRow className="border-slate-200/50 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50">

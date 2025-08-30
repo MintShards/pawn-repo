@@ -632,15 +632,12 @@ class InterestCalculationService:
         capped_months = min(months_elapsed, 3)
         total_interest_due = monthly_interest * capped_months
         
-        # Get all extensions to include extension fees
-        extensions = await Extension.find(
-            Extension.transaction_id == transaction_id
-        ).to_list()
+        # Extension fees are handled separately by the extension system
+        # Regular payments only cover principal + interest
+        total_extension_fees = 0
         
-        total_extension_fees = sum(extension.total_extension_fee for extension in extensions)
-        
-        # Calculate total due INCLUDING extension fees
-        total_due = loan_amount + total_interest_due + total_extension_fees
+        # Calculate total due EXCLUDING extension fees (only principal + interest)
+        total_due = loan_amount + total_interest_due
         
         # Calculate total payments (defensive programming)
         try:
@@ -656,23 +653,23 @@ class InterestCalculationService:
         # Calculate current balance
         current_balance = max(0, total_due - total_paid)
         
-        # Payment allocation (priority: interest → extension fees → principal)
+        # Payment allocation (priority: interest → principal)
+        # Extension fees are handled separately by the extension system
         remaining_payments = total_paid
         
         # 1. Pay interest first
         interest_paid = min(remaining_payments, total_interest_due)
         remaining_payments -= interest_paid
         
-        # 2. Pay extension fees second
-        extension_fees_paid = min(remaining_payments, total_extension_fees)
-        remaining_payments -= extension_fees_paid
-        
-        # 3. Pay principal last
+        # 2. Pay principal second (extension fees not included)
         principal_paid = min(remaining_payments, loan_amount)
         
-        # Remaining balances
+        # Extension fees are handled by extension system, not regular payments
+        extension_fees_paid = 0
+        
+        # Remaining balances (extension fees not included in payment balance)
         interest_balance = max(0, total_interest_due - interest_paid)
-        extension_fees_balance = max(0, total_extension_fees - extension_fees_paid)
+        extension_fees_balance = 0  # Extension fees handled separately
         principal_balance = max(0, loan_amount - principal_paid)
         
         # Status checks (defensive programming)

@@ -26,8 +26,7 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
         return validatePayment(value, balance);
       }
       return amountResult;
-    },
-    receipt_number: (value) => value ? validateRequired(value.trim(), 'Receipt number') : { isValid: true }
+    }
   };
 
   const {
@@ -40,7 +39,6 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
     isFormValid
   } = useFormValidation({
     payment_amount: '',
-    receipt_number: '',
     internal_notes: ''
   }, formValidators);
   
@@ -72,23 +70,19 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
         currentBalance: balance.current_balance || 0,
         principalDue: balance.principal_balance || 0,
         interestDue: balance.interest_due || 0,
-        extensionFeesDue: balance.extension_fees_balance || 0,
         isFullPayment: parseFloat(amount) >= balance.current_balance
       };
       
-      // Calculate payment allocation
+      // Calculate payment allocation (interest → principal only)
+      // Extension fees are handled separately by the extension system
       let remainingPayment = parseFloat(amount);
       let interestPaid = Math.min(remainingPayment, breakdown.interestDue);
       remainingPayment -= interestPaid;
-      
-      let extensionFeesPaid = Math.min(remainingPayment, breakdown.extensionFeesDue);
-      remainingPayment -= extensionFeesPaid;
       
       let principalPaid = Math.min(remainingPayment, breakdown.principalDue);
       
       breakdown.allocation = {
         interest: interestPaid,
-        extensionFees: extensionFeesPaid,
         principal: principalPaid,
         overpayment: Math.max(0, remainingPayment - principalPaid)
       };
@@ -141,7 +135,6 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
       const paymentData = {
         transaction_id: transaction.transaction_id,
         payment_amount: Math.round(parseFloat(formData.payment_amount)), // Convert to integer dollars
-        receipt_number: formData.receipt_number.trim() || null,
         internal_notes: formData.internal_notes.trim() || null
       };
 
@@ -269,20 +262,20 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
               <Input
                 id="payment_amount"
                 type="number"
-                step="0.01"
-                min="0.01"
+                step="1"
+                min="1"
                 max={balance ? balance.current_balance + 100 : 50000}
                 value={formData.payment_amount}
                 onChange={(e) => handleInputChange('payment_amount', e.target.value)}
                 onBlur={() => touchField('payment_amount')}
-                placeholder="0.00"
+                placeholder="0"
                 disabled={loadingBalance}
                 className={getFieldError('payment_amount') ? 'border-red-500 focus:border-red-500 focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 ring-0 ring-offset-0' : 'border-slate-300 focus:border-payment-accent focus:ring-0 focus:ring-offset-0 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ring-0 ring-offset-0'}
                 aria-invalid={!!getFieldError('payment_amount')}
                 aria-describedby={getFieldError('payment_amount') ? 'payment_amount_error' : undefined}
               />
               {balance && (
-                <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                <div className="absolute right-8 top-1/2 transform -translate-y-1/2">
                   <Button
                     type="button"
                     variant="ghost"
@@ -338,12 +331,6 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
                       <span className="font-bold text-green-700 dark:text-green-300">{formatCurrency(paymentBreakdown.allocation.interest)}</span>
                     </div>
                   )}
-                  {paymentBreakdown.allocation.extensionFees > 0 && (
-                    <div className="flex justify-between items-center p-2 bg-white/70 dark:bg-slate-800/70 rounded-lg">
-                      <span className="text-slate-700 dark:text-slate-300">Extension Fees:</span>
-                      <span className="font-bold text-green-700 dark:text-green-300">{formatCurrency(paymentBreakdown.allocation.extensionFees)}</span>
-                    </div>
-                  )}
                   {paymentBreakdown.allocation.principal > 0 && (
                     <div className="flex justify-between items-center p-2 bg-white/70 dark:bg-slate-800/70 rounded-lg">
                       <span className="text-slate-700 dark:text-slate-300">Principal Payment:</span>
@@ -377,17 +364,6 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
             </Card>
           )}
 
-          {/* Receipt Number */}
-          <div className="space-y-2">
-            <Label htmlFor="receipt_number">Receipt Number</Label>
-            <Input
-              id="receipt_number"
-              value={formData.receipt_number}
-              onChange={(e) => handleInputChange('receipt_number', e.target.value)}
-              placeholder="Optional receipt number"
-              className="border-slate-300 focus:border-payment-accent focus:ring-0 focus:ring-offset-0 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
-            />
-          </div>
 
           {/* Internal Notes */}
           <div className="space-y-2">
@@ -490,12 +466,6 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
               <div className="flex justify-between">
                 <span>Interest:</span>
                 <span>{formatCurrency(paymentBreakdown.allocation.interest)}</span>
-              </div>
-            )}
-            {paymentBreakdown.allocation.extensionFees > 0 && (
-              <div className="flex justify-between">
-                <span>Extension Fees:</span>
-                <span>{formatCurrency(paymentBreakdown.allocation.extensionFees)}</span>
               </div>
             )}
             {paymentBreakdown.allocation.principal > 0 && (

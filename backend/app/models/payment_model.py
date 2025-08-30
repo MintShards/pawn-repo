@@ -72,11 +72,6 @@ class Payment(Document):
         default="cash",
         description="Payment method (cash only for pawn transactions)"
     )
-    receipt_number: Optional[str] = Field(
-        default=None,
-        max_length=50,
-        description="Optional receipt number for tracking"
-    )
     internal_notes: Optional[str] = Field(
         default=None,
         max_length=200,
@@ -183,16 +178,6 @@ class Payment(Document):
             raise ValueError('Processed by user ID is required and cannot be empty')
         return v.strip()
     
-    @field_validator('receipt_number', mode='before')
-    @classmethod
-    def validate_receipt_number(cls, v) -> Optional[str]:
-        """Handle empty strings and normalize receipt numbers"""
-        if v == "" or v is None:
-            return None
-        if isinstance(v, str):
-            normalized = v.strip()
-            return normalized if normalized else None
-        return v
     
     @field_validator('internal_notes', mode='before')
     @classmethod
