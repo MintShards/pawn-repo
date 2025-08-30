@@ -112,6 +112,21 @@ class AuthService {
     }
   }
 
+  isTokenExpired(token) {
+    try {
+      // Decode JWT token to check expiration
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      const expiryTime = payload.exp * 1000; // Convert to milliseconds
+      const currentTime = Date.now();
+      
+      // Token is expired if current time is past expiry time
+      return currentTime >= expiryTime;
+    } catch (error) {
+      // If we can't decode the token, assume it's invalid/expired
+      return true;
+    }
+  }
+
   async verifyToken() {
     if (!this.token) return false;
 

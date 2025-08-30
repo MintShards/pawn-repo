@@ -35,7 +35,7 @@ import transactionService from '../services/transactionService';
 import extensionService from '../services/extensionService';
 
 const TransactionHub = () => {
-  const { user, logout, loading } = useAuth();
+  const { user, logout, loading, fetchUserDataIfNeeded } = useAuth();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('list');
   const [selectedTransaction, setSelectedTransaction] = useState(null);
@@ -45,6 +45,7 @@ const TransactionHub = () => {
   const [showTransactionDetails, setShowTransactionDetails] = useState(false);
   const [showStatusUpdateForm, setShowStatusUpdateForm] = useState(false);
   const [loadingTransactionDetails, setLoadingTransactionDetails] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0); // Add refresh key for TransactionList
   
   // Transaction stats state
   const [transactionStats, setTransactionStats] = useState({
@@ -55,6 +56,13 @@ const TransactionHub = () => {
     pending_extensions: 0
   });
   const [statsLoading, setStatsLoading] = useState(true);
+
+  // Fetch user data if not already loaded
+  useEffect(() => {
+    if (!user && fetchUserDataIfNeeded) {
+      fetchUserDataIfNeeded();
+    }
+  }, []); // Only run once on mount
 
   // Fetch transaction stats
   useEffect(() => {
@@ -95,9 +103,7 @@ const TransactionHub = () => {
     };
 
     fetchTransactionStats();
-    const interval = setInterval(fetchTransactionStats, 60000); // Refresh every minute
-    return () => clearInterval(interval);
-  }, []);
+  }, [refreshKey]); // Refresh stats when transactions are updated
 
   const handleLogout = () => {
     logout();
@@ -113,6 +119,7 @@ const TransactionHub = () => {
   const handleTransactionCreated = (newTransaction) => {
     setShowCreateForm(false);
     setActiveTab('list'); // Switch back to list to see new transaction
+    setRefreshKey(prev => prev + 1); // Trigger TransactionList refresh
     handleSuccess(`Transaction #${formatTransactionId(newTransaction)} created successfully`);
   };
 
@@ -180,6 +187,7 @@ const TransactionHub = () => {
   const handlePaymentSuccess = (paymentResult) => {
     setShowPaymentForm(false);
     setSelectedTransaction(null);
+    setRefreshKey(prev => prev + 1); // Trigger TransactionList refresh
     // Success message handled by PaymentForm component
   };
 
@@ -187,6 +195,7 @@ const TransactionHub = () => {
   const handleExtensionSuccess = (extensionResult) => {
     setShowExtensionForm(false);
     setSelectedTransaction(null);
+    setRefreshKey(prev => prev + 1); // Trigger TransactionList refresh
     // Success message handled by ExtensionForm component
   };
 
@@ -206,6 +215,7 @@ const TransactionHub = () => {
   const handleStatusUpdateSuccess = () => {
     setShowStatusUpdateForm(false);
     setSelectedTransaction(null);
+    setRefreshKey(prev => prev + 1); // Trigger TransactionList refresh
     handleSuccess('Transaction status updated successfully');
   };
 
@@ -516,6 +526,7 @@ const TransactionHub = () => {
                 </CardHeader>
                 <CardContent>
                   <TransactionList
+                    refreshTrigger={refreshKey}
                     onCreateNew={handleCreateNew}
                     onViewTransaction={handleViewTransaction}
                     onPayment={handlePayment}

@@ -48,7 +48,8 @@ const TransactionList = ({
   onViewTransaction, 
   onPayment, 
   onExtension,
-  onStatusUpdate 
+  onStatusUpdate,
+  refreshTrigger 
 }) => {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -60,14 +61,14 @@ const TransactionList = ({
   const [filters, setFilters] = useState({
     status: '',
     page_size: 10,
-    sortBy: 'pawn_date',
+    sortBy: 'created_at',  // Sort by creation timestamp instead of pawn_date
     sortOrder: 'desc'
   });
   const [isExtensionSearch, setIsExtensionSearch] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [selectedTransactionIds, setSelectedTransactionIds] = useState([]);
-  const [sortField, setSortField] = useState('pawn_date');
+  const [sortField, setSortField] = useState('created_at');  // Default to creation time
   const [sortDirection, setSortDirection] = useState('desc');
   const [transactionBalances, setTransactionBalances] = useState({});
   const [showItemsDialog, setShowItemsDialog] = useState(false);
@@ -119,6 +120,9 @@ const TransactionList = ({
     .sort((a, b) => {
       let comparison = 0;
       switch (sortField) {
+        case 'created_at':
+          comparison = new Date(a.created_at || a.pawn_date || 0) - new Date(b.created_at || b.pawn_date || 0);
+          break;
         case 'pawn_date':
           comparison = new Date(a.pawn_date || 0) - new Date(b.pawn_date || 0);
           break;
@@ -159,6 +163,8 @@ const TransactionList = ({
           ...filters,
           page: currentPage,
           page_size: transactionsPerPage,
+          sortBy: sortField,
+          sortOrder: sortDirection,
           ...(searchTerm && !isTransactionSearch && { customer_id: searchTerm })
         };
         
@@ -194,7 +200,7 @@ const TransactionList = ({
     } finally {
       setLoading(false);
     }
-  }, [filters, searchTerm, currentPage, transactionsPerPage]);
+  }, [filters, searchTerm, currentPage, transactionsPerPage, sortField, sortDirection]);
 
   // Load transactions on mount and when filters change
   useEffect(() => {
@@ -205,6 +211,14 @@ const TransactionList = ({
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, filters.status]);
+
+  // Refresh when refreshTrigger changes
+  useEffect(() => {
+    if (refreshTrigger && refreshTrigger > 0) {
+      setCurrentPage(1); // Reset to first page
+      loadTransactions();
+    }
+  }, [refreshTrigger, loadTransactions]);
 
   // Calculate total pages for pagination
   const totalPages = Math.ceil(totalTransactions / transactionsPerPage);
@@ -222,6 +236,7 @@ const TransactionList = ({
 
   const handleRefresh = () => {
     setIsExtensionSearch(false);
+    setCurrentPage(1); // Reset to first page
     loadTransactions();
   };
 

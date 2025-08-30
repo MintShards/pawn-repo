@@ -18,6 +18,7 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [lastActivity, setLastActivity] = useState(Date.now());
+  const [userLoading, setUserLoading] = useState(false);
 
   // Security: Inactivity timer for automatic logout
   const handleInactivityTimeout = () => {
@@ -92,11 +93,22 @@ export const AuthProvider = ({ children }) => {
       // EMERGENCY FIX: Skip user data fetch during initialization to prevent request storm
       // Login response already contains user data, no need to fetch during init
       if (hasToken && hasRefreshToken) {
+        // Validate token is not expired before trusting it
+        if (authService.isTokenExpired(authService.getToken())) {
+          // Token is expired - clear auth and redirect to login
+          authService.logout();
+          setIsAuthenticated(false);
+          setLoading(false);
+          return;
+        }
+        
         // Trust the stored tokens and set authenticated state
-        // Note: User data will be fetched lazily when needed to prevent API spam
         setIsAuthenticated(true);
         
-        // Start security timer for existing session without user data fetch
+        // Don't fetch user data here - let components request it when needed
+        // This prevents request storms during initialization
+        
+        // Start security timer for existing session
         setTimeout(() => startTimer(), 200);
         setLoading(false);
         return;
@@ -185,19 +197,26 @@ export const AuthProvider = ({ children }) => {
 
   // EMERGENCY: Lazy user data fetch to prevent request storms
   const fetchUserDataIfNeeded = async () => {
-    if (!user && isAuthenticated) {
-      try {
-        const userData = await authService.getCurrentUser();
-        if (userData) {
-          setUser(userData);
-          return userData;
-        }
-      } catch (error) {
-        // Failed to fetch user data
-        // Don't logout automatically - just leave user data empty
-      }
+    // Prevent multiple concurrent fetches
+    if (userLoading || user || !isAuthenticated) {
+      return user;
     }
-    return user;
+    
+    try {
+      setUserLoading(true);
+      const userData = await authService.getCurrentUser();
+      if (userData) {
+        setUser(userData);
+        return userData;
+      }
+    } catch (error) {
+      // Failed to fetch user data
+      // Don't logout automatically - just leave user data empty
+      console.error('Failed to fetch user data:', error);
+    } finally {
+      setUserLoading(false);
+    }
+    return null;
   };
 
   const value = {
