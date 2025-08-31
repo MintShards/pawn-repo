@@ -10,11 +10,12 @@ from typing import Optional
 from datetime import datetime
 
 # Third-party imports
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 import structlog
 
 # Local imports
 from app.api.deps.user_deps import get_staff_or_admin_user
+from app.core.security_middleware import strict_rate_limit
 from app.models.user_model import User
 from app.schemas.extension_schema import (
     ExtensionCreate, ExtensionResponse, ExtensionListResponse,
@@ -48,7 +49,9 @@ extension_router = APIRouter()
         500: {"description": "Internal server error"}
     }
 )
+@strict_rate_limit()
 async def process_extension(
+    request: Request,
     extension_data: ExtensionCreate,
     current_user: User = Depends(get_staff_or_admin_user)
 ) -> ExtensionResponse:
