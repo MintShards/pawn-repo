@@ -272,6 +272,26 @@ export const formatStorageLocation = (location) => {
   return locationMap[lowerLocation] || location;
 };
 
+/**
+ * Format currency for display, removing trailing .00 decimals
+ * @param {number} amount - The amount to format
+ * @returns {string} Formatted currency string
+ */
+export const formatCurrency = (amount) => {
+  if (amount === null || amount === undefined) return '$0';
+  
+  // Format with currency
+  const formatted = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2
+  }).format(amount);
+  
+  // Remove .00 at the end
+  return formatted.replace(/\.00$/, '');
+};
+
 const transactionUtils = {
   formatTransactionId,
   formatExtensionId,
@@ -279,7 +299,8 @@ const transactionUtils = {
   extractTransactionNumber,
   matchesTransactionSearch,
   matchesExtensionSearch,
-  formatStorageLocation
+  formatStorageLocation,
+  formatCurrency
 };
 
 export default transactionUtils;

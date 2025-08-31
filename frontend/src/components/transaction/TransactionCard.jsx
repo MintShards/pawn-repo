@@ -11,7 +11,7 @@ import {
 } from '../ui/dropdown-menu';
 import StatusBadge from './components/StatusBadge';
 import transactionService from '../../services/transactionService';
-import { formatTransactionId, formatStorageLocation } from '../../utils/transactionUtils';
+import { formatTransactionId, formatStorageLocation, formatCurrency } from '../../utils/transactionUtils';
 
 const TransactionCard = ({ 
   transaction, 
@@ -45,12 +45,7 @@ const TransactionCard = ({
     loadBalance();
   }, [loadBalance]);
 
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD'
-    }).format(amount);
-  };
+  // formatCurrency is now imported from transactionUtils
 
   const formatDate = (dateString) => {
     if (!dateString) return 'Not Set';

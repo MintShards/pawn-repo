@@ -41,7 +41,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import TransactionCard from './TransactionCard';
 import StatusBadge from './components/StatusBadge';
 import transactionService from '../../services/transactionService';
-import { matchesTransactionSearch, initializeSequenceNumbers, formatTransactionId, formatStorageLocation } from '../../utils/transactionUtils';
+import { matchesTransactionSearch, initializeSequenceNumbers, formatTransactionId, formatStorageLocation, formatCurrency } from '../../utils/transactionUtils';
 
 const TransactionList = ({ 
   onCreateNew, 
@@ -286,12 +286,7 @@ const TransactionList = ({
     setCurrentPage(1);
   };
 
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD'
-    }).format(amount);
-  };
+  // formatCurrency is now imported from transactionUtils
 
   const formatDate = (dateString) => {
     return new Date(dateString).toLocaleDateString();
