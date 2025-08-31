@@ -311,13 +311,50 @@ const TransactionHub = () => {
     transactionService.clearTransactionCache();
     extensionService.clearExtensionCache();
     
-    // Force immediate refresh - try both methods
+    // Force immediate refresh of transaction list
     setRefreshKey(prev => prev + 1);
     
-    // Also trigger a secondary refresh after a short delay to ensure data consistency
-    setTimeout(() => {
-      setRefreshKey(prev => prev + 1);
-    }, 500);
+    // Immediately recalculate and update transaction stats
+    const refreshStats = async () => {
+      try {
+        setStatsLoading(true);
+        const transactions = await transactionService.getAllTransactions();
+        const transactionList = transactions.transactions || [];
+        
+        const currentDate = new Date();
+        const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+        const startOfWeek = new Date(currentDate);
+        startOfWeek.setDate(currentDate.getDate() - currentDate.getDay());
+        const endOfWeek = new Date(startOfWeek);
+        endOfWeek.setDate(startOfWeek.getDate() + 6);
+        
+        const stats = {
+          total_active: transactionList.filter(t => t.status === 'active').length,
+          total_overdue: transactionList.filter(t => t.status === 'overdue').length,
+          new_this_month: transactionList.filter(t => 
+            new Date(t.pawn_date || t.created_at) >= startOfMonth
+          ).length,
+          maturity_this_week: transactionList.filter(t => {
+            if (!t.maturity_date) return false;
+            const maturityDate = new Date(t.maturity_date);
+            return maturityDate >= startOfWeek && maturityDate <= endOfWeek && 
+                   ['active', 'overdue', 'extended'].includes(t.status);
+          }).length,
+          cash_collected_today: transactionStats.cash_collected_today // Preserve cash data
+        };
+        
+        setTransactionStats(stats);
+      } catch (error) {
+        // Stats refresh failed - user will see updated stats on next page refresh
+      } finally {
+        setStatsLoading(false);
+      }
+    };
+    
+    // Execute stats refresh with a small delay to ensure backend consistency
+    setTimeout(async () => {
+      await refreshStats();
+    }, 200);
   };
 
   // Handle extension

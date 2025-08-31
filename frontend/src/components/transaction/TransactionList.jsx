@@ -214,7 +214,7 @@ const TransactionList = ({
     }
   }, [filters, searchTerm, currentPage, transactionsPerPage, sortField, sortDirection]);
 
-  const fetchAllTransactionsCounts = useCallback(async () => {
+  const fetchAllTransactionsCounts = useCallback(async (immediate = false) => {
     try {
       // Fetch counts for each status separately with enhanced rate limiting protection
       const statusCounts = {};
@@ -224,43 +224,70 @@ const TransactionList = ({
       const allResponse = await transactionService.getAllTransactions({
         page_size: 1, // Just get total count
         sortBy: 'updated_at',
-        sortOrder: 'desc'
+        sortOrder: 'desc',
+        _t: immediate ? Date.now() : undefined // Cache buster for immediate refreshes
       });
       
       statusCounts.all = allResponse.total_count || allResponse.total || 0;
       
-      // Add longer delay between requests to prevent rate limiting (500ms spacing)
-      const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-      
-      // Fetch count for each status with delays and retry logic
-      for (let i = 0; i < statuses.length; i++) {
-        const status = statuses[i];
-        let retryCount = 0;
-        const maxRetries = 2;
+      if (immediate) {
+        // For immediate refreshes (after extension), fetch all at once without delays
+        try {
+          const responses = await Promise.all(
+            statuses.map(status => 
+              transactionService.getAllTransactions({
+                page_size: 1,
+                status: status,
+                sortBy: 'updated_at',
+                sortOrder: 'desc',
+                _t: Date.now() // Cache buster
+              })
+            )
+          );
+          
+          statuses.forEach((status, index) => {
+            statusCounts[status] = responses[index].total_count || responses[index].total || 0;
+          });
+        } catch (error) {
+          // Fallback to zero counts if immediate fetch fails
+          statuses.forEach(status => {
+            statusCounts[status] = 0;
+          });
+        }
+      } else {
+        // Add longer delay between requests to prevent rate limiting (500ms spacing)
+        const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
         
-        while (retryCount <= maxRetries) {
-          try {
-            if (i > 0 || retryCount > 0) {
-              await delay(500 + (retryCount * 500)); // Increasing delay for retries
-            }
-            
-            const response = await transactionService.getAllTransactions({
-              page_size: 1, // Just get total count
-              status: status,
-              sortBy: 'updated_at',
-              sortOrder: 'desc'
-            });
-            statusCounts[status] = response.total_count || response.total || 0;
-            break; // Success, exit retry loop
-          } catch (error) {
-            retryCount++;
-            if (error.message?.includes('Rate limit') && retryCount <= maxRetries) {
-              // Rate limit hit - retry with longer delay
-              continue;
-            } else {
-              // Failed to fetch count after retries
-              statusCounts[status] = 0;
-              break;
+        // Fetch count for each status with delays and retry logic
+        for (let i = 0; i < statuses.length; i++) {
+          const status = statuses[i];
+          let retryCount = 0;
+          const maxRetries = 2;
+          
+          while (retryCount <= maxRetries) {
+            try {
+              if (i > 0 || retryCount > 0) {
+                await delay(500 + (retryCount * 500)); // Increasing delay for retries
+              }
+              
+              const response = await transactionService.getAllTransactions({
+                page_size: 1, // Just get total count
+                status: status,
+                sortBy: 'updated_at',
+                sortOrder: 'desc'
+              });
+              statusCounts[status] = response.total_count || response.total || 0;
+              break; // Success, exit retry loop
+            } catch (error) {
+              retryCount++;
+              if (error.message?.includes('Rate limit') && retryCount <= maxRetries) {
+                // Rate limit hit - retry with longer delay
+                continue;
+              } else {
+                // Failed to fetch count after retries
+                statusCounts[status] = 0;
+                break;
+              }
             }
           }
         }
@@ -327,8 +354,8 @@ const TransactionList = ({
           setTransactions(enrichedTransactions);
           setTotalTransactions(response.total || 0);
           
-          // Also update counts
-          fetchAllTransactionsCounts();
+          // Also update counts immediately for refresh triggers
+          fetchAllTransactionsCounts(true);
         } catch (err) {
           // Error refreshing transactions
           setError(err.message || 'Failed to refresh transactions');
