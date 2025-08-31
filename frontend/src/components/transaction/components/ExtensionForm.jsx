@@ -33,7 +33,7 @@ const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
     isFormValid
   } = useFormValidation({
     extension_months: '1',
-    extension_fee_per_month: '25',
+    extension_fee_per_month: transaction?.monthly_interest_amount?.toString() || '0',
     internal_notes: ''
   }, formValidators);
   
@@ -47,8 +47,25 @@ const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
     
     const currentMaturity = new Date(transaction.maturity_date);
     const extensionMonths = parseInt(formData.extension_months);
-    const newMaturity = new Date(currentMaturity);
-    newMaturity.setMonth(newMaturity.getMonth() + extensionMonths);
+    
+    // Safe month addition that handles month overflow properly
+    let newYear = currentMaturity.getFullYear();
+    let newMonth = currentMaturity.getMonth() + extensionMonths;
+    const day = currentMaturity.getDate();
+    
+    // Handle month overflow
+    while (newMonth >= 12) {
+      newYear += 1;
+      newMonth -= 12;
+    }
+    
+    // Handle day overflow for shorter months
+    const newMaturity = new Date(newYear, newMonth, 1);
+    const lastDayOfMonth = new Date(newYear, newMonth + 1, 0).getDate();
+    const adjustedDay = Math.min(day, lastDayOfMonth);
+    
+    newMaturity.setDate(adjustedDay);
+    newMaturity.setHours(currentMaturity.getHours(), currentMaturity.getMinutes(), currentMaturity.getSeconds(), currentMaturity.getMilliseconds());
     
     return newMaturity;
   }, [transaction?.maturity_date, formData.extension_months]);
@@ -205,13 +222,13 @@ const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
       </CardHeader>
       
       <CardContent className="relative">
-        {/* Loading Overlay */}
-        {(loadingEligibility || submitting) && (
+        {/* Processing Overlay - only show when submitting */}
+        {submitting && (
           <div className="absolute inset-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center rounded-lg">
             <div className="flex flex-col items-center space-y-4">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-extension-accent"></div>
               <p className="text-sm text-blue-600 dark:text-blue-400 font-medium">
-                {loadingEligibility ? 'Checking eligibility...' : 'Processing extension...'}
+                Processing extension...
               </p>
             </div>
           </div>
@@ -252,7 +269,7 @@ const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
               value={formData.extension_months} 
               onValueChange={(value) => handleInputChange('extension_months', value)}
               onOpenChange={(open) => !open && touchField('extension_months')}
-              disabled={loadingEligibility || submitting}
+              disabled={submitting}
             >
               <SelectTrigger className={getFieldError('extension_months') ? 'border-red-500 focus:border-red-500 focus:ring-0 focus:ring-offset-0 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ring-0 ring-offset-0' : 'border-slate-300 focus:border-extension-accent focus:ring-0 focus:ring-offset-0 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ring-0 ring-offset-0'}>
                 <SelectValue placeholder="Select extension duration" />
@@ -283,7 +300,7 @@ const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
               onChange={(e) => handleInputChange('extension_fee_per_month', e.target.value)}
               onBlur={() => touchField('extension_fee_per_month')}
               placeholder="0.00"
-              disabled={loadingEligibility || submitting}
+              disabled={submitting}
               className={getFieldError('extension_fee_per_month') ? 'border-red-500 focus:border-red-500 focus:ring-0 focus:ring-offset-0 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0' : 'border-slate-300 focus:border-extension-accent focus:ring-0 focus:ring-offset-0 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0'}
               aria-invalid={!!getFieldError('extension_fee_per_month')}
               aria-describedby={getFieldError('extension_fee_per_month') ? 'extension_fee_error' : undefined}
@@ -305,43 +322,36 @@ const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
               onChange={(e) => handleInputChange('internal_notes', e.target.value)}
               placeholder="Optional internal notes..."
               rows={3}
-              disabled={loadingEligibility || submitting}
+              disabled={submitting}
               className="border-slate-300 focus:border-extension-accent focus:ring-0 focus:ring-offset-0 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
             />
           </div>
 
-          {/* Eligibility Check */}
-          {loadingEligibility && (
-            <Alert>
+          {/* Eligibility Check - Only show if there are issues or warnings */}
+          {eligibility && !eligibility.is_eligible && (
+            <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>
-                <div className="space-y-2">
-                  <span>Checking extension eligibility...</span>
-                  <Progress value={50} className="h-2" />
+                <div className="space-y-1">
+                  <div className="font-medium">Not eligible for extension</div>
+                  {eligibility.reason && (
+                    <div>Reason: {eligibility.reason}</div>
+                  )}
                 </div>
               </AlertDescription>
             </Alert>
           )}
 
-          {eligibility && !loadingEligibility && (
-            <Alert variant={eligibility.is_eligible ? "default" : "destructive"}>
-              {eligibility.is_eligible ? <CheckCircle className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+          {/* Show warnings even if eligible */}
+          {eligibility && eligibility.is_eligible && eligibility.warnings && eligibility.warnings.length > 0 && (
+            <Alert variant="default">
+              <AlertCircle className="h-4 w-4" />
               <AlertDescription>
                 <div className="space-y-1">
-                  <div className="font-medium">
-                    Eligibility: {eligibility.is_eligible ? 'Eligible for extension' : 'Not eligible for extension'}
-                  </div>
-                  {eligibility.reason && (
-                    <div>Reason: {eligibility.reason}</div>
-                  )}
-                  {eligibility.warnings && eligibility.warnings.length > 0 && (
-                    <div className="mt-2">
-                      <div className="font-medium">Warnings:</div>
-                      {eligibility.warnings.map((warning, index) => (
-                        <div key={index}>• {warning}</div>
-                      ))}
-                    </div>
-                  )}
+                  <div className="font-medium">Warnings:</div>
+                  {eligibility.warnings.map((warning, index) => (
+                    <div key={index}>• {warning}</div>
+                  ))}
                 </div>
               </AlertDescription>
             </Alert>
@@ -452,7 +462,6 @@ const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
               type="submit" 
               disabled={
                 submitting || 
-                loadingEligibility || 
                 !eligibility?.is_eligible ||
                 !isFormValid
               }

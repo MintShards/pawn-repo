@@ -150,6 +150,7 @@ class PaymentService:
         
         # Update transaction status if fully paid
         if balance_after_payment == 0:
+            from app.services.pawn_transaction_service import PawnTransactionService
             await PawnTransactionService.update_transaction_status(
                 transaction_id=transaction_id,
                 new_status=TransactionStatus.REDEEMED,

@@ -5,7 +5,6 @@ import {
   CreditCard, 
   DollarSign, 
   Clock, 
-  TrendingUp, 
   Plus,
   Activity,
   AlertTriangle,
@@ -17,9 +16,14 @@ import {
   Calendar,
   Package,
   Phone,
+  RefreshCw,
+  BarChart3,
+  Mail,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
 import { handleError, handleSuccess } from '../utils/errorHandling';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../components/ui/dialog';
 import { Avatar, AvatarImage, AvatarFallback } from '../components/ui/avatar';
@@ -33,11 +37,11 @@ import { formatTransactionId, formatExtensionId, formatStorageLocation } from '.
 import { getRoleTitle, getUserDisplayString } from '../utils/roleUtils';
 import transactionService from '../services/transactionService';
 import extensionService from '../services/extensionService';
+import customerService from '../services/customerService';
 
 const TransactionHub = () => {
   const { user, logout, loading, fetchUserDataIfNeeded } = useAuth();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('list');
   const [selectedTransaction, setSelectedTransaction] = useState(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
@@ -46,6 +50,12 @@ const TransactionHub = () => {
   const [showStatusUpdateForm, setShowStatusUpdateForm] = useState(false);
   const [loadingTransactionDetails, setLoadingTransactionDetails] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0); // Add refresh key for TransactionList
+  const [showCustomerDetails, setShowCustomerDetails] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [loadingCustomerDetails, setLoadingCustomerDetails] = useState(false);
+  const [customerTransactions, setCustomerTransactions] = useState([]);
+  const [showQuickPayment, setShowQuickPayment] = useState(false);
+  const [showQuickExtension, setShowQuickExtension] = useState(false);
   
   // Transaction stats state
   const [transactionStats, setTransactionStats] = useState({
@@ -100,16 +110,21 @@ const TransactionHub = () => {
         // Fetch today's cash collections
         try {
           const today = new Date().toISOString().split('T')[0];
-          const paymentsResponse = await fetch(`/api/v1/payment/?start_date=${today}T00:00:00&end_date=${today}T23:59:59`, {
-            headers: {
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-            }
-          });
+          const token = localStorage.getItem('access_token');
           
-          if (paymentsResponse.ok) {
-            const paymentsData = await paymentsResponse.json();
-            const todayCash = paymentsData.payments?.reduce((sum, payment) => sum + payment.payment_amount, 0) || 0;
-            stats.cash_collected_today = todayCash;
+          if (token) {
+            const paymentsResponse = await fetch(`http://localhost:8000/api/v1/payment/?start_date=${today}T00:00:00&end_date=${today}T23:59:59`, {
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              }
+            });
+            
+            if (paymentsResponse.ok) {
+              const paymentsData = await paymentsResponse.json();
+              const todayCash = paymentsData.payments?.reduce((sum, payment) => sum + payment.payment_amount, 0) || 0;
+              stats.cash_collected_today = todayCash;
+            }
           }
         } catch (cashError) {
           console.error('Failed to fetch today\'s cash collections:', cashError);
@@ -146,7 +161,6 @@ const TransactionHub = () => {
   // Handle successful transaction creation
   const handleTransactionCreated = (newTransaction) => {
     setShowCreateForm(false);
-    setActiveTab('list'); // Switch back to list to see new transaction
     setRefreshKey(prev => prev + 1); // Trigger TransactionList refresh
     handleSuccess(`Transaction #${formatTransactionId(newTransaction)} created successfully`);
   };
@@ -202,6 +216,75 @@ const TransactionHub = () => {
       }
     } finally {
       setLoadingTransactionDetails(false);
+    }
+  };
+
+  // Handle viewing customer details
+  const handleViewCustomer = async (customerPhone) => {
+    try {
+      setLoadingCustomerDetails(true);
+      setShowCustomerDetails(true);
+      setSelectedCustomer(null); // Clear previous data
+      setCustomerTransactions([]); // Clear previous transactions
+      
+      // Fetch customer data and transaction history in parallel
+      const [customerData, transactionsData] = await Promise.all([
+        customerService.getCustomerByPhone(customerPhone),
+        transactionService.getAllTransactions({ customer_id: customerPhone, page_size: 100 })
+      ]);
+      
+      if (customerData) {
+        setSelectedCustomer(customerData);
+        setCustomerTransactions(transactionsData.transactions || []);
+      } else {
+        handleError(new Error('Customer not found'), 'Loading customer details');
+        setShowCustomerDetails(false);
+      }
+    } catch (error) {
+      console.error('Failed to load customer details:', error);
+      handleError(error, 'Loading customer details');
+      setShowCustomerDetails(false);
+    } finally {
+      setLoadingCustomerDetails(false);
+    }
+  };
+
+  const findTransactionByDisplayId = async (displayId) => {
+    try {
+      let page = 1;
+      const pageSize = 50;
+      
+      // Search through all pages until found
+      while (true) {
+        const response = await transactionService.getAllTransactions({ 
+          page: page,
+          page_size: pageSize,
+          sortBy: 'updated_at',
+          sortOrder: 'desc'
+        });
+        
+        const transactions = response.transactions || [];
+        
+        const transaction = transactions.find(t => formatTransactionId(t) === displayId.toUpperCase());
+        
+        if (transaction) {
+          return transaction;
+        }
+        
+        // Check if we've reached the end
+        if (transactions.length < pageSize || !response.has_next) {
+          break;
+        }
+        
+        page++;
+        
+        // Add small delay to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+      throw new Error(`Transaction ${displayId} not found`);
+    } catch (error) {
+      throw error;
     }
   };
 
@@ -486,115 +569,157 @@ const TransactionHub = () => {
         {/* Quick Actions & Transaction Content Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
           {/* Quick Actions Sidebar */}
-          <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm lg:col-span-1">
-            <CardHeader className="pb-4">
-              <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl flex items-center justify-center shadow-lg shadow-amber-500/25">
-                  <Activity className="w-5 h-5 text-white" />
+          <div className="lg:col-span-1 space-y-4">
+            {/* Quick Actions Card */}
+            <Card className="border-0 shadow-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 overflow-hidden relative z-10">
+              <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-indigo-500/5 pointer-events-none"></div>
+              <CardHeader className="relative pb-3">
+                <div className="flex items-center space-x-3">
+                  <div className="relative">
+                    <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/30">
+                      <Activity className="w-5 h-5 text-white" />
+                    </div>
+                    <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-slate-900"></div>
+                  </div>
+                  <div>
+                    <CardTitle className="text-white text-lg font-bold">Quick Actions</CardTitle>
+                    <p className="text-xs text-slate-400">Frequently used operations</p>
+                  </div>
                 </div>
-                <div>
-                  <CardTitle className="text-slate-900 dark:text-slate-100 text-lg">Quick Actions</CardTitle>
+              </CardHeader>
+              <CardContent className="relative space-y-3 pt-2 z-20">
+                <Button 
+                  onClick={handleCreateNew}
+                  className="w-full justify-start h-11 bg-gradient-to-r from-slate-700 to-slate-600 hover:from-slate-600 hover:to-slate-500 text-white border border-slate-600/50 hover:border-slate-500/70 shadow-md hover:shadow-lg transition-all duration-200 group relative z-30" 
+                  variant="outline"
+                >
+                  <div className="w-6 h-6 bg-slate-500/30 rounded-md flex items-center justify-center mr-2 group-hover:bg-slate-400/40 transition-colors">
+                    <Plus className="w-4 h-4" />
+                  </div>
+                  <span className="font-medium text-sm">New Transaction</span>
+                </Button>
+
+                <Button 
+                  onClick={() => setShowQuickPayment(true)}
+                  className="w-full justify-start h-11 bg-gradient-to-r from-slate-800/50 to-slate-700/50 hover:from-slate-700/60 hover:to-slate-600/60 text-slate-300 border border-slate-600/30 hover:border-slate-500/50 shadow-md hover:shadow-lg transition-all duration-200 group" 
+                  variant="outline"
+                >
+                  <div className="w-6 h-6 bg-slate-600/30 rounded-md flex items-center justify-center mr-2 group-hover:bg-slate-500/40 transition-colors">
+                    <DollarSign className="w-4 h-4" />
+                  </div>
+                  <span className="font-medium text-sm">Quick Payment</span>
+                </Button>
+
+                <Button 
+                  onClick={() => setShowQuickExtension(true)}
+                  className="w-full justify-start h-11 bg-gradient-to-r from-slate-800/50 to-slate-700/50 hover:from-slate-700/60 hover:to-slate-600/60 text-slate-300 border border-slate-600/30 hover:border-slate-500/50 shadow-md hover:shadow-lg transition-all duration-200 group" 
+                  variant="outline"
+                >
+                  <div className="w-6 h-6 bg-slate-600/30 rounded-md flex items-center justify-center mr-2 group-hover:bg-slate-500/40 transition-colors">
+                    <Clock className="w-4 h-4" />
+                  </div>
+                  <span className="font-medium text-sm">Quick Extension</span>
+                </Button>
+                
+                <Button 
+                  className="w-full justify-start h-11 bg-gradient-to-r from-slate-800/50 to-slate-700/50 hover:from-slate-700/60 hover:to-slate-600/60 text-slate-300 border border-slate-600/30 hover:border-slate-500/50 shadow-md hover:shadow-lg transition-all duration-200 group" 
+                  variant="outline"
+                  onClick={() => navigate('/customers')}
+                >
+                  <div className="w-6 h-6 bg-slate-600/30 rounded-md flex items-center justify-center mr-2 group-hover:bg-slate-500/40 transition-colors">
+                    <UserCheck className="w-4 h-4" />
+                  </div>
+                  <span className="font-medium text-sm">Manage Customers</span>
+                </Button>
+                
+                <Button 
+                  onClick={() => {
+                    // Generate daily cash report
+                  }}
+                  className="w-full justify-start h-11 bg-gradient-to-r from-slate-800/50 to-slate-700/50 hover:from-slate-700/60 hover:to-slate-600/60 text-slate-300 border border-slate-600/30 hover:border-slate-500/50 shadow-md hover:shadow-lg transition-all duration-200 group" 
+                  variant="outline"
+                >
+                  <div className="w-6 h-6 bg-slate-600/30 rounded-md flex items-center justify-center mr-2 group-hover:bg-slate-500/40 transition-colors">
+                    <BarChart3 className="w-4 h-4" />
+                  </div>
+                  <span className="font-medium text-sm">Daily Cash Report</span>
+                </Button>
+                
+                <Button 
+                  className="w-full justify-start h-11 bg-gradient-to-r from-slate-800/50 to-slate-700/50 hover:from-slate-700/60 hover:to-slate-600/60 text-slate-300 border border-slate-600/30 hover:border-slate-500/50 shadow-md hover:shadow-lg transition-all duration-200 group" 
+                  variant="outline"
+                >
+                  <div className="w-6 h-6 bg-slate-600/30 rounded-md flex items-center justify-center mr-2 group-hover:bg-slate-500/40 transition-colors">
+                    <FileText className="w-4 h-4" />
+                  </div>
+                  <span className="font-medium text-sm">Generate Report</span>
+                </Button>
+              </CardContent>
+            </Card>
+            
+            {/* Quick Stats Mini Card */}
+            <Card className="border-0 shadow-xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 relative overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-indigo-500/5"></div>
+              <CardContent className="relative p-5">
+                <div className="flex items-center space-x-2 mb-4">
+                  <div className="w-6 h-6 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center">
+                    <BarChart3 className="w-4 h-4 text-white" />
+                  </div>
+                  <h4 className="text-sm font-semibold text-white">Today's Overview</h4>
                 </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <Button 
-                onClick={handleCreateNew}
-                className="w-full justify-start bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/50 dark:to-teal-950/50 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800 hover:from-emerald-100 hover:to-teal-100 dark:hover:from-emerald-900/50 dark:hover:to-teal-900/50" 
-                variant="outline"
-              >
-                <Plus className="w-4 h-4 mr-2" />
-                New Transaction
-              </Button>
-              <Button 
-                onClick={() => {
-                  if (transactionStats.total_overdue > 0) {
-                    setActiveTab('list');
-                  }
-                }}
-                className="w-full justify-start bg-gradient-to-r from-red-50 to-rose-50 dark:from-red-950/50 dark:to-rose-950/50 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800 hover:from-red-100 hover:to-rose-100 dark:hover:from-red-900/50 dark:hover:to-rose-900/50" 
-                variant="outline"
-                disabled={transactionStats.total_overdue === 0}
-              >
-                <AlertTriangle className="w-4 h-4 mr-2" />
-                Review Overdue ({transactionStats.total_overdue})
-              </Button>
-              <Button 
-                className="w-full justify-start bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/50 dark:to-indigo-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 hover:from-blue-100 hover:to-indigo-100 dark:hover:from-blue-900/50 dark:hover:to-indigo-900/50" 
-                variant="outline"
-                onClick={() => navigate('/customers')}
-              >
-                <UserCheck className="w-4 h-4 mr-2" />
-                Manage Customers
-              </Button>
-              <Button 
-                className="w-full justify-start bg-gradient-to-r from-violet-50 to-purple-50 dark:from-violet-950/50 dark:to-purple-950/50 text-violet-700 dark:text-violet-300 border-violet-200 dark:border-violet-800 hover:from-violet-100 hover:to-purple-100 dark:hover:from-violet-900/50 dark:hover:to-purple-900/50" 
-                variant="outline"
-              >
-                <FileText className="w-4 h-4 mr-2" />
-                Generate Report
-              </Button>
-            </CardContent>
-          </Card>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between py-1">
+                    <span className="text-xs text-slate-400 font-medium">New Loans</span>
+                    <span className="text-sm font-bold text-emerald-400">{transactionStats.new_this_month || 0}</span>
+                  </div>
+                  <div className="flex items-center justify-between py-1">
+                    <span className="text-xs text-slate-400 font-medium">Collections</span>
+                    <span className="text-sm font-bold text-blue-400">${transactionStats.cash_collected_today || 0}</span>
+                  </div>
+                  <div className="flex items-center justify-between py-1">
+                    <span className="text-xs text-slate-400 font-medium">Due Soon</span>
+                    <span className="text-sm font-bold text-indigo-400">{transactionStats.maturity_this_week || 0}</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
 
           {/* Main Content Area */}
           <div className="lg:col-span-4 space-y-6">
-            {activeTab === 'list' && (
-              <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
-                <CardHeader className="pb-4">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25">
-                      <CreditCard className="w-5 h-5 text-white" />
+            <Card className="border-0 shadow-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-indigo-500/5"></div>
+              <CardHeader className="relative pb-6 border-b border-slate-700/50">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-4">
+                    <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center shadow-2xl shadow-blue-500/50">
+                      <CreditCard className="w-7 h-7 text-white" />
                     </div>
                     <div>
-                      <CardTitle className="text-slate-900 dark:text-slate-100">All Transactions</CardTitle>
-                      <p className="text-sm text-details-medium dark:text-slate-400">Search, filter, and manage all pawn transactions</p>
+                      <CardTitle className="text-2xl font-bold text-white">All Transactions</CardTitle>
+                      <p className="text-sm text-slate-400 mt-1">Search, filter, and manage all pawn transactions</p>
                     </div>
                   </div>
-                </CardHeader>
-                <CardContent>
-                  <TransactionList
-                    refreshTrigger={refreshKey}
-                    onCreateNew={handleCreateNew}
-                    onViewTransaction={handleViewTransaction}
-                    onPayment={handlePayment}
-                    onExtension={handleExtension}
-                    onStatusUpdate={handleStatusUpdate}
-                  />
-                </CardContent>
-              </Card>
-            )}
-
-            {activeTab === 'create' && (
-              <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/25">
-                        <Plus className="w-5 h-5 text-white" />
-                      </div>
-                      <div>
-                        <CardTitle className="text-slate-900 dark:text-slate-100">Create New Transaction</CardTitle>
-                        <p className="text-sm text-details-medium dark:text-slate-400">Enter loan details and customer information</p>
-                      </div>
+                  <div className="flex items-center space-x-3">
+                    <div className="hidden sm:flex items-center space-x-2 bg-slate-800/50 rounded-lg px-3 py-2 border border-slate-700/50">
+                      <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                      <span className="text-xs text-slate-400">Live Updates</span>
                     </div>
-                    <Button 
-                      variant="ghost" 
-                      onClick={() => setActiveTab('list')}
-                      className="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
-                    >
-                      ← Back to List
-                    </Button>
                   </div>
-                </CardHeader>
-                <CardContent>
-                  <CreatePawnDialogRedesigned
-                    onSuccess={handleTransactionCreated}
-                    onCancel={() => setActiveTab('list')}
-                  />
-                </CardContent>
-              </Card>
-            )}
+                </div>
+              </CardHeader>
+              <CardContent className="relative bg-slate-950/50 p-0">
+                <TransactionList
+                  refreshTrigger={refreshKey}
+                  onCreateNew={handleCreateNew}
+                  onViewTransaction={handleViewTransaction}
+                  onViewCustomer={handleViewCustomer}
+                  onPayment={handlePayment}
+                  onExtension={handleExtension}
+                  onStatusUpdate={handleStatusUpdate}
+                />
+              </CardContent>
+            </Card>
           </div>
         </div>
       </main>
@@ -617,7 +742,7 @@ const TransactionHub = () => {
       <Dialog open={showPaymentForm} onOpenChange={setShowPaymentForm}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0 border-0 bg-transparent" showCloseButton={false}>
           <DialogHeader className="sr-only">
-            <DialogTitle>Process Payment</DialogTitle>
+            <DialogTitle>Quick Payment</DialogTitle>
             <DialogDescription>Process payment for selected transaction</DialogDescription>
           </DialogHeader>
           {selectedTransaction && (
@@ -634,7 +759,7 @@ const TransactionHub = () => {
       <Dialog open={showExtensionForm} onOpenChange={setShowExtensionForm}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0 border-0 bg-transparent" showCloseButton={false}>
           <DialogHeader className="sr-only">
-            <DialogTitle>Extend Loan</DialogTitle>
+            <DialogTitle>Quick Extension</DialogTitle>
             <DialogDescription>Extend loan period for selected transaction</DialogDescription>
           </DialogHeader>
           {selectedTransaction && (
@@ -1020,7 +1145,7 @@ const TransactionHub = () => {
                             className="bg-gradient-to-r from-payment-accent to-green-600 hover:from-green-600 hover:to-green-700 text-white shadow-lg"
                           >
                             <DollarSign className="w-4 h-4 mr-2" />
-                            Process Payment
+                            Quick Payment
                           </Button>
                           <Button 
                             variant="outline"
@@ -1031,7 +1156,7 @@ const TransactionHub = () => {
                             className="border-extension-accent/30 dark:border-extension-accent/40 text-extension-accent hover:bg-extension-accent/10 dark:hover:bg-extension-accent/20"
                           >
                             <Calendar className="w-4 h-4 mr-2" />
-                            Extend Loan
+                            Quick Extension
                           </Button>
                         </>
                       )}
@@ -1071,6 +1196,284 @@ const TransactionHub = () => {
               onCancel={() => setShowStatusUpdateForm(false)}
             />
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Customer Details Dialog */}
+      <Dialog open={showCustomerDetails} onOpenChange={setShowCustomerDetails}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+          <DialogHeader className="pb-6 border-b border-slate-200 dark:border-slate-700">
+            <DialogTitle className="flex items-center space-x-3">
+              <div className="w-12 h-12 bg-blue-500 rounded-xl flex items-center justify-center shadow-lg">
+                <Phone className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-slate-900 dark:text-slate-100">
+                  {selectedCustomer ? `${selectedCustomer.first_name} ${selectedCustomer.last_name}` : 'Loading...'}
+                </div>
+                <div className="text-sm text-slate-600 dark:text-slate-400">
+                  {loadingCustomerDetails ? 'Loading customer details...' : 'Customer profile and transaction history'}
+                </div>
+              </div>
+            </DialogTitle>
+          </DialogHeader>
+          
+          {selectedCustomer && (
+            <div className="space-y-6">
+              {/* Loading State */}
+              {loadingCustomerDetails && (
+                <div className="flex items-center justify-center py-12">
+                  <div className="flex items-center space-x-3">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+                    <span className="text-slate-600 dark:text-slate-400">Loading customer details...</span>
+                  </div>
+                </div>
+              )}
+              
+              {!loadingCustomerDetails && (
+                <>
+                  {/* Customer Info Cards */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Card className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
+                      <CardContent className="p-4">
+                        <div className="flex items-center space-x-3">
+                          <div className="w-10 h-10 bg-blue-500/20 rounded-lg flex items-center justify-center">
+                            <Phone className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                          </div>
+                          <div>
+                            <div className="text-sm text-blue-600 dark:text-blue-400">Phone Number</div>
+                            <div className="font-bold text-lg text-blue-900 dark:text-blue-100">
+                              {customerService.formatPhoneNumber(selectedCustomer.phone_number)}
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card className="bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800">
+                      <CardContent className="p-4">
+                        <div className="flex items-center space-x-3">
+                          <div className="w-10 h-10 bg-green-500/20 rounded-lg flex items-center justify-center">
+                            <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
+                          </div>
+                          <div>
+                            <div className="text-sm text-green-600 dark:text-green-400">Status</div>
+                            <div className="font-bold text-lg text-green-900 dark:text-green-100 capitalize">
+                              {selectedCustomer.status}
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  {/* Email if available */}
+                  {selectedCustomer.email && (
+                    <Card className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
+                      <CardContent className="p-4">
+                        <div className="flex items-center space-x-3">
+                          <div className="w-10 h-10 bg-slate-500/20 rounded-lg flex items-center justify-center">
+                            <Mail className="w-5 h-5 text-slate-600 dark:text-slate-400" />
+                          </div>
+                          <div>
+                            <div className="text-sm text-slate-600 dark:text-slate-400">Email</div>
+                            <div className="font-medium text-slate-900 dark:text-slate-100">
+                              {selectedCustomer.email}
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Notes if available */}
+                  {selectedCustomer.notes && (
+                    <Card className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
+                      <CardHeader className="pb-4">
+                        <CardTitle className="flex items-center space-x-3 text-lg font-semibold text-slate-900 dark:text-slate-100">
+                          <FileText className="w-5 h-5 text-slate-600 dark:text-slate-400" />
+                          <span>Internal Notes</span>
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="p-4 bg-slate-100 dark:bg-slate-700/50 rounded-lg">
+                          <div className="text-slate-700 dark:text-slate-300 whitespace-pre-wrap">
+                            {selectedCustomer.notes}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Transaction History */}
+                  <Card className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
+                    <CardHeader className="pb-4">
+                      <CardTitle className="flex items-center space-x-3 text-lg font-semibold text-slate-900 dark:text-slate-100">
+                        <CreditCard className="w-5 h-5 text-slate-600 dark:text-slate-400" />
+                        <span>Transaction History ({customerTransactions.length})</span>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {customerTransactions.length > 0 ? (
+                        <div className="space-y-3 max-h-60 overflow-y-auto">
+                          {customerTransactions.map((transaction) => (
+                            <div 
+                              key={transaction.transaction_id}
+                              className="p-3 bg-white dark:bg-slate-700/50 rounded-lg border border-slate-200 dark:border-slate-600 hover:border-blue-300 dark:hover:border-blue-600 cursor-pointer transition-all"
+                              onClick={() => {
+                                setShowCustomerDetails(false);
+                                handleViewTransaction(transaction);
+                              }}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center space-x-3">
+                                  <div className={`w-3 h-3 rounded-full ${
+                                    transaction.status === 'active' ? 'bg-emerald-500' :
+                                    transaction.status === 'overdue' ? 'bg-red-500' :
+                                    transaction.status === 'extended' ? 'bg-blue-500' :
+                                    transaction.status === 'redeemed' ? 'bg-green-500' :
+                                    transaction.status === 'sold' ? 'bg-purple-500' : 'bg-slate-500'
+                                  }`}></div>
+                                  <div>
+                                    <div className="font-medium text-slate-900 dark:text-slate-100">
+                                      #{formatTransactionId(transaction)}
+                                    </div>
+                                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                                      {formatDate(transaction.pawn_date)} • {transaction.status}
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <div className="font-medium text-slate-900 dark:text-slate-100">
+                                    {formatCurrency(transaction.loan_amount || 0)}
+                                  </div>
+                                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                                    {transaction.items?.length || 0} item{transaction.items?.length !== 1 ? 's' : ''}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center py-8">
+                          <CreditCard className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
+                          <p className="text-slate-500 dark:text-slate-400">No transactions found for this customer</p>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Action Buttons */}
+                  <div className="flex justify-between items-center pt-6 border-t border-slate-200 dark:border-slate-700">
+                    <Button 
+                      variant="outline"
+                      onClick={() => setShowCustomerDetails(false)}
+                      className="text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
+                    >
+                      Close
+                    </Button>
+                    
+                    <Button 
+                      onClick={() => navigate('/customers')}
+                      className="bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white shadow-lg"
+                    >
+                      <UserCheck className="w-4 h-4 mr-2" />
+                      Manage Customer
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick Payment Dialog */}
+      <Dialog open={showQuickPayment} onOpenChange={setShowQuickPayment}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Quick Payment</DialogTitle>
+            <DialogDescription>
+              Enter the transaction ID to process a payment. Only active, overdue, or extended transactions can accept payments.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="paymentTransactionId">Transaction ID</Label>
+              <Input
+                id="paymentTransactionId"
+                placeholder="Enter transaction ID (e.g., PW000001)"
+onKeyPress={async (e) => {
+                  if (e.key === 'Enter') {
+                    const displayId = e.target.value.trim();
+                    if (displayId) {
+                      try {
+                        const transaction = await findTransactionByDisplayId(displayId);
+                        
+                        // Validate transaction status for payment
+                        if (!['active', 'overdue', 'extended'].includes(transaction.status)) {
+                          handleError(new Error(`Cannot process payment for ${transaction.status} transaction`), 'Invalid Status');
+                          return;
+                        }
+                        
+                        setSelectedTransaction(transaction);
+                        setShowQuickPayment(false);
+                        setShowPaymentForm(true);
+                      } catch (error) {
+                        handleError(error, 'Loading transaction');
+                      }
+                    }
+                  }
+                }}
+              />
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick Extension Dialog */}
+      <Dialog open={showQuickExtension} onOpenChange={setShowQuickExtension}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Quick Extension</DialogTitle>
+            <DialogDescription>
+              Enter the transaction ID to extend the loan. Only active, overdue, or extended transactions can be extended.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="extensionTransactionId">Transaction ID</Label>
+              <Input
+                id="extensionTransactionId"
+                placeholder="Enter transaction ID (e.g., PW000001)"
+onKeyPress={async (e) => {
+                  if (e.key === 'Enter') {
+                    const displayId = e.target.value.trim();
+                    if (displayId) {
+                      try {
+                        const transaction = await findTransactionByDisplayId(displayId);
+                        
+                        // Validate transaction status for extension
+                        if (!['active', 'overdue', 'extended'].includes(transaction.status)) {
+                          handleError(new Error(`Cannot extend ${transaction.status} transaction`), 'Invalid Status');
+                          return;
+                        }
+                        
+                        setSelectedTransaction(transaction);
+                        setShowQuickExtension(false);
+                        setShowExtensionForm(true);
+                      } catch (error) {
+                        handleError(error, 'Loading transaction');
+                      }
+                    }
+                  }
+                }}
+              />
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

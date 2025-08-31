@@ -77,6 +77,14 @@ const CustomersPage = () => {
                       <LayoutDashboard className="w-4 h-4 mr-2" />
                       Dashboard
                     </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="sm"
+                      onClick={() => navigate('/transactions')}
+                      className="h-9 px-3 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
+                    >
+                      Transactions
+                    </Button>
                     <div className="h-6 w-px bg-slate-200 dark:bg-slate-700 mx-2"></div>
                     <div className="flex items-center space-x-2 px-3 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/50 dark:to-indigo-950/50 rounded-lg border border-blue-100 dark:border-blue-900/50">
                       <Users className="w-4 h-4 text-blue-600 dark:text-blue-400" />

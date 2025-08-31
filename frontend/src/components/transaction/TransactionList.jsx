@@ -46,6 +46,7 @@ import { matchesTransactionSearch, initializeSequenceNumbers, formatTransactionI
 const TransactionList = ({ 
   onCreateNew, 
   onViewTransaction, 
+  onViewCustomer,
   onPayment, 
   onExtension,
   onStatusUpdate,
@@ -73,6 +74,14 @@ const TransactionList = ({
   const [transactionBalances, setTransactionBalances] = useState({});
   const [showItemsDialog, setShowItemsDialog] = useState(false);
   const [selectedTransactionItems, setSelectedTransactionItems] = useState(null);
+  const [allTransactionsCounts, setAllTransactionsCounts] = useState({
+    all: 0,
+    active: 0,
+    overdue: 0,
+    extended: 0,
+    redeemed: 0,
+    sold: 0
+  });
   
   // Advanced search fields
   const [searchFields, setSearchFields] = useState({
@@ -205,6 +214,7 @@ const TransactionList = ({
   // Load transactions on mount and when filters change
   useEffect(() => {
     loadTransactions();
+    fetchAllTransactionsCounts(); // Fetch counts for filter badges
   }, [loadTransactions]);
 
   // Reset to page 1 when search or filters change
@@ -238,6 +248,7 @@ const TransactionList = ({
     setIsExtensionSearch(false);
     setCurrentPage(1); // Reset to first page
     loadTransactions();
+    fetchAllTransactionsCounts(); // Refresh counts as well
   };
 
   const handleSort = (field) => {
@@ -332,170 +343,227 @@ const TransactionList = ({
     }
   };
 
+  const fetchAllTransactionsCounts = async () => {
+    try {
+      // Fetch counts for each status separately with enhanced rate limiting protection
+      const statusCounts = {};
+      const statuses = ['active', 'overdue', 'extended', 'redeemed', 'sold'];
+      
+      // Fetch all transactions count first
+      const allResponse = await transactionService.getAllTransactions({
+        page_size: 1, // Just get total count
+        sortBy: 'updated_at',
+        sortOrder: 'desc'
+      });
+      
+      statusCounts.all = allResponse.total_count || allResponse.total || 0;
+      
+      // Add longer delay between requests to prevent rate limiting (500ms spacing)
+      const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+      
+      // Fetch count for each status with delays and retry logic
+      for (let i = 0; i < statuses.length; i++) {
+        const status = statuses[i];
+        let retryCount = 0;
+        const maxRetries = 2;
+        
+        while (retryCount <= maxRetries) {
+          try {
+            if (i > 0 || retryCount > 0) {
+              await delay(500 + (retryCount * 500)); // Increasing delay for retries
+            }
+            
+            const response = await transactionService.getAllTransactions({
+              page_size: 1, // Just get total count
+              status: status,
+              sortBy: 'updated_at',
+              sortOrder: 'desc'
+            });
+            statusCounts[status] = response.total_count || response.total || 0;
+            break; // Success, exit retry loop
+          } catch (error) {
+            retryCount++;
+            if (error.message?.includes('Rate limit') && retryCount <= maxRetries) {
+              console.warn(`Rate limit hit for ${status}, retrying in ${500 + (retryCount * 500)}ms...`);
+              continue; // Retry with longer delay
+            } else {
+              console.error(`Failed to fetch ${status} count after ${retryCount} attempts:`, error);
+              statusCounts[status] = 0;
+              break; // Give up on this status
+            }
+          }
+        }
+      }
+      
+      setAllTransactionsCounts(statusCounts);
+    } catch (error) {
+      console.error('Failed to fetch transaction counts:', error);
+    }
+  };
+
 
   return (
     <div className="space-y-6">
-      {/* Modern Search Interface */}
-      <div className="space-y-4">
-        {/* Primary Search Bar */}
-        <div className="relative">
-          <div className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none">
-            <Search className="h-5 w-5 text-slate-400 dark:text-slate-500" />
+      {/* Redesigned Search Interface */}
+      <div className="space-y-6">
+        {/* Primary Search Bar with Dark Gradient Theme */}
+        <div className="relative group">
+          <div className="absolute inset-0 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 rounded-xl opacity-95"></div>
+          <div className="relative p-6 space-y-4">
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 flex items-center pl-5 pointer-events-none z-10">
+                <Search className="h-6 w-6 text-blue-400" />
+              </div>
+              <Input
+                placeholder="Search by transaction ID (PW000123), customer phone, or item description..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-16 pr-14 h-16 text-lg font-medium bg-slate-800/50 border-slate-700/50 text-slate-100 placeholder:text-slate-400 focus:bg-slate-800/70 focus:border-blue-500/50 focus:ring-blue-500/20 transition-all shadow-lg backdrop-blur-sm"
+              />
+              {searchTerm && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 h-10 w-10 p-0 rounded-lg hover:bg-slate-700/50 text-slate-400 hover:text-slate-200 transition-all"
+                >
+                  <X className="h-5 w-5" />
+                </Button>
+              )}
+            </div>
           </div>
-          <Input
-            placeholder="Search by transaction ID (PW000123), customer phone, or item description..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-12 pr-4 h-14 text-base bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm border-slate-200/50 dark:border-slate-700/50 shadow-sm focus:shadow-lg focus:border-blue-500/50 dark:focus:border-blue-400/50 transition-all"
-          />
-          {searchTerm && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setSearchTerm('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 p-0 hover:bg-slate-100 dark:hover:bg-slate-700"
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          )}
         </div>
 
-        {/* Quick Status Filters & Actions */}
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center space-x-2">
-            {['all', 'active', 'overdue', 'extended', 'redeemed', 'sold'].map((status) => (
-              <Button
-                key={status}
-                variant={filters.status === (status === 'all' ? '' : status) ? "default" : "ghost"}
-                size="sm"
-                onClick={() => handleStatusFilter(status === 'all' ? '' : status)}
-                className={`h-8 px-3 ${
-                  filters.status === (status === 'all' ? '' : status)
-                    ? status === 'active' 
-                      ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
-                      : status === 'overdue'
-                      ? 'bg-red-500 hover:bg-red-600 text-white'
-                      : status === 'extended'
-                      ? 'bg-blue-500 hover:bg-blue-600 text-white'
-                      : status === 'redeemed'
-                      ? 'bg-green-500 hover:bg-green-600 text-white'
-                      : status === 'sold'
-                      ? 'bg-purple-500 hover:bg-purple-600 text-white'
-                      : 'bg-slate-500 hover:bg-slate-600 text-white'
-                    : 'hover:bg-slate-100 dark:hover:bg-slate-800'
-                }`}
-              >
-                {status === 'all' ? 'All' : status.charAt(0).toUpperCase() + status.slice(1)}
-                {status !== 'all' && (
-                  <Badge 
-                    variant="secondary" 
-                    className="ml-2 h-5 px-1.5 text-xs bg-white/20 text-current border-0"
+        {/* Status Filters with Enhanced Dark Theme */}
+        <div className="relative group">
+          <div className="absolute inset-0 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 rounded-xl opacity-95"></div>
+          <div className="relative p-6">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center space-x-2">
+                {['all', 'active', 'overdue', 'extended', 'redeemed', 'sold'].map((status) => (
+                  <Button
+                    key={status}
+                    variant={filters.status === (status === 'all' ? '' : status) ? "default" : "ghost"}
+                    size="sm"
+                    onClick={() => handleStatusFilter(status === 'all' ? '' : status)}
+                    className={`h-10 px-3 font-medium transition-all duration-200 text-sm ${
+                      filters.status === (status === 'all' ? '' : status)
+                        ? status === 'active' 
+                          ? 'bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white shadow-lg shadow-emerald-500/25'
+                          : status === 'overdue'
+                          ? 'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white shadow-lg shadow-red-500/25'
+                          : status === 'extended'
+                          ? 'bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white shadow-lg shadow-blue-500/25'
+                          : status === 'redeemed'
+                          ? 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white shadow-lg shadow-green-500/25'
+                          : status === 'sold'
+                          ? 'bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white shadow-lg shadow-purple-500/25'
+                          : 'bg-gradient-to-r from-slate-600 to-slate-700 hover:from-slate-700 hover:to-slate-800 text-white shadow-lg shadow-slate-500/25'
+                        : 'bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 hover:text-white border-slate-600/50 hover:border-slate-500/50'
+                    }`}
                   >
-                    {filteredAndSortedTransactions.filter(t => t.status === status).length}
-                  </Badge>
-                )}
-              </Button>
-            ))}
-          </div>
-
-          <div className="h-4 w-px bg-slate-300 dark:bg-slate-600"></div>
-
-          <Button 
-            onClick={handleRefresh} 
-            variant="ghost" 
-            size="sm"
-            disabled={loading}
-            className="h-8 px-3 text-slate-600 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
-
-          <Sheet>
-            <SheetTrigger asChild>
-              <Button variant="outline" size="sm" className="h-8 px-3">
-                <Filter className="h-4 w-4 mr-2" />
-                Advanced
-                {Object.values(searchFields).some(v => v) && (
-                  <Badge variant="destructive" className="ml-2 h-4 w-4 p-0 text-xs">•</Badge>
-                )}
-              </Button>
-            </SheetTrigger>
-            <SheetContent>
-              <SheetHeader>
-                <SheetTitle>Advanced Search</SheetTitle>
-                <SheetDescription>
-                  Use multiple criteria to find specific transactions
-                </SheetDescription>
-              </SheetHeader>
-              <div className="space-y-6 mt-6">
-                <div className="space-y-4">
-                  <div>
-                    <Label htmlFor="transactionId">Transaction ID</Label>
-                    <Input
-                      id="transactionId"
-                      placeholder="PW000123"
-                      value={searchFields.transactionId}
-                      onChange={(e) => setSearchFields(prev => ({ ...prev, transactionId: e.target.value }))}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="customerId">Customer Phone</Label>
-                    <Input
-                      id="customerId"
-                      placeholder="1234567890"
-                      value={searchFields.customerId}
-                      onChange={(e) => setSearchFields(prev => ({ ...prev, customerId: e.target.value }))}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="loanAmount">Minimum Loan Amount</Label>
-                    <Input
-                      id="loanAmount"
-                      type="number"
-                      placeholder="0.00"
-                      value={searchFields.loanAmount}
-                      onChange={(e) => setSearchFields(prev => ({ ...prev, loanAmount: e.target.value }))}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="storageLocation">Storage Location</Label>
-                    <Input
-                      id="storageLocation"
-                      placeholder="Shelf A-1"
-                      value={searchFields.storageLocation}
-                      onChange={(e) => setSearchFields(prev => ({ ...prev, storageLocation: e.target.value }))}
-                    />
-                  </div>
-                </div>
-                
-                <div className="flex space-x-2">
-                  <Button onClick={clearSearchFields} variant="outline" className="flex-1">
-                    Clear All
+                    {status === 'all' ? 'All' : status.charAt(0).toUpperCase() + status.slice(1)}
+                    <Badge 
+                      variant="secondary" 
+                      className="ml-2 h-5 px-2 min-w-[20px] max-w-[60px] text-xs bg-white/20 text-current border-0 font-bold flex items-center justify-center whitespace-nowrap overflow-hidden"
+                    >
+                      {status === 'all' ? (allTransactionsCounts.all > 999999 ? '999K+' : allTransactionsCounts.all) : (allTransactionsCounts[status] > 999999 ? '999K+' : allTransactionsCounts[status] || 0)}
+                    </Badge>
                   </Button>
-                  <Button onClick={() => setShowFilters(false)} className="flex-1">
-                    Apply
-                  </Button>
-                </div>
+                ))}
               </div>
-            </SheetContent>
-          </Sheet>
 
-          {(searchTerm || filters.status || Object.values(searchFields).some(v => v)) && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setSearchTerm('');
-                setFilters({ status: '', page_size: 10, sortBy: 'updated_at', sortOrder: 'desc' });
-                setSearchFields({ transactionId: '', customerId: '', loanAmount: '', storageLocation: '' });
-              }}
-              className="h-8 px-3 text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-red-950/50"
-            >
-              <X className="h-4 w-4 mr-1" />
-              Clear All
-            </Button>
-          )}
+              <div className="flex items-center space-x-2">
+                <div className="h-6 w-px bg-gradient-to-b from-transparent via-slate-600 to-transparent"></div>
+
+                <Button 
+                  onClick={handleRefresh} 
+                  variant="ghost" 
+                  size="sm"
+                  disabled={loading}
+                  className="h-10 px-3 bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 hover:text-white border-slate-600/50 hover:border-slate-500/50 transition-all duration-200 text-sm"
+                >
+                  <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+                  <span className="font-medium">Refresh</span>
+                </Button>
+
+                <Sheet>
+                  <SheetTrigger asChild>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="h-10 px-3 bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 hover:text-white border-slate-600/50 hover:border-slate-500/50 transition-all duration-200 text-sm"
+                    >
+                      <Filter className="h-4 w-4 mr-2" />
+                      <span className="font-medium">Advanced</span>
+                      {Object.values(searchFields).some(v => v) && (
+                        <div className="ml-2 w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
+                      )}
+                    </Button>
+                  </SheetTrigger>
+                  <SheetContent>
+                    <SheetHeader>
+                      <SheetTitle>Advanced Search</SheetTitle>
+                      <SheetDescription>
+                        Use multiple criteria to find specific transactions
+                      </SheetDescription>
+                    </SheetHeader>
+                    <div className="space-y-6 mt-6">
+                      <div className="space-y-4">
+                        <div>
+                          <Label htmlFor="transactionId">Transaction ID</Label>
+                          <Input
+                            id="transactionId"
+                            placeholder="PW000123"
+                            value={searchFields.transactionId}
+                            onChange={(e) => setSearchFields(prev => ({ ...prev, transactionId: e.target.value }))}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="customerId">Customer Phone</Label>
+                          <Input
+                            id="customerId"
+                            placeholder="1234567890"
+                            value={searchFields.customerId}
+                            onChange={(e) => setSearchFields(prev => ({ ...prev, customerId: e.target.value }))}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="loanAmount">Minimum Loan Amount</Label>
+                          <Input
+                            id="loanAmount"
+                            type="number"
+                            placeholder="0.00"
+                            value={searchFields.loanAmount}
+                            onChange={(e) => setSearchFields(prev => ({ ...prev, loanAmount: e.target.value }))}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="storageLocation">Storage Location</Label>
+                          <Input
+                            id="storageLocation"
+                            placeholder="Shelf A-1"
+                            value={searchFields.storageLocation}
+                            onChange={(e) => setSearchFields(prev => ({ ...prev, storageLocation: e.target.value }))}
+                          />
+                        </div>
+                      </div>
+                      
+                      <div className="flex space-x-2">
+                        <Button onClick={clearSearchFields} variant="outline" className="flex-1">
+                          Clear All
+                        </Button>
+                        <Button onClick={() => setShowFilters(false)} className="flex-1">
+                          Apply
+                        </Button>
+                      </div>
+                    </div>
+                  </SheetContent>
+                </Sheet>
+
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -687,16 +755,16 @@ const TransactionList = ({
                             ? 'bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 border-blue-200 dark:border-blue-800' 
                             : index % 2 === 0 ? 'bg-slate-25/50 dark:bg-slate-900/20' : ''
                         }`}
-                        onClick={() => handleSelectTransaction(transaction.transaction_id)}
+                        onClick={() => onViewTransaction?.(transaction)}
                       >
-                        <TableCell className="pl-6">
+                        <TableCell className="pl-6" onClick={(e) => e.stopPropagation()}>
                           <Checkbox
                             checked={selectedTransactionIds.includes(transaction.transaction_id)}
                             onCheckedChange={() => handleSelectTransaction(transaction.transaction_id)}
                             className="data-[state=checked]:bg-blue-500 data-[state=checked]:border-blue-500"
                           />
                         </TableCell>
-                        <TableCell onClick={(e) => e.stopPropagation()}>
+                        <TableCell>
                           <div className="space-y-1">
                             <div className="font-bold text-blue-700 dark:text-blue-300 text-base">
                               #{formatTransactionId(transaction)}
@@ -713,12 +781,23 @@ const TransactionList = ({
                             )}
                           </div>
                         </TableCell>
-                        <TableCell onClick={(e) => e.stopPropagation()}>
-                          <div className="font-medium text-slate-900 dark:text-slate-100">
-                            {transaction.customer_id || 'N/A'}
-                          </div>
+                        <TableCell>
+                          {transaction.customer_id && transaction.customer_id !== 'N/A' ? (
+                            <Button
+                              variant="link"
+                              className="h-auto p-0 font-medium text-blue-700 dark:text-blue-300 hover:text-blue-800 dark:hover:text-blue-200 underline-offset-2"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onViewCustomer?.(transaction.customer_id);
+                              }}
+                            >
+                              {transaction.customer_id}
+                            </Button>
+                          ) : (
+                            <div className="font-medium text-slate-400 dark:text-slate-500">N/A</div>
+                          )}
                         </TableCell>
-                        <TableCell onClick={(e) => e.stopPropagation()}>
+                        <TableCell>
                           <div className="space-y-1">
                             <Button
                               variant="link"
@@ -737,7 +816,7 @@ const TransactionList = ({
                             )}
                           </div>
                         </TableCell>
-                        <TableCell onClick={(e) => e.stopPropagation()}>
+                        <TableCell>
                           <div className="space-y-1">
                             <div className="font-bold text-lg text-slate-900 dark:text-slate-100">
                               {formatCurrency(transaction.loan_amount || 0)}
@@ -747,7 +826,7 @@ const TransactionList = ({
                             </div>
                           </div>
                         </TableCell>
-                        <TableCell onClick={(e) => e.stopPropagation()}>
+                        <TableCell>
                           <div className="space-y-1">
                             {['active', 'overdue', 'extended'].includes(transaction.status) ? (
                               <>
@@ -773,7 +852,7 @@ const TransactionList = ({
                             )}
                           </div>
                         </TableCell>
-                        <TableCell onClick={(e) => e.stopPropagation()}>
+                        <TableCell>
                           <div className="flex items-center space-x-2">
                             <StatusBadge status={transaction.status} />
                             {transaction.extensions && transaction.extensions.length > 0 && (
@@ -832,6 +911,7 @@ const TransactionList = ({
                   key={transaction.transaction_id}
                   transaction={transaction}
                   onView={onViewTransaction}
+                  onViewCustomer={onViewCustomer}
                   onPayment={onPayment}
                   onExtension={onExtension}
                   onStatusUpdate={onStatusUpdate}
@@ -903,8 +983,8 @@ const TransactionList = ({
 
       {/* Enhanced Pagination */}
       {!loading && totalTransactions > 0 && (
-        <div className="mt-4 flex items-center justify-between">
-          <div className="text-sm text-muted-foreground">
+        <div className="!mt-0 mb-0 flex items-center justify-between px-6 py-2">
+          <div className="text-sm text-muted-foreground font-medium">
             Showing {Math.min((currentPage - 1) * transactionsPerPage + 1, totalTransactions)}-{Math.min(currentPage * transactionsPerPage, totalTransactions)} of {totalTransactions} transactions
           </div>
           
@@ -931,9 +1011,9 @@ const TransactionList = ({
                   return (
                     <Button
                       key={pageNumber}
-                      variant={currentPage === pageNumber ? "default" : "outline"}
+                      variant="outline"
                       size="sm"
-                      className="w-8 h-8 p-0"
+                      className={`w-8 h-8 p-0 ${currentPage === pageNumber ? 'bg-orange-600 text-white border-orange-600 hover:bg-orange-700' : 'hover:bg-slate-100 dark:hover:bg-slate-800'}`}
                       onClick={() => setCurrentPage(pageNumber)}
                     >
                       {pageNumber}

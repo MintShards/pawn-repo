@@ -16,6 +16,7 @@ import { formatTransactionId, formatStorageLocation } from '../../utils/transact
 const TransactionCard = ({ 
   transaction, 
   onView, 
+  onViewCustomer,
   onPayment, 
   onExtension,
   onStatusUpdate,
@@ -86,9 +87,12 @@ const TransactionCard = ({
   };
 
   return (
-    <Card className={`border-0 shadow-lg bg-gradient-to-br ${getStatusColor(transaction.status)} relative overflow-hidden transition-all duration-200 hover:shadow-xl group ${
-      isSelected ? 'ring-2 ring-blue-500' : ''
-    }`}>
+    <Card 
+      className={`border-0 shadow-lg bg-gradient-to-br ${getStatusColor(transaction.status)} relative overflow-hidden transition-all duration-200 hover:shadow-xl group cursor-pointer ${
+        isSelected ? 'ring-2 ring-blue-500' : ''
+      }`}
+      onClick={() => onView?.(transaction)}
+    >
       {/* Decorative Element */}
       <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -mr-10 -mt-10"></div>
       
@@ -123,7 +127,12 @@ const TransactionCard = ({
           {/* Action Menu */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 opacity-60 group-hover:opacity-100 transition-opacity">
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="h-8 w-8 p-0 opacity-60 group-hover:opacity-100 transition-opacity"
+                onClick={(e) => e.stopPropagation()}
+              >
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
@@ -186,9 +195,21 @@ const TransactionCard = ({
               <Phone className="h-4 w-4 text-slate-600 dark:text-slate-400" />
               <span className="text-sm text-slate-600 dark:text-slate-400">Customer:</span>
             </div>
-            <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
-              {transaction.customer_phone || transaction.customer_id || 'No Customer'}
-            </span>
+            {(transaction.customer_phone || transaction.customer_id) && 
+             (transaction.customer_phone !== 'No Customer' && transaction.customer_id !== 'No Customer') ? (
+              <Button
+                variant="link"
+                className="h-auto p-0 text-sm font-medium text-blue-700 dark:text-blue-300 hover:text-blue-800 dark:hover:text-blue-200 underline-offset-2"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onViewCustomer?.(transaction.customer_phone || transaction.customer_id);
+                }}
+              >
+                {transaction.customer_phone || transaction.customer_id}
+              </Button>
+            ) : (
+              <span className="text-sm font-medium text-slate-400 dark:text-slate-500">No Customer</span>
+            )}
           </div>
           
           <div className="flex items-center justify-between">
@@ -232,11 +253,14 @@ const TransactionCard = ({
         )}
 
         {/* Quick Actions */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
           <Button 
             variant="outline" 
             size="sm" 
-            onClick={() => onView?.(transaction)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onView?.(transaction);
+            }}
             className="flex items-center gap-2 bg-white/50 dark:bg-slate-800/50 hover:bg-white dark:hover:bg-slate-800"
           >
             <Eye className="w-4 h-4" />
@@ -248,7 +272,10 @@ const TransactionCard = ({
               <Button 
                 variant="outline" 
                 size="sm"
-                onClick={() => onPayment?.(transaction)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPayment?.(transaction);
+                }}
                 className="flex items-center gap-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/50 dark:text-emerald-300 dark:border-emerald-800"
               >
                 <Banknote className="w-4 h-4" />
@@ -257,7 +284,10 @@ const TransactionCard = ({
               <Button 
                 variant="outline" 
                 size="sm"
-                onClick={() => onExtension?.(transaction)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onExtension?.(transaction);
+                }}
                 className="flex items-center gap-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:hover:bg-blue-900/50 dark:text-blue-300 dark:border-blue-800"
               >
                 <ArrowRightLeft className="w-4 h-4" />

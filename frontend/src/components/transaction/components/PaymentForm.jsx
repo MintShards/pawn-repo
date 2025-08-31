@@ -116,6 +116,15 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
       return false;
     }
     
+    // Check if balance is already $0
+    if (balance.current_balance <= 0) {
+      handleError({ 
+        message: 'This transaction has a $0 balance. No payment is needed.',
+        status: 422 
+      }, 'Payment validation');
+      return false;
+    }
+    
     const amount = parseFloat(formData.payment_amount);
     if (amount > (balance.current_balance + 100)) { // Allow $100 overpayment
       handleError({ 
@@ -173,7 +182,7 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
     }
 
     await processPayment();
-  }, [validateFormExtended, formData.payment_amount, paymentBreakdown, processPayment]);
+  }, [validateFormExtended, formData.payment_amount, paymentBreakdown]);
 
   // Load balance on mount
   useEffect(() => {
@@ -244,9 +253,19 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
                   Loading...
                 </div>
               ) : balance ? (
-                <div className="font-bold text-2xl text-payment-dark dark:text-payment-secondary">
-                  {formatCurrency(balance.current_balance)}
-                </div>
+                <>
+                  <div className="font-bold text-2xl text-payment-dark dark:text-payment-secondary">
+                    {formatCurrency(balance.current_balance)}
+                  </div>
+                  {balance.current_balance <= 0 && (
+                    <div className="mt-2 p-2 bg-green-50 dark:bg-green-950/50 rounded border border-green-200 dark:border-green-800">
+                      <div className="flex items-center text-green-700 dark:text-green-300 text-sm">
+                        <CheckCircle className="w-4 h-4 mr-2" />
+                        This transaction is fully paid. No payment needed.
+                      </div>
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="text-slate-500 dark:text-slate-400">Unable to load</div>
               )}
@@ -269,7 +288,7 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
                 onChange={(e) => handleInputChange('payment_amount', e.target.value)}
                 onBlur={() => touchField('payment_amount')}
                 placeholder="0"
-                disabled={loadingBalance}
+                disabled={loadingBalance || (balance && balance.current_balance <= 0)}
                 className={getFieldError('payment_amount') ? 'border-red-500 focus:border-red-500 focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 ring-0 ring-offset-0' : 'border-slate-300 focus:border-payment-accent focus:ring-0 focus:ring-offset-0 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ring-0 ring-offset-0'}
                 aria-invalid={!!getFieldError('payment_amount')}
                 aria-describedby={getFieldError('payment_amount') ? 'payment_amount_error' : undefined}
@@ -415,7 +434,8 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
                 submitting || 
                 loadingBalance || 
                 !formData.payment_amount ||
-                !isFormValid
+                !isFormValid ||
+                (balance && balance.current_balance <= 0)
               }
               className={paymentBreakdown?.isFullPayment 
                 ? 'bg-gradient-to-r from-green-600 to-emerald-700 hover:from-green-700 hover:to-emerald-800 text-white shadow-lg transform hover:scale-105 transition-all duration-200' 
