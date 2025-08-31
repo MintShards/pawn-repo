@@ -39,18 +39,18 @@ security_logger = structlog.get_logger("security")
 class SecurityConfig:
     """Security configuration constants"""
     
-    # Rate limiting settings - Development optimized for busy transaction page
-    LOGIN_RATE_LIMIT = "5/minute"  # 5 login attempts per minute  
-    API_RATE_LIMIT = "300/minute"   # 300 API calls per minute (5 per second) - INCREASED FOR TRANSACTION HUB
-    STRICT_RATE_LIMIT = "10/minute"  # 10 requests per minute for sensitive endpoints
-    ADMIN_RATE_LIMIT = "60/minute"  # 60 requests per minute for admin endpoints - DOUBLED
+    # Rate limiting settings - Increased for store operations
+    LOGIN_RATE_LIMIT = "10/minute"  # 10 login attempts per minute (increased from 5)
+    API_RATE_LIMIT = "1000/minute"   # 1000 API calls per minute (increased from 300) - STORE OPERATIONS
+    STRICT_RATE_LIMIT = "30/minute"  # 30 requests per minute for sensitive endpoints (increased from 10)
+    ADMIN_RATE_LIMIT = "200/minute"  # 200 requests per minute for admin endpoints (increased from 60)
     
     # Production rate limits (more restrictive)
     PROD_LOGIN_RATE_LIMIT = "2/minute"
     PROD_API_RATE_LIMIT = "30/minute"
     PROD_STRICT_RATE_LIMIT = "3/minute"
     
-    # Security headers - Enhanced based on security analysis recommendations
+    # Security headers - Original CSP with unsafe-inline preserved
     SECURITY_HEADERS = {
         "X-Content-Type-Options": "nosniff",
         "X-Frame-Options": "DENY",
@@ -89,7 +89,7 @@ def initialize_rate_limiter():
         limiter = Limiter(
             key_func=get_remote_address,
             storage_uri=redis_url,
-            default_limits=["500/day", "100/hour"],
+            default_limits=["5000/day", "1000/hour"],  # Increased defaults
             strategy="fixed-window"
         )
         
@@ -109,7 +109,7 @@ def initialize_rate_limiter():
         
         limiter = Limiter(
             key_func=get_remote_address,
-            default_limits=["500/day", "100/hour"],
+            default_limits=["5000/day", "1000/hour"],  # Increased defaults
             strategy="fixed-window"
         )
         
