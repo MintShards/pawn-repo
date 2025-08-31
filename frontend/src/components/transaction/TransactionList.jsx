@@ -305,6 +305,7 @@ const TransactionList = ({
     fetchAllTransactionsCounts(); // Fetch counts for filter badges
   }, [loadTransactions]);
 
+
   // Reset to page 1 when search or filters change
   useEffect(() => {
     setCurrentPage(1);
@@ -313,7 +314,9 @@ const TransactionList = ({
   // Refresh when refreshTrigger changes
   useEffect(() => {
     if (refreshTrigger && refreshTrigger > 0) {
-      setCurrentPage(1); // Reset to first page
+      // Always reset to page 1 to show updated transaction at top
+      setCurrentPage(1);
+      
       
       // Clear the transaction service cache first to ensure fresh data
       transactionService.clearTransactionCache();
@@ -368,8 +371,9 @@ const TransactionList = ({
     }
   }, [refreshTrigger, filters, transactionsPerPage, sortField, sortDirection, searchTerm, fetchAllTransactionsCounts]);
 
-  // Calculate total pages for pagination
-  const totalPages = Math.ceil(totalTransactions / transactionsPerPage);
+  // Calculate total pages for pagination - use the more reliable count from allTransactionsCounts
+  const effectiveTotalTransactions = totalTransactions || allTransactionsCounts.all || 0;
+  const totalPages = Math.ceil(effectiveTotalTransactions / transactionsPerPage);
 
   const handleSearch = () => {
     loadTransactions();
@@ -1047,14 +1051,14 @@ const TransactionList = ({
         </Card>
       )}
 
-      {/* Enhanced Pagination */}
-      {!loading && totalTransactions > 0 && (
+      {/* Enhanced Pagination - Always show if more than 1 page of data */}
+      {totalPages > 1 && (
         <div className="!mt-0 mb-0 flex items-center justify-between px-6 py-2">
           <div className="text-sm text-muted-foreground font-medium">
-            Showing {Math.min((currentPage - 1) * transactionsPerPage + 1, totalTransactions)}-{Math.min(currentPage * transactionsPerPage, totalTransactions)} of {totalTransactions} transactions
+            Showing {Math.min((currentPage - 1) * transactionsPerPage + 1, effectiveTotalTransactions)}-{Math.min(currentPage * transactionsPerPage, effectiveTotalTransactions)} of {effectiveTotalTransactions} transactions
           </div>
           
-          {totalPages > 1 && (
+          {(
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
