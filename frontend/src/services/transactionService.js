@@ -64,7 +64,7 @@ class TransactionService {
       
       return await requestPromise;
     } catch (error) {
-      // Error handled
+      console.error('Error in getAllTransactions:', error);
       throw error;
     }
   }
@@ -185,7 +185,7 @@ class TransactionService {
   }
 
   // Enrich transactions with extension data
-  async enrichTransactionsWithExtensions(transactions) {
+  async enrichTransactionsWithExtensions(transactions, bustCache = false) {
     if (!transactions || !Array.isArray(transactions)) return transactions;
     
     try {
@@ -193,7 +193,7 @@ class TransactionService {
       const enrichedTransactions = await Promise.all(
         transactions.map(async (transaction) => {
           try {
-            const extensions = await extensionService.getExtensionHistory(transaction.transaction_id);
+            const extensions = await extensionService.getExtensionHistory(transaction.transaction_id, bustCache);
             // Handle different API response formats
             let extensionArray = [];
             

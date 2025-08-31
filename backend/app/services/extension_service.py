@@ -49,6 +49,13 @@ class ExtensionService:
     """
     
     @staticmethod
+    def _ensure_timezone_aware(dt: datetime) -> datetime:
+        """Helper method to ensure datetime is timezone-aware"""
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=UTC)
+        return dt
+    
+    @staticmethod
     async def process_extension(
         transaction_id: str,
         extension_months: int,
@@ -94,9 +101,7 @@ class ExtensionService:
         current_time = datetime.now(UTC)
         
         # Ensure grace_period_end is timezone-aware for comparison
-        grace_period_end = transaction.grace_period_end
-        if grace_period_end.tzinfo is None:
-            grace_period_end = grace_period_end.replace(tzinfo=UTC)
+        grace_period_end = ExtensionService._ensure_timezone_aware(transaction.grace_period_end)
         
         # Allow extensions anytime before grace period ends (within 3 months + 7 days)
         if current_time > grace_period_end:
@@ -182,7 +187,21 @@ class ExtensionService:
             extension_note += f" Reason: {extension.extension_reason}"
         
         current_notes = transaction.internal_notes or ""
-        transaction.internal_notes = f"{current_notes}\n{extension_note}".strip()
+        new_notes = f"{current_notes}\n{extension_note}".strip()
+        
+        # Smart truncation to respect 500 character limit
+        if len(new_notes) > 500:
+            # Calculate how much space we have for existing notes
+            available_space = 500 - len(extension_note) - 1  # -1 for newline
+            if available_space > 0:
+                # Truncate existing notes and add ellipsis
+                truncated_current = current_notes[:available_space-3] + "..."
+                transaction.internal_notes = f"{truncated_current}\n{extension_note}".strip()
+            else:
+                # If extension note itself is too long, just use truncated extension note
+                transaction.internal_notes = extension_note[:500]
+        else:
+            transaction.internal_notes = new_notes
         
         # Save transaction
         await transaction.save()
@@ -387,9 +406,7 @@ class ExtensionService:
         current_time = datetime.now(UTC)
         
         # Ensure grace_period_end is timezone-aware for comparison
-        grace_period_end = transaction.grace_period_end
-        if grace_period_end.tzinfo is None:
-            grace_period_end = grace_period_end.replace(tzinfo=UTC)
+        grace_period_end = ExtensionService._ensure_timezone_aware(transaction.grace_period_end)
         
         # Check if within extension window (can extend anytime before grace period ends)
         is_eligible = current_time <= grace_period_end
@@ -415,9 +432,7 @@ class ExtensionService:
         )
         
         # Ensure dates are timezone-aware for isoformat
-        maturity_date = transaction.maturity_date
-        if maturity_date.tzinfo is None:
-            maturity_date = maturity_date.replace(tzinfo=UTC)
+        maturity_date = ExtensionService._ensure_timezone_aware(transaction.maturity_date)
         
         return {
             "transaction_id": transaction_id,
@@ -751,9 +766,7 @@ class ExtensionService:
         
         # Calculate if overdue (ensure timezone-aware comparison)
         current_time = datetime.now(UTC)
-        maturity_date = transaction.maturity_date
-        if maturity_date.tzinfo is None:
-            maturity_date = maturity_date.replace(tzinfo=UTC)
+        maturity_date = ExtensionService._ensure_timezone_aware(transaction.maturity_date)
         
         is_overdue = current_time > maturity_date
         days_overdue = max(0, (current_time - maturity_date).days) if is_overdue else 0

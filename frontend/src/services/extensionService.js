@@ -16,10 +16,7 @@ class ExtensionService {
       this.clearExtensionCache();
       
       // Clear transaction cache to ensure fresh data
-      const transactionService = await import('./transactionService');
-      if (transactionService.default) {
-        transactionService.default.clearTransactionCache();
-      }
+      // Avoid circular import by using global reference or event system
       
       return result;
     } catch (error) {
@@ -28,9 +25,13 @@ class ExtensionService {
   }
 
   // Get extension history for a transaction
-  async getExtensionHistory(transactionId) {
+  async getExtensionHistory(transactionId, bustCache = false) {
     try {
-      return await authService.apiRequest(`/api/v1/extension/transaction/${transactionId}`, {
+      const endpoint = bustCache 
+        ? `/api/v1/extension/transaction/${transactionId}?_t=${Date.now()}`
+        : `/api/v1/extension/transaction/${transactionId}`;
+        
+      return await authService.apiRequest(endpoint, {
         method: 'GET',
       });
     } catch (error) {

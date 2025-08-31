@@ -303,11 +303,21 @@ const TransactionHub = () => {
   };
 
   // Handle successful extension
-  const handleExtensionSuccess = (extensionResult) => {
+  const handleExtensionSuccess = async (extensionResult) => {
     setShowExtensionForm(false);
     setSelectedTransaction(null);
-    // Immediate refresh - cache has been cleared by the service
+    
+    // Clear all caches immediately
+    transactionService.clearTransactionCache();
+    extensionService.clearExtensionCache();
+    
+    // Force immediate refresh - try both methods
     setRefreshKey(prev => prev + 1);
+    
+    // Also trigger a secondary refresh after a short delay to ensure data consistency
+    setTimeout(() => {
+      setRefreshKey(prev => prev + 1);
+    }, 500);
   };
 
   // Handle extension
@@ -331,13 +341,12 @@ const TransactionHub = () => {
   };
 
 
-  // Format date
+  // Format date helper
   const formatDate = (dateString) => {
     if (!dateString) return 'Not Set';
     try {
       const date = new Date(dateString);
-      if (isNaN(date.getTime())) return 'Invalid Date';
-      return date.toLocaleDateString();
+      return isNaN(date.getTime()) ? 'Invalid Date' : date.toLocaleDateString();
     } catch {
       return 'Invalid Date';
     }

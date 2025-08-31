@@ -62,11 +62,10 @@ const TransactionList = ({
   const [filters, setFilters] = useState({
     status: '',
     page_size: 10,
-    sortBy: 'updated_at',  // Sort by most recently modified
+    sortBy: 'updated_at',
     sortOrder: 'desc'
   });
   const [isExtensionSearch, setIsExtensionSearch] = useState(false);
-  const [showFilters, setShowFilters] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [selectedTransactionIds, setSelectedTransactionIds] = useState([]);
   const [sortField, setSortField] = useState('updated_at');  // Sort by most recently modified
@@ -188,7 +187,7 @@ const TransactionList = ({
         
         // Enrich all transactions with extension data for better user experience
         const transactionList = response.transactions || [];
-        const enrichedTransactions = await transactionService.enrichTransactionsWithExtensions(transactionList);
+        const enrichedTransactions = await transactionService.enrichTransactionsWithExtensions(transactionList, false);
         response.transactions = enrichedTransactions;
       }
       
@@ -320,9 +319,12 @@ const TransactionList = ({
           const response = await transactionService.getAllTransactions(searchParams);
           const transactionList = response.transactions || [];
           
+          // Enrich transactions with extension data for immediate display
+          const enrichedTransactions = await transactionService.enrichTransactionsWithExtensions(transactionList, true);
+          
           // Initialize sequence numbers for display
-          initializeSequenceNumbers(transactionList);
-          setTransactions(transactionList);
+          initializeSequenceNumbers(enrichedTransactions);
+          setTransactions(enrichedTransactions);
           setTotalTransactions(response.total || 0);
           
           // Also update counts
@@ -395,10 +397,7 @@ const TransactionList = ({
     setCurrentPage(1);
   };
 
-
-  const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString();
-  };
+  const formatDate = (dateString) => new Date(dateString).toLocaleDateString();
 
   // Fetch balances for transactions
   // Handle viewing items for a transaction
@@ -595,9 +594,6 @@ const TransactionList = ({
                       <div className="flex space-x-2">
                         <Button onClick={clearSearchFields} variant="outline" className="flex-1">
                           Clear All
-                        </Button>
-                        <Button onClick={() => setShowFilters(false)} className="flex-1">
-                          Apply
                         </Button>
                       </div>
                     </div>
