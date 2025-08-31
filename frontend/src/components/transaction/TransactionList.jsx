@@ -50,7 +50,7 @@ const TransactionList = ({
   onPayment, 
   onExtension,
   onStatusUpdate,
-  refreshTrigger 
+  refreshTrigger
 }) => {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -129,6 +129,9 @@ const TransactionList = ({
     .sort((a, b) => {
       let comparison = 0;
       switch (sortField) {
+        case 'updated_at':
+          comparison = new Date(a.updated_at || a.created_at || 0) - new Date(b.updated_at || b.created_at || 0);
+          break;
         case 'created_at':
           comparison = new Date(a.created_at || a.pawn_date || 0) - new Date(b.created_at || b.pawn_date || 0);
           break;
@@ -145,7 +148,8 @@ const TransactionList = ({
           comparison = (a.customer_id || '').localeCompare(b.customer_id || '');
           break;
         default:
-          comparison = 0;
+          // Default to updated_at for recently modified items at top
+          comparison = new Date(a.updated_at || a.created_at || 0) - new Date(b.updated_at || b.created_at || 0);
       }
       return sortDirection === 'desc' ? -comparison : comparison;
     });
@@ -211,6 +215,64 @@ const TransactionList = ({
     }
   }, [filters, searchTerm, currentPage, transactionsPerPage, sortField, sortDirection]);
 
+  const fetchAllTransactionsCounts = useCallback(async () => {
+    try {
+      // Fetch counts for each status separately with enhanced rate limiting protection
+      const statusCounts = {};
+      const statuses = ['active', 'overdue', 'extended', 'redeemed', 'sold'];
+      
+      // Fetch all transactions count first
+      const allResponse = await transactionService.getAllTransactions({
+        page_size: 1, // Just get total count
+        sortBy: 'updated_at',
+        sortOrder: 'desc'
+      });
+      
+      statusCounts.all = allResponse.total_count || allResponse.total || 0;
+      
+      // Add longer delay between requests to prevent rate limiting (500ms spacing)
+      const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+      
+      // Fetch count for each status with delays and retry logic
+      for (let i = 0; i < statuses.length; i++) {
+        const status = statuses[i];
+        let retryCount = 0;
+        const maxRetries = 2;
+        
+        while (retryCount <= maxRetries) {
+          try {
+            if (i > 0 || retryCount > 0) {
+              await delay(500 + (retryCount * 500)); // Increasing delay for retries
+            }
+            
+            const response = await transactionService.getAllTransactions({
+              page_size: 1, // Just get total count
+              status: status,
+              sortBy: 'updated_at',
+              sortOrder: 'desc'
+            });
+            statusCounts[status] = response.total_count || response.total || 0;
+            break; // Success, exit retry loop
+          } catch (error) {
+            retryCount++;
+            if (error.message?.includes('Rate limit') && retryCount <= maxRetries) {
+              // Rate limit hit - retry with longer delay
+              continue;
+            } else {
+              // Failed to fetch count after retries
+              statusCounts[status] = 0;
+              break;
+            }
+          }
+        }
+      }
+      
+      setAllTransactionsCounts(statusCounts);
+    } catch (error) {
+      // Failed to fetch transaction counts - use defaults
+    }
+  }, []);
+
   // Load transactions on mount and when filters change
   useEffect(() => {
     loadTransactions();
@@ -226,9 +288,56 @@ const TransactionList = ({
   useEffect(() => {
     if (refreshTrigger && refreshTrigger > 0) {
       setCurrentPage(1); // Reset to first page
-      loadTransactions();
+      
+      // Clear the transaction service cache first to ensure fresh data
+      transactionService.clearTransactionCache();
+      
+      // Force reload by calling the functions directly
+      const forceReload = async () => {
+        try {
+          setLoading(true);
+          setError(null);
+          
+          const searchParams = {
+            ...filters,
+            page: 1, // Reset to first page
+            page_size: transactionsPerPage,
+            sortBy: sortField,
+            sortOrder: sortDirection,
+            // Add timestamp to prevent any browser-level caching
+            _t: Date.now()
+          };
+          
+          if (searchTerm) {
+            const isTransactionSearch = /^(PW)?\d+$/i.test(searchTerm);
+            if (isTransactionSearch) {
+              searchParams.transaction_id = searchTerm;
+            } else {
+              searchParams.customer_id = searchTerm;
+            }
+          }
+          
+          const response = await transactionService.getAllTransactions(searchParams);
+          const transactionList = response.transactions || [];
+          
+          // Initialize sequence numbers for display
+          initializeSequenceNumbers(transactionList);
+          setTransactions(transactionList);
+          setTotalTransactions(response.total || 0);
+          
+          // Also update counts
+          fetchAllTransactionsCounts();
+        } catch (err) {
+          // Error refreshing transactions
+          setError(err.message || 'Failed to refresh transactions');
+        } finally {
+          setLoading(false);
+        }
+      };
+      
+      forceReload();
     }
-  }, [refreshTrigger, loadTransactions]);
+  }, [refreshTrigger, filters, transactionsPerPage, sortField, sortDirection, searchTerm, fetchAllTransactionsCounts]);
 
   // Calculate total pages for pagination
   const totalPages = Math.ceil(totalTransactions / transactionsPerPage);
@@ -286,7 +395,6 @@ const TransactionList = ({
     setCurrentPage(1);
   };
 
-  // formatCurrency is now imported from transactionUtils
 
   const formatDate = (dateString) => {
     return new Date(dateString).toLocaleDateString();
@@ -305,8 +413,7 @@ const TransactionList = ({
       });
       setShowItemsDialog(true);
     } catch (error) {
-      console.error('Failed to fetch transaction summary:', error);
-      // Fallback to the transaction data we have
+      // Failed to fetch transaction summary - use basic data
       setSelectedTransactionItems(transaction);
       setShowItemsDialog(true);
     }
@@ -334,68 +441,9 @@ const TransactionList = ({
       
       setTransactionBalances(balances);
     } catch (error) {
-      console.error('Failed to fetch transaction balances:', error);
+      // Failed to fetch transaction balances - continue without them
     }
   };
-
-  const fetchAllTransactionsCounts = async () => {
-    try {
-      // Fetch counts for each status separately with enhanced rate limiting protection
-      const statusCounts = {};
-      const statuses = ['active', 'overdue', 'extended', 'redeemed', 'sold'];
-      
-      // Fetch all transactions count first
-      const allResponse = await transactionService.getAllTransactions({
-        page_size: 1, // Just get total count
-        sortBy: 'updated_at',
-        sortOrder: 'desc'
-      });
-      
-      statusCounts.all = allResponse.total_count || allResponse.total || 0;
-      
-      // Add longer delay between requests to prevent rate limiting (500ms spacing)
-      const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-      
-      // Fetch count for each status with delays and retry logic
-      for (let i = 0; i < statuses.length; i++) {
-        const status = statuses[i];
-        let retryCount = 0;
-        const maxRetries = 2;
-        
-        while (retryCount <= maxRetries) {
-          try {
-            if (i > 0 || retryCount > 0) {
-              await delay(500 + (retryCount * 500)); // Increasing delay for retries
-            }
-            
-            const response = await transactionService.getAllTransactions({
-              page_size: 1, // Just get total count
-              status: status,
-              sortBy: 'updated_at',
-              sortOrder: 'desc'
-            });
-            statusCounts[status] = response.total_count || response.total || 0;
-            break; // Success, exit retry loop
-          } catch (error) {
-            retryCount++;
-            if (error.message?.includes('Rate limit') && retryCount <= maxRetries) {
-              console.warn(`Rate limit hit for ${status}, retrying in ${500 + (retryCount * 500)}ms...`);
-              continue; // Retry with longer delay
-            } else {
-              console.error(`Failed to fetch ${status} count after ${retryCount} attempts:`, error);
-              statusCounts[status] = 0;
-              break; // Give up on this status
-            }
-          }
-        }
-      }
-      
-      setAllTransactionsCounts(statusCounts);
-    } catch (error) {
-      console.error('Failed to fetch transaction counts:', error);
-    }
-  };
-
 
   return (
     <div className="space-y-6">

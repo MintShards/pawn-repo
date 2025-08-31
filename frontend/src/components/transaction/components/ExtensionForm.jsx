@@ -10,7 +10,7 @@ import { Alert, AlertDescription } from '../../ui/alert';
 import { Progress } from '../../ui/progress';
 import { Badge } from '../../ui/badge';
 import extensionService from '../../../services/extensionService';
-import { formatTransactionId } from '../../../utils/transactionUtils';
+import { formatTransactionId, formatCurrency } from '../../../utils/transactionUtils';
 import { useFormValidation, validateAmount, validateExtension } from '../../../utils/formValidation';
 import { handleError, handleSuccess } from '../../../utils/errorHandling';
 import ConfirmationDialog from '../../common/ConfirmationDialog';
@@ -183,13 +183,6 @@ const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
       setShowConfirmation(false);
     }
   }, [transaction.transaction_id, formData, onSuccess]);
-
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD'
-    }).format(amount);
-  };
 
   const formatDate = (dateString) => {
     return new Date(dateString).toLocaleDateString();

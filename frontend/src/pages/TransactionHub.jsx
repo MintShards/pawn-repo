@@ -33,7 +33,7 @@ import CreatePawnDialogRedesigned from '../components/transaction/CreatePawnDial
 import PaymentForm from '../components/transaction/components/PaymentForm';
 import ExtensionForm from '../components/transaction/components/ExtensionForm';
 import StatusUpdateForm from '../components/transaction/components/StatusUpdateForm';
-import { formatTransactionId, formatExtensionId, formatStorageLocation } from '../utils/transactionUtils';
+import { formatTransactionId, formatExtensionId, formatStorageLocation, formatCurrency } from '../utils/transactionUtils';
 import { getRoleTitle, getUserDisplayString } from '../utils/roleUtils';
 import transactionService from '../services/transactionService';
 import extensionService from '../services/extensionService';
@@ -127,12 +127,12 @@ const TransactionHub = () => {
             }
           }
         } catch (cashError) {
-          console.error('Failed to fetch today\'s cash collections:', cashError);
+          // Failed to fetch cash collections - continue with default value
         }
         
         setTransactionStats(stats);
       } catch (error) {
-        console.error('Failed to fetch transaction stats:', error);
+        // Failed to fetch transaction stats - use default values
         setTransactionStats({
           total_active: 0,
           total_overdue: 0,
@@ -161,7 +161,7 @@ const TransactionHub = () => {
   // Handle successful transaction creation
   const handleTransactionCreated = (newTransaction) => {
     setShowCreateForm(false);
-    setRefreshKey(prev => prev + 1); // Trigger TransactionList refresh
+    setRefreshKey(prev => prev + 1); // Trigger immediate TransactionList refresh
     handleSuccess(`Transaction #${formatTransactionId(newTransaction)} created successfully`);
   };
 
@@ -195,7 +195,7 @@ const TransactionHub = () => {
           hasExtensions: extensionArray.length > 0
         });
       } catch (extensionError) {
-        console.error('Failed to load extensions:', extensionError);
+        // Failed to load extensions - continue without them
         // Continue with transaction data even if extensions fail
         setSelectedTransaction({
           ...fullTransaction,
@@ -204,13 +204,13 @@ const TransactionHub = () => {
         });
       }
     } catch (error) {
-      console.error('Failed to load transaction details:', error);
+      // Failed to load transaction details - try fallback
       // If summary fails, try to get basic transaction data
       try {
         const basicTransaction = await transactionService.getTransactionById(transaction.transaction_id);
         setSelectedTransaction(basicTransaction);
       } catch (fallbackError) {
-        console.error('Failed to load basic transaction data:', fallbackError);
+        // Failed to load basic transaction data - use original data
         // Keep the original transaction data as fallback
         handleError(fallbackError, 'Loading transaction details');
       }
@@ -241,7 +241,7 @@ const TransactionHub = () => {
         setShowCustomerDetails(false);
       }
     } catch (error) {
-      console.error('Failed to load customer details:', error);
+      // Failed to load customer details
       handleError(error, 'Loading customer details');
       setShowCustomerDetails(false);
     } finally {
@@ -298,16 +298,16 @@ const TransactionHub = () => {
   const handlePaymentSuccess = (paymentResult) => {
     setShowPaymentForm(false);
     setSelectedTransaction(null);
-    setRefreshKey(prev => prev + 1); // Trigger TransactionList refresh
-    // Success message handled by PaymentForm component
+    // Immediate refresh - cache has been cleared by the service
+    setRefreshKey(prev => prev + 1);
   };
 
   // Handle successful extension
   const handleExtensionSuccess = (extensionResult) => {
     setShowExtensionForm(false);
     setSelectedTransaction(null);
-    setRefreshKey(prev => prev + 1); // Trigger TransactionList refresh
-    // Success message handled by ExtensionForm component
+    // Immediate refresh - cache has been cleared by the service
+    setRefreshKey(prev => prev + 1);
   };
 
   // Handle extension
@@ -326,17 +326,10 @@ const TransactionHub = () => {
   const handleStatusUpdateSuccess = () => {
     setShowStatusUpdateForm(false);
     setSelectedTransaction(null);
-    setRefreshKey(prev => prev + 1); // Trigger TransactionList refresh
+    setRefreshKey(prev => prev + 1); // Trigger immediate TransactionList refresh
     handleSuccess('Transaction status updated successfully');
   };
 
-  // Format currency
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD'
-    }).format(amount);
-  };
 
   // Format date
   const formatDate = (dateString) => {

@@ -9,7 +9,7 @@ import { Badge } from '../../ui/badge';
 import { Alert, AlertDescription } from '../../ui/alert';
 import paymentService from '../../../services/paymentService';
 import transactionService from '../../../services/transactionService';
-import { formatTransactionId } from '../../../utils/transactionUtils';
+import { formatTransactionId, formatCurrency } from '../../../utils/transactionUtils';
 import { useFormValidation, validateRequired, validateAmount, validatePayment } from '../../../utils/formValidation';
 import { handleError, handleSuccess } from '../../../utils/errorHandling';
 import ConfirmationDialog from '../../common/ConfirmationDialog';
@@ -89,7 +89,7 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
       
       setPaymentBreakdown(breakdown);
     } catch (err) {
-      console.error('Error calculating payment breakdown:', err);
+      // Error calculating payment breakdown - clear breakdown
       setPaymentBreakdown(null);
     }
   }, [balance]);
@@ -200,12 +200,6 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
     }
   }, [formData.payment_amount, balance, calculatePaymentBreakdown]);
 
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD'
-    }).format(amount);
-  };
 
   return (
     <Card className="w-full max-w-2xl mx-auto bg-payment-light dark:bg-payment-dark backdrop-blur-xl border border-payment-medium/20 dark:border-payment-medium/40 shadow-2xl">

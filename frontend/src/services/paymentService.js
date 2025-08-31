@@ -14,9 +14,15 @@ class PaymentService {
         body: JSON.stringify(paymentData),
       });
       this.clearPaymentCache();
+      
+      // Clear transaction cache to ensure fresh data
+      const transactionService = await import('./transactionService');
+      if (transactionService.default) {
+        transactionService.default.clearTransactionCache();
+      }
+      
       return result;
     } catch (error) {
-      // Error handled
       throw error;
     }
   }
@@ -28,7 +34,6 @@ class PaymentService {
         method: 'GET',
       });
     } catch (error) {
-      // Error handled
       throw error;
     }
   }
@@ -40,7 +45,6 @@ class PaymentService {
         method: 'GET',
       });
     } catch (error) {
-      // Error handled
       throw error;
     }
   }
@@ -68,7 +72,6 @@ class PaymentService {
         body: JSON.stringify(paymentData),
       });
     } catch (error) {
-      // Error handled
       throw error;
     }
   }
@@ -80,7 +83,6 @@ class PaymentService {
         method: 'GET',
       });
     } catch (error) {
-      // Error handled
       throw error;
     }
   }
@@ -95,7 +97,6 @@ class PaymentService {
       this.clearPaymentCache();
       return result;
     } catch (error) {
-      // Error handled
       throw error;
     }
   }

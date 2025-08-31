@@ -14,9 +14,15 @@ class ExtensionService {
         body: JSON.stringify(extensionData),
       });
       this.clearExtensionCache();
+      
+      // Clear transaction cache to ensure fresh data
+      const transactionService = await import('./transactionService');
+      if (transactionService.default) {
+        transactionService.default.clearTransactionCache();
+      }
+      
       return result;
     } catch (error) {
-      // Error handled
       throw error;
     }
   }
@@ -28,7 +34,6 @@ class ExtensionService {
         method: 'GET',
       });
     } catch (error) {
-      // Error handled
       throw error;
     }
   }
@@ -41,7 +46,6 @@ class ExtensionService {
         method: 'GET',
       });
     } catch (error) {
-      // Error handled
       throw error;
     }
   }
@@ -53,7 +57,6 @@ class ExtensionService {
         method: 'GET',
       });
     } catch (error) {
-      // Error handled
       throw error;
     }
   }
