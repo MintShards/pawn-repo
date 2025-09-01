@@ -174,7 +174,7 @@ const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
       );
       
       if (onSuccess) {
-        onSuccess(result);
+        onSuccess(result, true); // Pass flag to indicate balance should be refreshed
       }
     } catch (err) {
       handleError(err, 'Processing extension');

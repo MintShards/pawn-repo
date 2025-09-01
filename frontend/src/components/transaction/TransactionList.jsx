@@ -198,13 +198,13 @@ const TransactionList = ({
       
       setTransactions(transactionList);
       
-      // Fetch balances for active/overdue/extended transactions
+      // Fetch balances for active/overdue/extended transactions immediately
       const activeTransactions = transactionList.filter(t => 
         ['active', 'overdue', 'extended'].includes(t.status)
       );
       
       if (activeTransactions.length > 0) {
-        fetchTransactionBalances(activeTransactions);
+        await fetchTransactionBalances(activeTransactions);
       }
     } catch (err) {
       // Error handled
@@ -356,6 +356,15 @@ const TransactionList = ({
           initializeSequenceNumbers(enrichedTransactions);
           setTransactions(enrichedTransactions);
           setTotalTransactions(response.total || 0);
+          
+          // Immediately refresh balances for active transactions after any operation
+          const activeTransactions = enrichedTransactions.filter(t => 
+            ['active', 'overdue', 'extended'].includes(t.status)
+          );
+          
+          if (activeTransactions.length > 0) {
+            await fetchTransactionBalances(activeTransactions);
+          }
           
           // Also update counts immediately for refresh triggers
           fetchAllTransactionsCounts(true);

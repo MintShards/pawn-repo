@@ -20,6 +20,7 @@ from app.models.payment_model import Payment
 from app.models.extension_model import Extension
 from app.models.customer_model import Customer, CustomerStatus
 from app.models.user_model import User, UserStatus
+from app.core.transaction_notes import safe_append_transaction_notes, format_system_note
 
 # Configure logger
 logger = structlog.get_logger("pawn_transaction")
@@ -422,8 +423,17 @@ class PawnTransactionService:
         # Update transaction
         transaction.status = new_status
         if notes:
-            current_notes = transaction.internal_notes or ""
-            transaction.internal_notes = f"{current_notes}\n[{datetime.now(UTC).isoformat()}] Status changed to {new_status} by {staff_user.first_name} {staff_user.last_name}: {notes}".strip()
+            # Use shared notes utility for consistent formatting and truncation
+            status_note = format_system_note(
+                action=f"Status changed to {new_status}",
+                details=notes,
+                user_id=updated_by_user_id
+            )
+            transaction.internal_notes = safe_append_transaction_notes(
+                transaction.internal_notes,
+                status_note,
+                add_timestamp=False  # Already formatted by format_system_note
+            )
         
         await transaction.save()
         

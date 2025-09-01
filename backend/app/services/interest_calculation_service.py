@@ -16,6 +16,7 @@ from app.models.payment_model import Payment
 from app.models.extension_model import Extension
 from app.models.user_model import User, UserStatus
 from app.schemas.pawn_transaction_schema import BalanceResponse
+from app.core.transaction_notes import safe_append_transaction_notes, format_system_note
 
 # Configure logger
 logger = structlog.get_logger("interest_calculation")

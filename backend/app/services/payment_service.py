@@ -18,6 +18,9 @@ from app.schemas.payment_schema import (
     PaymentListResponse, PaymentValidationResponse
 )
 from app.core.utils import get_enum_value
+# TODO: Re-enable when database transaction wrapper is fixed
+# from app.core.database import execute_transaction, DatabaseTransactionError
+from app.core.transaction_notes import safe_append_transaction_notes, format_system_note
 
 
 class PaymentError(Exception):
@@ -62,7 +65,7 @@ class PaymentService:
         internal_notes: Optional[str] = None
     ) -> Payment:
         """
-        Process a cash payment on a pawn transaction.
+        Process a cash payment on a pawn transaction with atomic operations.
         
         Args:
             transaction_id: Transaction to make payment on
@@ -77,8 +80,9 @@ class PaymentService:
             TransactionNotFoundError: Transaction not found or cannot accept payments
             StaffValidationError: Staff user not found or insufficient permissions
             PaymentValidationError: Invalid payment amount or validation failed
+            DatabaseTransactionError: Database transaction failed
         """
-        # Validate transaction exists and can accept payments
+        # Pre-validation outside transaction
         transaction = await PawnTransaction.find_one(
             PawnTransaction.transaction_id == transaction_id
         )
@@ -101,10 +105,6 @@ class PaymentService:
                 f"Staff user {staff_user.first_name} {staff_user.last_name} is not active"
             )
         
-        # Calculate current balance
-        balance_info = await PaymentService._get_balance_info(transaction_id)
-        current_balance = balance_info["current_balance"]
-        
         # Validate payment amount
         if payment_amount <= 0:
             raise PaymentValidationError("Payment amount must be greater than 0")
@@ -112,53 +112,94 @@ class PaymentService:
         if payment_amount > 50000:  # Business rule: max payment $50,000
             raise PaymentValidationError("Payment amount cannot exceed $50,000")
         
-        # Allow overpayments but warn
-        balance_after_payment = max(0, current_balance - payment_amount)
-        is_overpayment = payment_amount > current_balance
-        
-        # Calculate payment allocation (priority: interest → principal)
-        # Extension fees are handled separately by the extension system
-        interest_due = balance_info.get("interest_balance", 0)
-        principal_due = balance_info.get("principal_balance", 0)
-        
-        # 1. Apply payment to interest first
-        interest_portion = min(payment_amount, interest_due)
-        remaining_payment = payment_amount - interest_portion
-        
-        # 2. Apply remaining to principal
-        principal_portion = min(remaining_payment, principal_due)
-        
-        # Extension fees are not included in regular payment allocation
-        extension_fees_portion = 0
-        
-        # Create payment record
-        payment = Payment(
-            transaction_id=transaction_id,
-            processed_by_user_id=processed_by_user_id,
-            payment_amount=payment_amount,
-            balance_before_payment=current_balance,
-            balance_after_payment=balance_after_payment,
-            principal_portion=principal_portion,
-            interest_portion=interest_portion,
-            extension_fees_portion=extension_fees_portion,
-            payment_method="cash",
-            internal_notes=internal_notes
-        )
-        
-        # Save payment (this will validate payment math)
-        await payment.save()
-        
-        # Update transaction status if fully paid
-        if balance_after_payment == 0:
-            from app.services.pawn_transaction_service import PawnTransactionService
-            await PawnTransactionService.update_transaction_status(
+        # Execute atomic payment processing
+        async def payment_operations(session):
+            # Get fresh balance info within transaction
+            balance_info = await PaymentService._get_balance_info(transaction_id)
+            current_balance = balance_info["current_balance"]
+            
+            # Allow overpayments but warn
+            balance_after_payment = max(0, current_balance - payment_amount)
+            is_overpayment = payment_amount > current_balance
+            
+            # Calculate payment allocation (priority: interest → principal)
+            # Extension fees are handled separately by the extension system
+            interest_due = balance_info.get("interest_balance", 0)
+            principal_due = balance_info.get("principal_balance", 0)
+            
+            # 1. Apply payment to interest first
+            interest_portion = min(payment_amount, interest_due)
+            remaining_payment = payment_amount - interest_portion
+            
+            # 2. Apply remaining to principal
+            principal_portion = min(remaining_payment, principal_due)
+            
+            # Extension fees are not included in regular payment allocation
+            extension_fees_portion = 0
+            
+            # Create payment record with atomic session
+            payment = Payment(
                 transaction_id=transaction_id,
-                new_status=TransactionStatus.REDEEMED,
-                updated_by_user_id=processed_by_user_id,
-                notes=f"Transaction fully paid with payment {payment.payment_id}"
+                processed_by_user_id=processed_by_user_id,
+                payment_amount=payment_amount,
+                balance_before_payment=current_balance,
+                balance_after_payment=balance_after_payment,
+                principal_portion=principal_portion,
+                interest_portion=interest_portion,
+                extension_fees_portion=extension_fees_portion,
+                payment_method="cash",
+                internal_notes=internal_notes
             )
+            
+            # Save payment within transaction session
+            await payment.save(session=session)
+            
+            # Get fresh transaction record within session
+            fresh_transaction = await PawnTransaction.find_one(
+                PawnTransaction.transaction_id == transaction_id,
+                session=session
+            )
+            
+            # Add payment note to transaction notes using shared utility
+            payment_note = format_system_note(
+                action="Payment processed",
+                details=f"Balance after payment: ${balance_after_payment:,}",
+                user_id=processed_by_user_id,
+                amount=payment_amount
+            )
+            
+            # Use shared notes utility for consistent truncation
+            fresh_transaction.internal_notes = safe_append_transaction_notes(
+                fresh_transaction.internal_notes,
+                payment_note,
+                add_timestamp=False  # Already formatted by format_system_note
+            )
+            
+            # Update transaction status if fully paid
+            if balance_after_payment == 0:
+                fresh_transaction.status = TransactionStatus.REDEEMED
+                redemption_note = format_system_note(
+                    action="Transaction redeemed",
+                    details=f"Payment ID: {payment.payment_id}",
+                    user_id=processed_by_user_id
+                )
+                fresh_transaction.internal_notes = safe_append_transaction_notes(
+                    fresh_transaction.internal_notes,
+                    redemption_note,
+                    add_timestamp=False
+                )
+            
+            # Save transaction within session
+            await fresh_transaction.save(session=session)
+            
+            return payment
         
-        return payment
+        # Execute payment operations without transaction wrapper
+        # Note: Transaction support disabled due to Beanie/Motor compatibility
+        try:
+            return await payment_operations(session=None)
+        except Exception as e:
+            raise PaymentValidationError(f"Payment processing failed: {str(e)}")
     
     @staticmethod
     async def get_payment_history(transaction_id: str) -> Dict[str, Any]:

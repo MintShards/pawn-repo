@@ -19,6 +19,7 @@ from app.core.config import settings
 from app.core.security_middleware import setup_security_middleware
 from app.core.csrf_protection import initialize_csrf_protection
 from app.core.database_indexes import create_database_indexes
+from app.core.database import initialize_database, close_database
 from app.core.redis_cache import initialize_cache_service
 from app.core.field_encryption import initialize_field_encryption, generate_master_key
 from app.core.exception_handlers import register_exception_handlers
@@ -41,18 +42,12 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager for startup and shutdown"""
     global db_client
     
-    # Startup - Configure MongoDB connection pool for reliability under load
-    client = AsyncIOMotorClient(
-        settings.MONGO_CONNECTION_STRING,
-        maxPoolSize=20,          # Maximum connections in pool
-        minPoolSize=5,           # Minimum connections to maintain
-        connectTimeoutMS=5000,   # Connection timeout (5s)
-        serverSelectionTimeoutMS=5000,  # Server selection timeout
-        waitQueueTimeoutMS=5000, # Wait queue timeout
-        retryReads=True,         # Retry read operations
-        retryWrites=True         # Retry write operations
-    )
-    db_client = client.get_default_database()
+    # Initialize database connection with transaction support
+    await initialize_database()
+    
+    # Get database client for Beanie initialization
+    from app.core.database import get_database
+    db_client = get_database()
     
     await init_beanie(
         database=db_client,
@@ -105,8 +100,7 @@ async def lifespan(app: FastAPI):
     yield
     
     # Shutdown
-    if db_client is not None:
-        db_client.client.close()
+    await close_database()
 
 
 app = FastAPI(

@@ -149,6 +149,9 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
 
       const result = await paymentService.processPayment(paymentData);
       
+      // Immediately refresh balance after successful payment
+      await loadBalance();
+      
       const isFullPayment = paymentBreakdown && paymentBreakdown.isFullPayment;
       const message = isFullPayment 
         ? `Payment processed - Transaction redeemed!` 
@@ -157,7 +160,7 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
       handleSuccess(message);
       
       if (onSuccess) {
-        onSuccess(result);
+        onSuccess(result, true); // Pass flag to indicate balance should be refreshed
       }
     } catch (err) {
       handleError(err, 'Processing payment');

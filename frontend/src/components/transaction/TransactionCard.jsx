@@ -21,12 +21,13 @@ const TransactionCard = ({
   onExtension,
   onStatusUpdate,
   isSelected = false,
-  onSelect
+  onSelect,
+  refreshTrigger // Add prop to trigger balance refresh
 }) => {
   const [balance, setBalance] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  // Fetch balance on mount
+  // Fetch balance on mount and when refresh triggered
   const loadBalance = useCallback(async () => {
     if (!transaction?.transaction_id) return;
     
@@ -43,7 +44,7 @@ const TransactionCard = ({
 
   useEffect(() => {
     loadBalance();
-  }, [loadBalance]);
+  }, [loadBalance, refreshTrigger]); // Refresh when trigger changes
 
   // formatCurrency is now imported from transactionUtils
 
