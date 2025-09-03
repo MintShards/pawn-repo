@@ -15,6 +15,7 @@ import structlog
 
 # Local imports
 from app.api.deps.user_deps import get_current_user, get_staff_or_admin_user, get_admin_user
+from app.api.deps.timezone_deps import get_client_timezone
 from app.models.user_model import User
 from app.models.pawn_transaction_model import TransactionStatus
 from app.schemas.pawn_transaction_schema import (
@@ -50,6 +51,29 @@ transaction_logger = structlog.get_logger("pawn_transaction_api")
 pawn_transaction_router = APIRouter()
 
 
+@pawn_transaction_router.get("/debug/timezone")
+async def debug_timezone(
+    client_timezone: Optional[str] = Depends(get_client_timezone)
+):
+    """Debug endpoint to check timezone detection"""
+    from app.core.timezone_utils import get_user_now, format_user_datetime
+    
+    utc_now = datetime.now(UTC)
+    
+    result = {
+        "utc_time": utc_now.isoformat(),
+        "client_timezone": client_timezone,
+        "timezone_detected": client_timezone is not None
+    }
+    
+    if client_timezone:
+        local_now = get_user_now(client_timezone)
+        result["local_time"] = local_now.isoformat()
+        result["formatted_time"] = format_user_datetime(utc_now, client_timezone)
+    
+    return result
+
+
 @pawn_transaction_router.post(
     "/",
     response_model=PawnTransactionResponse,
@@ -66,7 +90,8 @@ pawn_transaction_router = APIRouter()
 )
 async def create_pawn_transaction(
     transaction_data: PawnTransactionCreate,
-    current_user: User = Depends(get_staff_or_admin_user)
+    current_user: User = Depends(get_staff_or_admin_user),
+    client_timezone: Optional[str] = Depends(get_client_timezone)
 ) -> PawnTransactionResponse:
     """Create a new pawn transaction with comprehensive error handling"""
     
@@ -146,7 +171,8 @@ async def create_pawn_transaction(
             monthly_interest_amount=transaction_data.monthly_interest_amount,
             storage_location=transaction_data.storage_location.strip() if transaction_data.storage_location else None,
             items=items_data,
-            internal_notes=transaction_data.internal_notes.strip() if transaction_data.internal_notes else None
+            internal_notes=transaction_data.internal_notes.strip() if transaction_data.internal_notes else None,
+            client_timezone=client_timezone
         )
         
         transaction_logger.info(
@@ -205,7 +231,8 @@ async def get_pawn_transactions_list(
     page_size: int = Query(20, description="Items per page", ge=1, le=100),
     sort_by: str = Query("updated_at", description="Sort field"),
     sort_order: str = Query("desc", description="Sort order", pattern="^(asc|desc)$"),
-    current_user: User = Depends(get_staff_or_admin_user)
+    current_user: User = Depends(get_staff_or_admin_user),
+    client_timezone: Optional[str] = Depends(get_client_timezone)
 ) -> PawnTransactionListResponse:
     """Get paginated list of pawn transactions with optional filtering"""
     try:
@@ -224,7 +251,7 @@ async def get_pawn_transactions_list(
             sort_order=sort_order
         )
         
-        return await PawnTransactionService.get_transactions_list(filters)
+        return await PawnTransactionService.get_transactions_list(filters, client_timezone)
     
     except PawnTransactionError as e:
         # Service-specific transaction errors
@@ -658,7 +685,8 @@ async def get_customer_transactions(
     page_size: int = Query(20, description="Items per page", ge=1, le=100),
     sort_by: str = Query("updated_at", description="Sort field"),
     sort_order: str = Query("desc", description="Sort order", pattern="^(asc|desc)$"),
-    current_user: User = Depends(get_staff_or_admin_user)
+    current_user: User = Depends(get_staff_or_admin_user),
+    client_timezone: Optional[str] = Depends(get_client_timezone)
 ) -> PawnTransactionListResponse:
     """Get all transactions for a specific customer"""
     try:
@@ -679,7 +707,7 @@ async def get_customer_transactions(
             sort_order=sort_order
         )
         
-        return await PawnTransactionService.get_transactions_list(filters)
+        return await PawnTransactionService.get_transactions_list(filters, client_timezone)
         
     except HTTPException:
         raise

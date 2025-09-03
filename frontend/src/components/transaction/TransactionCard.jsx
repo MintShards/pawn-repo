@@ -12,6 +12,7 @@ import {
 import StatusBadge from './components/StatusBadge';
 import transactionService from '../../services/transactionService';
 import { formatTransactionId, formatStorageLocation, formatCurrency } from '../../utils/transactionUtils';
+import { formatLocalDate } from '../../utils/timezoneUtils';
 
 const TransactionCard = ({ 
   transaction, 
@@ -48,16 +49,6 @@ const TransactionCard = ({
 
   // formatCurrency is now imported from transactionUtils
 
-  const formatDate = (dateString) => {
-    if (!dateString) return 'Not Set';
-    try {
-      const date = new Date(dateString);
-      if (isNaN(date.getTime())) return 'Invalid Date';
-      return date.toLocaleDateString();
-    } catch {
-      return 'Invalid Date';
-    }
-  };
 
   if (!transaction) return null;
 
@@ -214,7 +205,7 @@ const TransactionCard = ({
               <span className="text-sm text-slate-600 dark:text-slate-400">Loan Date:</span>
             </div>
             <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
-              {formatDate(transaction.pawn_date)}
+              {formatLocalDate(transaction.pawn_date)}
             </span>
           </div>
 

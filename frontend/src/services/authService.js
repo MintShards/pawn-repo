@@ -1,3 +1,5 @@
+import { getTimezoneHeaders } from '../utils/timezoneUtils';
+
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 class AuthService {
@@ -23,6 +25,7 @@ class AuthService {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...getTimezoneHeaders(),
         },
         body: JSON.stringify(userCredentials),
       });
@@ -60,6 +63,7 @@ class AuthService {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...getTimezoneHeaders(),
         },
         body: JSON.stringify({
           refresh_token: this.refreshToken
@@ -303,6 +307,7 @@ class AuthService {
     const config = {
       headers: {
         'Content-Type': 'application/json',
+        ...getTimezoneHeaders(),
         ...(this.token && { 'Authorization': `Bearer ${this.token}` }),
         ...options.headers,
       },

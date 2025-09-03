@@ -81,6 +81,8 @@ import { useToast } from '../ui/toast';
 import { useAuth } from '../../context/AuthContext';
 import { useAlertCount } from '../../context/AlertCountContext';
 import { isAdmin as isAdminRole } from '../../utils/roleUtils';
+import { formatLocalDate, formatLocalDateTime } from '../../utils/timezoneUtils';
+import { formatCurrency } from '../../utils/transactionUtils';
 import CustomerCard from './CustomerCard';
 import CustomLoanLimitDialog from './CustomLoanLimitDialog';
 
@@ -1065,11 +1067,7 @@ const EnhancedCustomerManagement = () => {
 
 
   const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    });
+    return formatLocalDate(dateString);
   };
 
   const getRelativeTime = (dateString) => {
@@ -2147,7 +2145,7 @@ const EnhancedCustomerManagement = () => {
                         <div className="flex items-center justify-between">
                           <div>
                             <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">Total Paid</p>
-                            <p className="text-3xl font-bold text-emerald-900 dark:text-emerald-100">${(selectedCustomer.total_paid || 0).toLocaleString()}</p>
+                            <p className="text-3xl font-bold text-emerald-900 dark:text-emerald-100">{formatCurrency(selectedCustomer.total_paid || 0)}</p>
                           </div>
                           <div className="w-12 h-12 bg-emerald-500/20 rounded-xl flex items-center justify-center">
                             <DollarSign className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
@@ -2504,13 +2502,13 @@ const EnhancedCustomerManagement = () => {
                       <div className="min-w-0">
                         <p className="text-slate-500 dark:text-slate-400 break-words">Created Date</p>
                         <p className="text-slate-900 dark:text-slate-100 break-words">
-                          {selectedCustomer?.created_at ? new Date(selectedCustomer.created_at).toLocaleDateString() : 'N/A'}
+                          {selectedCustomer?.created_at ? formatLocalDate(selectedCustomer.created_at) : 'N/A'}
                         </p>
                       </div>
                       <div className="min-w-0">
                         <p className="text-slate-500 dark:text-slate-400 break-words">Last Updated</p>
                         <p className="text-slate-900 dark:text-slate-100 break-words">
-                          {selectedCustomer?.updated_at ? new Date(selectedCustomer.updated_at).toLocaleDateString() : 'N/A'}
+                          {selectedCustomer?.updated_at ? formatLocalDate(selectedCustomer.updated_at) : 'N/A'}
                         </p>
                       </div>
                     </div>

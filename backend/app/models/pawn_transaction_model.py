@@ -52,7 +52,6 @@ class PawnTransaction(Document):
     
     # Dates (calculated automatically)
     pawn_date: datetime = Field(
-        default_factory=lambda: datetime.now(UTC),
         description="Date when item was pawned"
     )
     maturity_date: datetime = Field(

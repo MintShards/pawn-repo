@@ -31,6 +31,7 @@ import { Separator } from '../ui/separator';
 import { User, CheckCircle, Bell, AlertCircle, Plus, X, Zap, Calendar, Phone, Clock, FileText, Star } from 'lucide-react';
 import serviceAlertService from '../../services/serviceAlertService';
 import { useToast } from '../ui/toast';
+import { formatLocalDate } from '../../utils/timezoneUtils';
 
 const ServiceAlertDialog = ({ 
   isOpen, 
@@ -579,11 +580,7 @@ const ServiceAlertDialog = ({
                             <div className="flex items-center gap-4 text-xs text-slate-500 dark:text-slate-400">
                               <span className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-lg">
                                 <Calendar className="h-3 w-3" />
-                                {new Date(alert.created_at).toLocaleDateString('en-US', { 
-                                  month: 'short', 
-                                  day: 'numeric',
-                                  year: '2-digit'
-                                })}
+                                {formatLocalDate(alert.created_at)}
                               </span>
                               <span className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-lg">
                                 <User className="h-3 w-3" />

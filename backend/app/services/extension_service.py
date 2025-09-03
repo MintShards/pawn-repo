@@ -13,7 +13,7 @@ from typing import List, Optional, Dict, Any
 from app.models.extension_model import Extension
 from app.models.pawn_transaction_model import PawnTransaction, TransactionStatus
 from app.models.user_model import User, UserStatus
-# TODO: Re-enable when database transaction wrapper is fixed
+from app.core.timezone_utils import utc_to_user_timezone, get_user_now, user_timezone_to_utc
 # from app.core.database import execute_transaction, DatabaseTransactionError
 from app.core.transaction_notes import safe_append_transaction_notes, format_system_note
 
@@ -65,7 +65,8 @@ class ExtensionService:
         extension_fee_per_month: int,
         processed_by_user_id: str,
         extension_reason: Optional[str] = None,
-        internal_notes: Optional[str] = None
+        internal_notes: Optional[str] = None,
+        client_timezone: Optional[str] = None
     ) -> Extension:
         """
         Process a loan extension for a pawn transaction with atomic operations.
@@ -145,6 +146,13 @@ class ExtensionService:
                 session=session
             )
             
+            # Get current timestamp in user's timezone for business date
+            if client_timezone:
+                local_now = get_user_now(client_timezone)
+                extension_date_utc = user_timezone_to_utc(local_now, client_timezone)
+            else:
+                extension_date_utc = datetime.now(UTC)
+            
             # Create extension record with atomic session
             extension = Extension(
                 transaction_id=transaction_id,
@@ -153,6 +161,7 @@ class ExtensionService:
                 extension_fee_per_month=extension_fee_per_month,
                 total_extension_fee=total_extension_fee,
                 original_maturity_date=fresh_transaction.maturity_date,
+                extension_date=extension_date_utc,
                 extension_reason=extension_reason,
                 internal_notes=internal_notes
             )
@@ -671,7 +680,7 @@ class ExtensionService:
         }
     
     @staticmethod
-    async def get_extension_history(transaction_id: str) -> 'ExtensionHistoryResponse':
+    async def get_extension_history(transaction_id: str, client_timezone: Optional[str] = None) -> 'ExtensionHistoryResponse':
         """
         Get comprehensive extension history for a transaction.
         
@@ -698,10 +707,30 @@ class ExtensionService:
             Extension.transaction_id == transaction_id
         ).sort(-Extension.extension_date).to_list()
         
-        # Convert to response format
+        # Convert to response format with timezone conversion
         extension_responses = []
         for extension in extensions:
             extension_dict = extension.model_dump()
+            
+            # Convert UTC dates to user timezone for display
+            if client_timezone:
+                if extension_dict.get('extension_date'):
+                    extension_dict['extension_date'] = utc_to_user_timezone(
+                        extension.extension_date, client_timezone
+                    ).isoformat()
+                if extension_dict.get('original_maturity_date'):
+                    extension_dict['original_maturity_date'] = utc_to_user_timezone(
+                        extension.original_maturity_date, client_timezone
+                    ).isoformat()
+                if extension_dict.get('new_maturity_date'):
+                    extension_dict['new_maturity_date'] = utc_to_user_timezone(
+                        extension.new_maturity_date, client_timezone
+                    ).isoformat()
+                if extension_dict.get('created_at'):
+                    extension_dict['created_at'] = utc_to_user_timezone(
+                        extension.created_at, client_timezone
+                    ).isoformat()
+            
             extension_responses.append(ExtensionResponse.model_validate(extension_dict))
         
         # Get extension summary
@@ -723,7 +752,7 @@ class ExtensionService:
         )
     
     @staticmethod
-    async def get_extension_summary(transaction_id: str) -> 'ExtensionSummaryResponse':
+    async def get_extension_summary(transaction_id: str, client_timezone: Optional[str] = None) -> 'ExtensionSummaryResponse':
         """
         Get extension summary for a transaction.
         
@@ -754,8 +783,19 @@ class ExtensionService:
         total_fees = sum(extension.total_extension_fee for extension in extensions)
         total_months = sum(extension.extension_months for extension in extensions)
         
-        # Calculate last extension date
-        last_extension_date = extensions[0].extension_date if extensions else None
+        # Calculate last extension date with timezone conversion
+        last_extension_date = None
+        if extensions:
+            last_extension_date = extensions[0].extension_date
+            if client_timezone and last_extension_date:
+                last_extension_date = utc_to_user_timezone(last_extension_date, client_timezone)
+        
+        # Convert transaction dates to user timezone for display
+        current_maturity_date = transaction.maturity_date
+        current_grace_period_end = transaction.grace_period_end
+        if client_timezone:
+            current_maturity_date = utc_to_user_timezone(current_maturity_date, client_timezone)
+            current_grace_period_end = utc_to_user_timezone(current_grace_period_end, client_timezone)
         
         return ExtensionSummaryResponse(
             transaction_id=transaction_id,
@@ -764,8 +804,8 @@ class ExtensionService:
             total_months_extended=total_months,
             last_extension_date=last_extension_date,
             average_fee_per_month=total_fees // total_months if total_months > 0 else 0,
-            current_maturity_date=transaction.maturity_date,
-            current_grace_period_end=transaction.grace_period_end
+            current_maturity_date=current_maturity_date,
+            current_grace_period_end=current_grace_period_end
         )
     
     @staticmethod
@@ -950,7 +990,8 @@ class ExtensionService:
         page: int = 1,
         page_size: int = 20,
         sort_by: str = "extension_date",
-        sort_order: str = "desc"
+        sort_order: str = "desc",
+        client_timezone: Optional[str] = None
     ) -> 'ExtensionListResponse':
         """
         Get paginated list of extensions with optional filtering.
@@ -998,10 +1039,30 @@ class ExtensionService:
         skip = (page - 1) * page_size
         extensions = await query.skip(skip).limit(page_size).to_list()
         
-        # Convert to response format
+        # Convert to response format with timezone conversion
         extension_responses = []
         for extension in extensions:
             extension_dict = extension.model_dump()
+            
+            # Convert UTC dates to user timezone for display
+            if client_timezone:
+                if extension_dict.get('extension_date'):
+                    extension_dict['extension_date'] = utc_to_user_timezone(
+                        extension.extension_date, client_timezone
+                    ).isoformat()
+                if extension_dict.get('original_maturity_date'):
+                    extension_dict['original_maturity_date'] = utc_to_user_timezone(
+                        extension.original_maturity_date, client_timezone
+                    ).isoformat()
+                if extension_dict.get('new_maturity_date'):
+                    extension_dict['new_maturity_date'] = utc_to_user_timezone(
+                        extension.new_maturity_date, client_timezone
+                    ).isoformat()
+                if extension_dict.get('created_at'):
+                    extension_dict['created_at'] = utc_to_user_timezone(
+                        extension.created_at, client_timezone
+                    ).isoformat()
+            
             extension_responses.append(ExtensionResponse.model_validate(extension_dict))
         
         return ExtensionListResponse(

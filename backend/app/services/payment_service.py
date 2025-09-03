@@ -18,7 +18,7 @@ from app.schemas.payment_schema import (
     PaymentListResponse, PaymentValidationResponse
 )
 from app.core.utils import get_enum_value
-# TODO: Re-enable when database transaction wrapper is fixed
+from app.core.timezone_utils import utc_to_user_timezone, get_user_now, user_timezone_to_utc
 # from app.core.database import execute_transaction, DatabaseTransactionError
 from app.core.transaction_notes import safe_append_transaction_notes, format_system_note
 
@@ -62,7 +62,8 @@ class PaymentService:
         transaction_id: str,
         payment_amount: int,
         processed_by_user_id: str,
-        internal_notes: Optional[str] = None
+        internal_notes: Optional[str] = None,
+        client_timezone: Optional[str] = None
     ) -> Payment:
         """
         Process a cash payment on a pawn transaction with atomic operations.
@@ -137,6 +138,13 @@ class PaymentService:
             # Extension fees are not included in regular payment allocation
             extension_fees_portion = 0
             
+            # Get current timestamp in user's timezone for business date
+            if client_timezone:
+                local_now = get_user_now(client_timezone)
+                payment_date_utc = user_timezone_to_utc(local_now, client_timezone)
+            else:
+                payment_date_utc = datetime.now(UTC)
+            
             # Create payment record with atomic session
             payment = Payment(
                 transaction_id=transaction_id,
@@ -148,6 +156,7 @@ class PaymentService:
                 interest_portion=interest_portion,
                 extension_fees_portion=extension_fees_portion,
                 payment_method="cash",
+                payment_date=payment_date_utc,
                 internal_notes=internal_notes
             )
             
@@ -202,7 +211,7 @@ class PaymentService:
             raise PaymentValidationError(f"Payment processing failed: {str(e)}")
     
     @staticmethod
-    async def get_payment_history(transaction_id: str) -> Dict[str, Any]:
+    async def get_payment_history(transaction_id: str, client_timezone: Optional[str] = None) -> Dict[str, Any]:
         """
         Get comprehensive payment history for a transaction.
         
@@ -228,10 +237,21 @@ class PaymentService:
             Payment.is_voided != True  # Exclude voided payments
         ).sort(-Payment.payment_date).to_list()
         
-        # Convert to response format
+        # Convert to response format with timezone-aware dates
         payment_responses = []
         for payment in payments:
             payment_dict = payment.model_dump()
+            
+            # Convert UTC dates to user timezone for display
+            if client_timezone and payment_dict.get('payment_date'):
+                payment_dict['payment_date'] = utc_to_user_timezone(
+                    payment.payment_date, client_timezone
+                ).isoformat()
+            if client_timezone and payment_dict.get('created_at'):
+                payment_dict['created_at'] = utc_to_user_timezone(
+                    payment.created_at, client_timezone
+                ).isoformat()
+            
             # Ensure payment_type is included
             if 'payment_type' not in payment_dict:
                 payment_dict['payment_type'] = payment.payment_type
@@ -263,7 +283,7 @@ class PaymentService:
             extension_fees_balance=balance_info.get("extension_fees_balance", 0)
         )
         
-        # Create transaction details (ensure dates are timezone-aware)
+        # Create transaction details with timezone conversion
         pawn_date = transaction.pawn_date
         if pawn_date.tzinfo is None:
             pawn_date = pawn_date.replace(tzinfo=UTC)
@@ -272,12 +292,20 @@ class PaymentService:
         if maturity_date.tzinfo is None:
             maturity_date = maturity_date.replace(tzinfo=UTC)
         
+        # Convert dates to user timezone for display
+        if client_timezone:
+            pawn_date_display = utc_to_user_timezone(pawn_date, client_timezone).isoformat()
+            maturity_date_display = utc_to_user_timezone(maturity_date, client_timezone).isoformat()
+        else:
+            pawn_date_display = pawn_date.isoformat()
+            maturity_date_display = maturity_date.isoformat()
+        
         transaction_details = {
             "transaction_id": transaction_id,
             "status": get_enum_value(transaction.status),
             "loan_amount": transaction.loan_amount,
-            "pawn_date": pawn_date.isoformat(),
-            "maturity_date": maturity_date.isoformat()
+            "pawn_date": pawn_date_display,
+            "maturity_date": maturity_date_display
         }
         
         return PaymentHistoryResponse(
@@ -288,7 +316,7 @@ class PaymentService:
         )
     
     @staticmethod
-    async def get_payment_summary(transaction_id: str) -> 'PaymentSummaryResponse':
+    async def get_payment_summary(transaction_id: str, client_timezone: Optional[str] = None) -> 'PaymentSummaryResponse':
         """
         Get payment summary for a transaction.
         
@@ -323,8 +351,12 @@ class PaymentService:
         # Get current balance info
         balance_info = await PaymentService._get_balance_info(transaction_id)
         
-        # Calculate last payment date
-        last_payment_date = payments[0].payment_date if payments else None
+        # Calculate last payment date with timezone conversion
+        last_payment_date = None
+        if payments:
+            last_payment_date = payments[0].payment_date
+            if client_timezone and last_payment_date:
+                last_payment_date = utc_to_user_timezone(last_payment_date, client_timezone)
         
         return PaymentSummaryResponse(
             transaction_id=transaction_id,
@@ -813,7 +845,8 @@ class PaymentService:
         page: int = 1,
         page_size: int = 20,
         sort_by: str = "payment_date",
-        sort_order: str = "desc"
+        sort_order: str = "desc",
+        client_timezone: Optional[str] = None
     ) -> 'PaymentListResponse':
         """
         Get paginated list of payments with optional filtering.
@@ -862,10 +895,21 @@ class PaymentService:
         skip = (page - 1) * page_size
         payments = await query.skip(skip).limit(page_size).to_list()
         
-        # Convert to response format
+        # Convert to response format with timezone conversion
         payment_responses = []
         for payment in payments:
             payment_dict = payment.model_dump()
+            
+            # Convert UTC dates to user timezone for display
+            if client_timezone and payment_dict.get('payment_date'):
+                payment_dict['payment_date'] = utc_to_user_timezone(
+                    payment.payment_date, client_timezone
+                ).isoformat()
+            if client_timezone and payment_dict.get('created_at'):
+                payment_dict['created_at'] = utc_to_user_timezone(
+                    payment.created_at, client_timezone
+                ).isoformat()
+            
             # Ensure backward compatibility
             if 'principal_portion' not in payment_dict:
                 payment_dict['principal_portion'] = 0

@@ -1,4 +1,3 @@
-import React from 'react';
 import { MoreHorizontal, Eye, Edit2, CreditCard, TrendingUp, Phone, Mail, Gauge } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Card, CardContent } from '../ui/card';
@@ -11,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 import { StatusBadge } from '../ui/enhanced-badge';
+import { formatLocalDate } from '../../utils/timezoneUtils';
 import customerService from '../../services/customerService';
 import { useAuth } from '../../context/AuthContext';
 import { isAdmin as isAdminRole } from '../../utils/roleUtils';
@@ -48,11 +48,7 @@ const CustomerCard = ({
   };
 
   const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    });
+    return formatLocalDate(dateString);
   };
 
   const getRelativeTime = (dateString) => {

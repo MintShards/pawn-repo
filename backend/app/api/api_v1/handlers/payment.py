@@ -15,6 +15,7 @@ import structlog
 
 # Local imports
 from app.api.deps.user_deps import get_staff_or_admin_user
+from app.api.deps.timezone_deps import get_client_timezone
 from app.models.user_model import User
 from app.schemas.payment_schema import (
     PaymentCreate, PaymentResponse, PaymentListResponse,
@@ -55,7 +56,8 @@ payment_router = APIRouter()
 )
 async def process_payment(
     payment_data: PaymentCreate,
-    current_user: User = Depends(get_staff_or_admin_user)
+    current_user: User = Depends(get_staff_or_admin_user),
+    client_timezone: Optional[str] = Depends(get_client_timezone)
 ) -> PaymentResponse:
     """Process a cash payment with comprehensive error handling"""
     
@@ -141,7 +143,8 @@ async def process_payment(
             transaction_id=payment_data.transaction_id.strip(),
             payment_amount=payment_data.payment_amount,
             processed_by_user_id=current_user.user_id,
-            internal_notes=payment_data.internal_notes.strip() if payment_data.internal_notes else None
+            internal_notes=payment_data.internal_notes.strip() if payment_data.internal_notes else None,
+            client_timezone=client_timezone
         )
         
         payment_logger.info(
@@ -207,11 +210,12 @@ async def process_payment(
 )
 async def get_payment_history(
     transaction_id: str,
-    current_user: User = Depends(get_staff_or_admin_user)
+    current_user: User = Depends(get_staff_or_admin_user),
+    client_timezone: Optional[str] = Depends(get_client_timezone)
 ) -> PaymentHistoryResponse:
     """Get complete payment history for a transaction"""
     try:
-        history = await PaymentService.get_payment_history(transaction_id)
+        history = await PaymentService.get_payment_history(transaction_id, client_timezone)
         return history
         
     except HTTPException:
@@ -249,11 +253,12 @@ async def get_payment_history(
 )
 async def get_payment_summary(
     transaction_id: str,
-    current_user: User = Depends(get_staff_or_admin_user)
+    current_user: User = Depends(get_staff_or_admin_user),
+    client_timezone: Optional[str] = Depends(get_client_timezone)
 ) -> PaymentSummaryResponse:
     """Get payment summary for a transaction"""
     try:
-        summary = await PaymentService.get_payment_summary(transaction_id)
+        summary = await PaymentService.get_payment_summary(transaction_id, client_timezone)
         return summary
         
     except HTTPException:
@@ -291,7 +296,8 @@ async def get_payment_summary(
 )
 async def get_payment_by_id(
     payment_id: str,
-    current_user: User = Depends(get_staff_or_admin_user)
+    current_user: User = Depends(get_staff_or_admin_user),
+    client_timezone: Optional[str] = Depends(get_client_timezone)
 ) -> PaymentResponse:
     """Get payment details by ID"""
     try:
@@ -354,7 +360,8 @@ async def get_payment_by_id(
 )
 async def get_payment_receipt(
     payment_id: str,
-    current_user: User = Depends(get_staff_or_admin_user)
+    current_user: User = Depends(get_staff_or_admin_user),
+    client_timezone: Optional[str] = Depends(get_client_timezone)
 ) -> PaymentReceiptResponse:
     """Get payment receipt data for printing/display"""
     try:
@@ -451,7 +458,8 @@ async def get_payment_receipt(
 )
 async def validate_payment(
     payment_data: PaymentCreate,
-    current_user: User = Depends(get_staff_or_admin_user)
+    current_user: User = Depends(get_staff_or_admin_user),
+    client_timezone: Optional[str] = Depends(get_client_timezone)
 ) -> PaymentValidationResponse:
     """Validate payment before processing"""
     try:
@@ -490,6 +498,7 @@ async def get_payments_list(
     max_amount: Optional[int] = Query(None, description="Maximum payment amount filter"),
     page: int = Query(1, description="Page number", ge=1),
     page_size: int = Query(20, description="Items per page", ge=1, le=100),
+    client_timezone: Optional[str] = Depends(get_client_timezone),
     sort_by: str = Query("payment_date", description="Sort field"),
     sort_order: str = Query("desc", description="Sort order", pattern="^(asc|desc)$"),
     current_user: User = Depends(get_staff_or_admin_user)
@@ -506,7 +515,8 @@ async def get_payments_list(
             page=page,
             page_size=page_size,
             sort_by=sort_by,
-            sort_order=sort_order
+            sort_order=sort_order,
+            client_timezone=client_timezone
         )
         
     except ValueError as e:
@@ -537,7 +547,8 @@ async def get_payments_list(
 async def void_payment(
     payment_id: str,
     reason: Optional[str] = Query(None, description="Reason for voiding payment"),
-    current_user: User = Depends(get_staff_or_admin_user)
+    current_user: User = Depends(get_staff_or_admin_user),
+    client_timezone: Optional[str] = Depends(get_client_timezone)
 ) -> PaymentResponse:
     """Void a payment (reverses payment and restores balance)"""
     try:

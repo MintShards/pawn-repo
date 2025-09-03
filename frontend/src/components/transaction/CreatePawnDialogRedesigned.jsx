@@ -21,6 +21,7 @@ import { Badge } from '../ui/badge';
 import transactionService from '../../services/transactionService';
 import customerService from '../../services/customerService';
 import { formatStorageLocation } from '../../utils/transactionUtils';
+import { formatLocalDate } from '../../utils/timezoneUtils';
 import { useFormValidation, validateRequired, validateAmount, validateItemDescription, createValidationResult } from '../../utils/formValidation';
 import { handleError, handleSuccess } from '../../utils/errorHandling';
 import { useDebounce } from '../../hooks/useDebounce';
@@ -1104,7 +1105,7 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel }) => {
                     <div className="flex justify-between items-center">
                       <span className="text-sm text-pawn-medium dark:text-pawn-light/80">Maturity Date:</span>
                       <span className="font-medium text-pawn-dark dark:text-pawn-light">
-                        {loanCalculations.maturityDate.toLocaleDateString()}
+                        {formatLocalDate(loanCalculations.maturityDate.toISOString())}
                       </span>
                     </div>
                     <Separator />
@@ -1251,7 +1252,7 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel }) => {
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-pawn-medium dark:text-pawn-light/80 font-medium">Maturity Date:</span>
                       <Badge variant="outline" className="font-mono text-sm px-3 py-1 border-pawn-accent text-pawn-accent">
-                        {loanCalculations.maturityDate.toLocaleDateString()}
+                        {formatLocalDate(loanCalculations.maturityDate.toISOString())}
                       </Badge>
                     </div>
                     <div className="flex justify-between items-center p-2 bg-pawn-accent/10 rounded-lg border border-pawn-accent/30">

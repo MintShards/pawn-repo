@@ -21,6 +21,7 @@ from app.models.extension_model import Extension
 from app.models.customer_model import Customer, CustomerStatus
 from app.models.user_model import User, UserStatus
 from app.core.transaction_notes import safe_append_transaction_notes, format_system_note
+from app.core.timezone_utils import utc_to_user_timezone, format_user_datetime, get_user_now, user_timezone_to_utc, add_months_user_timezone
 
 # Configure logger
 logger = structlog.get_logger("pawn_transaction")
@@ -79,7 +80,8 @@ class PawnTransactionService:
         monthly_interest_amount: int,
         storage_location: str,
         items: List[Dict[str, Any]],
-        internal_notes: Optional[str] = None
+        internal_notes: Optional[str] = None,
+        client_timezone: Optional[str] = None
     ) -> PawnTransaction:
         """
         Create a new pawn transaction with multiple items.
@@ -129,17 +131,37 @@ class PawnTransactionService:
             raise PawnTransactionError("Maximum 20 items allowed per transaction")
         
         try:
-            # Create the transaction
+            # Get current date in user's timezone for business date
+            if client_timezone:
+                # Use user's local business date
+                local_now = get_user_now(client_timezone)
+                pawn_date_utc = user_timezone_to_utc(local_now, client_timezone)
+                logger.info(f"Creating transaction with timezone {client_timezone}: local={local_now}, utc={pawn_date_utc}")
+            else:
+                # Fallback to UTC
+                pawn_date_utc = datetime.now(UTC)
+                logger.warning("No client timezone provided, using UTC for pawn date")
+            
+            # Create the transaction with explicit pawn_date
             transaction = PawnTransaction(
                 customer_id=customer_phone,
                 created_by_user_id=created_by_user_id,
                 loan_amount=loan_amount,
                 monthly_interest_amount=monthly_interest_amount,
                 storage_location=storage_location,
-                internal_notes=internal_notes
+                internal_notes=internal_notes,
+                pawn_date=pawn_date_utc
             )
             
-            # Save transaction (this will calculate dates and total_due)
+            # Calculate maturity date using user's timezone calendar
+            if client_timezone:
+                transaction.maturity_date = add_months_user_timezone(pawn_date_utc, 3, client_timezone)
+                transaction.grace_period_end = add_months_user_timezone(transaction.maturity_date, 1, client_timezone)
+            else:
+                # Fallback: calculate dates normally
+                transaction.calculate_dates()
+            
+            # Save transaction (this will calculate total_due)
             await transaction.save()
             
             # Create associated items
@@ -480,12 +502,13 @@ class PawnTransactionService:
         return updated_counts
     
     @staticmethod
-    async def get_transactions_list(filters) -> Dict[str, Any]:
+    async def get_transactions_list(filters, client_timezone: Optional[str] = None) -> Dict[str, Any]:
         """
         Get paginated list of transactions with filtering.
         
         Args:
             filters: TransactionSearchFilters object with pagination and filter options
+            client_timezone: Client timezone for date formatting
             
         Returns:
             Dictionary containing transactions list and pagination info
@@ -536,10 +559,30 @@ class PawnTransactionService:
             skip = (filters.page - 1) * filters.page_size
             transactions = await query.skip(skip).limit(filters.page_size).to_list()
             
-            # Convert to response format
+            # Convert to response format with timezone-aware dates
             transaction_responses = []
             for transaction in transactions:
                 transaction_dict = transaction.model_dump()
+                
+                # Convert UTC dates to user timezone for display
+                if client_timezone:
+                    if transaction_dict.get('pawn_date'):
+                        transaction_dict['pawn_date'] = utc_to_user_timezone(
+                            transaction.pawn_date, client_timezone
+                        ).isoformat()
+                    if transaction_dict.get('maturity_date'):
+                        transaction_dict['maturity_date'] = utc_to_user_timezone(
+                            transaction.maturity_date, client_timezone
+                        ).isoformat()
+                    if transaction_dict.get('created_at'):
+                        transaction_dict['created_at'] = utc_to_user_timezone(
+                            transaction.created_at, client_timezone
+                        ).isoformat()
+                    if transaction_dict.get('updated_at'):
+                        transaction_dict['updated_at'] = utc_to_user_timezone(
+                            transaction.updated_at, client_timezone
+                        ).isoformat()
+                
                 transaction_responses.append(PawnTransactionResponse.model_validate(transaction_dict))
             
             # Calculate pagination info

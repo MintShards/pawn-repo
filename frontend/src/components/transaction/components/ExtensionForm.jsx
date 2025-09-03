@@ -15,6 +15,7 @@ import { useFormValidation, validateAmount, validateExtension } from '../../../u
 import { handleError, handleSuccess } from '../../../utils/errorHandling';
 import ConfirmationDialog from '../../common/ConfirmationDialog';
 import LoadingDialog from '../../common/LoadingDialog';
+import { formatLocalDate } from '../../../utils/timezoneUtils';
 
 const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
   // Form validation setup
@@ -168,9 +169,8 @@ const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
 
       const result = await extensionService.processExtension(extensionData);
       
-      const newMaturity = new Date(result.new_maturity_date);
       handleSuccess(
-        `Loan extended for ${formData.extension_months} month(s). New maturity: ${newMaturity.toLocaleDateString()}`
+        `Loan extended for ${formData.extension_months} month(s). New maturity: ${formatLocalDate(result.new_maturity_date)}`
       );
       
       if (onSuccess) {
@@ -185,7 +185,7 @@ const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
   }, [transaction.transaction_id, formData, onSuccess]);
 
   const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString();
+    return formatLocalDate(dateString);
   };
 
 

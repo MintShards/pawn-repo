@@ -282,7 +282,6 @@ const CreatePawnFormRedesigned = ({ onSuccess, onCancel }) => {
         
         // Only load drafts less than 24 hours old
         if (draftAge < 24 * 60 * 60 * 1000) {
-          // TODO: Ask user if they want to restore draft
           // Draft loaded successfully
         }
       }

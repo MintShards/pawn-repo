@@ -24,6 +24,7 @@ from app.core.redis_cache import initialize_cache_service
 from app.core.field_encryption import initialize_field_encryption, generate_master_key
 from app.core.exception_handlers import register_exception_handlers
 from app.middleware.request_id import add_request_id_middleware
+from app.middleware.timezone_middleware import add_timezone_middleware
 from app.models.customer_model import Customer
 from app.models.extension_model import Extension
 from app.models.loan_config_model import LoanConfig
@@ -113,6 +114,9 @@ app = FastAPI(
 
 # Add request ID middleware for error tracking
 add_request_id_middleware(app)
+
+# Add timezone middleware for dynamic timezone handling
+add_timezone_middleware(app)
 
 # Register exception handlers for comprehensive error handling
 register_exception_handlers(app)

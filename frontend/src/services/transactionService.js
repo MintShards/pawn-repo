@@ -1,6 +1,7 @@
 import authService from './authService';
 import extensionService from './extensionService';
 import { matchesExtensionSearch } from '../utils/transactionUtils';
+import { getTimezoneHeaders } from '../utils/timezoneUtils';
 
 class TransactionService {
   constructor() {

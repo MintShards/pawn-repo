@@ -35,6 +35,7 @@ import ExtensionForm from '../components/transaction/components/ExtensionForm';
 import StatusUpdateForm from '../components/transaction/components/StatusUpdateForm';
 import { formatTransactionId, formatExtensionId, formatStorageLocation, formatCurrency } from '../utils/transactionUtils';
 import { getRoleTitle, getUserDisplayString } from '../utils/roleUtils';
+import { formatLocalDate } from '../utils/timezoneUtils';
 import transactionService from '../services/transactionService';
 import extensionService from '../services/extensionService';
 import customerService from '../services/customerService';
@@ -382,8 +383,7 @@ const TransactionHub = () => {
   const formatDate = (dateString) => {
     if (!dateString) return 'Not Set';
     try {
-      const date = new Date(dateString);
-      return isNaN(date.getTime()) ? 'Invalid Date' : date.toLocaleDateString();
+      return formatLocalDate(dateString);
     } catch {
       return 'Invalid Date';
     }
@@ -594,7 +594,7 @@ const TransactionHub = () => {
                 <div>
                   <p className="text-sm font-medium text-purple-600 dark:text-purple-400">Today's Collection</p>
                   <p className="text-2xl font-bold text-purple-900 dark:text-purple-100">
-                    {statsLoading ? '-' : `$${transactionStats.cash_collected_today.toLocaleString()}`}
+                    {statsLoading ? '-' : formatCurrency(transactionStats.cash_collected_today)}
                   </p>
                 </div>
                 <div className="w-12 h-12 bg-purple-500/20 rounded-xl flex items-center justify-center">
@@ -875,8 +875,8 @@ const TransactionHub = () => {
                         )}
                       </div>
                       <div className="text-sm text-details-medium dark:text-slate-400">
-                        Last updated: {(selectedTransaction?.transaction?.updated_at || selectedTransaction?.updated_at) ? 
-                          formatDate(selectedTransaction.transaction?.updated_at || selectedTransaction.updated_at) : 'Not Available'}
+                        Loan Date: {(selectedTransaction?.transaction?.pawn_date || selectedTransaction?.pawn_date) ? 
+                          formatDate(selectedTransaction.transaction?.pawn_date || selectedTransaction.pawn_date) : 'Not Available'}
                       </div>
                     </div>
                   </div>

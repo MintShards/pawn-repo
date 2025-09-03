@@ -15,6 +15,7 @@ import structlog
 
 # Local imports
 from app.api.deps.user_deps import get_staff_or_admin_user
+from app.api.deps.timezone_deps import get_client_timezone
 from app.core.security_middleware import strict_rate_limit
 from app.models.user_model import User
 from app.schemas.extension_schema import (
@@ -53,7 +54,8 @@ extension_router = APIRouter()
 async def process_extension(
     request: Request,
     extension_data: ExtensionCreate,
-    current_user: User = Depends(get_staff_or_admin_user)
+    current_user: User = Depends(get_staff_or_admin_user),
+    client_timezone: Optional[str] = Depends(get_client_timezone)
 ) -> ExtensionResponse:
     """Process a loan extension with comprehensive error handling"""
     try:
@@ -63,7 +65,8 @@ async def process_extension(
             extension_fee_per_month=extension_data.extension_fee_per_month,
             processed_by_user_id=current_user.user_id,
             extension_reason=extension_data.extension_reason,
-            internal_notes=extension_data.internal_notes
+            internal_notes=extension_data.internal_notes,
+            client_timezone=client_timezone
         )
         
         return ExtensionResponse.model_validate(extension.model_dump())
@@ -119,11 +122,12 @@ async def process_extension(
 )
 async def get_extension_history(
     transaction_id: str,
-    current_user: User = Depends(get_staff_or_admin_user)
+    current_user: User = Depends(get_staff_or_admin_user),
+    client_timezone: Optional[str] = Depends(get_client_timezone)
 ) -> ExtensionHistoryResponse:
     """Get complete extension history for a transaction"""
     try:
-        history = await ExtensionService.get_extension_history(transaction_id)
+        history = await ExtensionService.get_extension_history(transaction_id, client_timezone)
         return history
         
     except HTTPException:
@@ -163,11 +167,12 @@ async def get_extension_history(
 )
 async def get_extension_summary(
     transaction_id: str,
-    current_user: User = Depends(get_staff_or_admin_user)
+    current_user: User = Depends(get_staff_or_admin_user),
+    client_timezone: Optional[str] = Depends(get_client_timezone)
 ) -> ExtensionSummaryResponse:
     """Get extension summary for a transaction"""
     try:
-        summary = await ExtensionService.get_extension_summary(transaction_id)
+        summary = await ExtensionService.get_extension_summary(transaction_id, client_timezone)
         return summary
         
     except HTTPException:
@@ -208,7 +213,8 @@ async def get_extension_summary(
 async def check_extension_eligibility(
     transaction_id: str,
     extension_months: Optional[int] = Query(None, description="Requested extension months (1-3)"),
-    current_user: User = Depends(get_staff_or_admin_user)
+    current_user: User = Depends(get_staff_or_admin_user),
+    client_timezone: Optional[str] = Depends(get_client_timezone)
 ) -> ExtensionEligibilityResponse:
     """Check if transaction is eligible for extension"""
     try:
@@ -254,7 +260,8 @@ async def check_extension_eligibility(
 )
 async def get_extension_by_id(
     extension_id: str,
-    current_user: User = Depends(get_staff_or_admin_user)
+    current_user: User = Depends(get_staff_or_admin_user),
+    client_timezone: Optional[str] = Depends(get_client_timezone)
 ) -> ExtensionResponse:
     """Get extension details by ID"""
     try:
@@ -289,7 +296,8 @@ async def get_extension_by_id(
 )
 async def get_extension_receipt(
     extension_id: str,
-    current_user: User = Depends(get_staff_or_admin_user)
+    current_user: User = Depends(get_staff_or_admin_user),
+    client_timezone: Optional[str] = Depends(get_client_timezone)
 ) -> ExtensionReceiptResponse:
     """Get extension receipt data for printing/display"""
     try:
@@ -359,6 +367,7 @@ async def get_extensions_list(
     page_size: int = Query(20, description="Items per page", ge=1, le=100),
     sort_by: str = Query("extension_date", description="Sort field"),
     sort_order: str = Query("desc", description="Sort order", pattern="^(asc|desc)$"),
+    client_timezone: Optional[str] = Depends(get_client_timezone),
     current_user: User = Depends(get_staff_or_admin_user)
 ) -> ExtensionListResponse:
     """Get paginated list of extensions with optional filtering"""
@@ -372,7 +381,8 @@ async def get_extensions_list(
             page=page,
             page_size=page_size,
             sort_by=sort_by,
-            sort_order=sort_order
+            sort_order=sort_order,
+            client_timezone=client_timezone
         )
         
     except ValueError as e:
@@ -403,7 +413,8 @@ async def get_extensions_list(
 async def cancel_extension(
     extension_id: str,
     reason: Optional[str] = Query(None, description="Reason for cancelling extension"),
-    current_user: User = Depends(get_staff_or_admin_user)
+    current_user: User = Depends(get_staff_or_admin_user),
+    client_timezone: Optional[str] = Depends(get_client_timezone)
 ) -> ExtensionResponse:
     """Cancel an extension (reverses extension and restores original date)"""
     try:

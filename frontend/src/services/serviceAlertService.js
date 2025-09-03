@@ -1,3 +1,6 @@
+import authService from './authService';
+import { getTimezoneHeaders } from '../utils/timezoneUtils';
+
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 class ServiceAlertService {
@@ -27,6 +30,7 @@ class ServiceAlertService {
     const token = localStorage.getItem('pawn_repo_token');
     return {
       'Content-Type': 'application/json',
+      ...getTimezoneHeaders(),
       ...(token && { 'Authorization': `Bearer ${token}` })
     };
   }
