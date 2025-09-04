@@ -139,7 +139,6 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel }) => {
     return {
       loanAmount,
       monthlyInterest,
-      maturityDate: new Date(new Date().setMonth(new Date().getMonth() + 3)), // 3 months from now
       totalWithInterest: loanAmount + monthlyInterest
     };
   }, [formData.loan_amount, formData.monthly_interest_amount]);
@@ -1104,8 +1103,8 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel }) => {
                     <Separator />
                     <div className="flex justify-between items-center">
                       <span className="text-sm text-pawn-medium dark:text-pawn-light/80">Maturity Date:</span>
-                      <span className="font-medium text-pawn-dark dark:text-pawn-light">
-                        {formatLocalDate(loanCalculations.maturityDate.toISOString())}
+                      <span className="font-medium text-pawn-medium dark:text-pawn-light/80 italic">
+                        Calculated after submission
                       </span>
                     </div>
                     <Separator />
@@ -1251,8 +1250,8 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel }) => {
                     </div>
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-pawn-medium dark:text-pawn-light/80 font-medium">Maturity Date:</span>
-                      <Badge variant="outline" className="font-mono text-sm px-3 py-1 border-pawn-accent text-pawn-accent">
-                        {formatLocalDate(loanCalculations.maturityDate.toISOString())}
+                      <Badge variant="outline" className="text-sm px-3 py-1 border-pawn-medium text-pawn-medium">
+                        System Calculated
                       </Badge>
                     </div>
                     <div className="flex justify-between items-center p-2 bg-pawn-accent/10 rounded-lg border border-pawn-accent/30">

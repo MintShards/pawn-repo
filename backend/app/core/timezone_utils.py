@@ -45,6 +45,26 @@ def get_user_now(timezone_header: Optional[str] = None) -> datetime:
     return datetime.now(user_tz)
 
 
+def get_user_business_date(timezone_header: Optional[str] = None) -> datetime:
+    """
+    Get current business date in user's timezone (midnight start of day).
+    
+    Used for pawn transactions to ensure consistent business date
+    regardless of time of day the transaction is created.
+    
+    Args:
+        timezone_header: Client timezone from X-Client-Timezone header
+        
+    Returns:
+        Datetime representing start of current business day in user's timezone
+    """
+    user_tz = get_user_timezone(timezone_header)
+    local_now = datetime.now(user_tz)
+    # Get start of business day (midnight) in user's timezone
+    business_date = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return business_date
+
+
 def utc_to_user_timezone(utc_dt: datetime, timezone_header: Optional[str] = None) -> datetime:
     """
     Convert UTC datetime to user's timezone.

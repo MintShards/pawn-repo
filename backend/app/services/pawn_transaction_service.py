@@ -21,7 +21,7 @@ from app.models.extension_model import Extension
 from app.models.customer_model import Customer, CustomerStatus
 from app.models.user_model import User, UserStatus
 from app.core.transaction_notes import safe_append_transaction_notes, format_system_note
-from app.core.timezone_utils import utc_to_user_timezone, format_user_datetime, get_user_now, user_timezone_to_utc, add_months_user_timezone
+from app.core.timezone_utils import utc_to_user_timezone, format_user_datetime, get_user_now, get_user_business_date, user_timezone_to_utc, add_months_user_timezone
 
 # Configure logger
 logger = structlog.get_logger("pawn_transaction")
@@ -131,16 +131,17 @@ class PawnTransactionService:
             raise PawnTransactionError("Maximum 20 items allowed per transaction")
         
         try:
-            # Get current date in user's timezone for business date
+            # Get current business date in user's timezone
             if client_timezone:
-                # Use user's local business date
-                local_now = get_user_now(client_timezone)
-                pawn_date_utc = user_timezone_to_utc(local_now, client_timezone)
-                logger.info(f"Creating transaction with timezone {client_timezone}: local={local_now}, utc={pawn_date_utc}")
+                # Use user's business date (start of day in their timezone)
+                business_date_local = get_user_business_date(client_timezone)
+                pawn_date_utc = user_timezone_to_utc(business_date_local, client_timezone)
+                logger.info(f"Creating transaction with timezone {client_timezone}: business_date={business_date_local}, utc={pawn_date_utc}")
             else:
-                # Fallback to UTC
-                pawn_date_utc = datetime.now(UTC)
-                logger.warning("No client timezone provided, using UTC for pawn date")
+                # Fallback to UTC start of day
+                utc_now = datetime.now(UTC)
+                pawn_date_utc = utc_now.replace(hour=0, minute=0, second=0, microsecond=0)
+                logger.warning("No client timezone provided, using UTC business date")
             
             # Create the transaction with explicit pawn_date
             transaction = PawnTransaction(

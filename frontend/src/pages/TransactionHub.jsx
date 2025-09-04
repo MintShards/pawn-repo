@@ -1010,7 +1010,7 @@ const TransactionHub = () => {
                           <div className="flex justify-between items-center">
                             <div className="text-xs text-details-medium dark:text-slate-400">Date:</div>
                             <div className="text-xs font-medium text-details-dark dark:text-details-secondary">
-                              {formatDate(selectedTransaction?.transaction?.created_at || selectedTransaction?.created_at)}
+                              {formatDate(selectedTransaction?.transaction?.pawn_date || selectedTransaction?.pawn_date)}
                             </div>
                           </div>
                         </CardContent>
