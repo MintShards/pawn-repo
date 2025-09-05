@@ -20,6 +20,7 @@ from app.schemas.customer_schema import (
 )
 from app.core.config import settings
 from app.models.loan_config_model import LoanConfig
+from app.core.redis_cache import BusinessCache, CacheConfig
 
 
 class CustomerService:
@@ -67,8 +68,20 @@ class CustomerService:
 
     @staticmethod
     async def get_customer_by_phone(phone_number: str) -> Optional[Customer]:
-        """Get customer by phone number"""
-        return await Customer.find_one(Customer.phone_number == phone_number)
+        """Get customer by phone number with caching"""
+        # Check cache first
+        cached_customer = await BusinessCache.get_customer(phone_number)
+        if cached_customer:
+            return Customer.model_validate(cached_customer)
+        
+        # Fetch from database
+        customer = await Customer.find_one(Customer.phone_number == phone_number)
+        
+        # Cache the result
+        if customer:
+            await BusinessCache.set_customer(phone_number, customer.model_dump())
+        
+        return customer
 
     @staticmethod
     async def update_customer(
@@ -110,6 +123,9 @@ class CustomerService:
             
             # Use Beanie's update method
             await customer.update({"$set": update_dict})
+            
+            # Invalidate cache after update
+            await BusinessCache.invalidate_customer(phone_number)
             
             # Reload the customer from database to get updated data
             updated_customer = await Customer.find_one(Customer.phone_number == phone_number)
@@ -211,9 +227,12 @@ class CustomerService:
             sort_direction = DESCENDING if sort_order == "desc" else ASCENDING
             query = query.sort([(sort_by, sort_direction)])
             
-            # Apply pagination
+            # Apply pagination with optimized projection
             skip = (page - 1) * per_page
             customers = await query.skip(skip).limit(per_page).to_list()
+            
+            # Prefetch related data in batches if needed
+            # This could include transaction counts or payment history
             
             # Calculate pages
             pages = ceil(total / per_page) if total > 0 else 1

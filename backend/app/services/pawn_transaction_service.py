@@ -22,6 +22,7 @@ from app.models.customer_model import Customer, CustomerStatus
 from app.models.user_model import User, UserStatus
 from app.core.transaction_notes import safe_append_transaction_notes, format_system_note
 from app.core.timezone_utils import utc_to_user_timezone, format_user_datetime, get_user_now, get_user_business_date, user_timezone_to_utc, add_months_user_timezone
+from app.core.redis_cache import BusinessCache, cached_result, CacheConfig
 
 # Configure logger
 logger = structlog.get_logger("pawn_transaction")
@@ -205,7 +206,7 @@ class PawnTransactionService:
     @staticmethod
     async def get_transaction_by_id(transaction_id: str) -> Optional[PawnTransaction]:
         """
-        Retrieve transaction by transaction ID.
+        Retrieve transaction by transaction ID with caching.
         
         Args:
             transaction_id: Unique transaction identifier
@@ -213,9 +214,31 @@ class PawnTransactionService:
         Returns:
             PawnTransaction if found, None otherwise
         """
-        return await PawnTransaction.find_one(
+        # Try cache first for frequently accessed transactions
+        cache_key = f"transaction:{transaction_id}"
+        from app.core.redis_cache import get_cache_service
+        cache = get_cache_service()
+        
+        if cache and cache.is_available:
+            cached_data = await cache.get(cache_key)
+            if cached_data:
+                # Reconstruct PawnTransaction from cached data
+                try:
+                    return PawnTransaction.model_validate(cached_data)
+                except Exception as e:
+                    logger.warning("Failed to reconstruct transaction from cache", 
+                                  transaction_id=transaction_id, error=str(e))
+        
+        # Fetch from database
+        transaction = await PawnTransaction.find_one(
             PawnTransaction.transaction_id == transaction_id
         )
+        
+        # Cache the result if found
+        if transaction and cache and cache.is_available:
+            await cache.set(cache_key, transaction.model_dump(), CacheConfig.MEDIUM_TTL)
+        
+        return transaction
 
     @staticmethod
     async def get_transactions_by_customer(
@@ -297,7 +320,7 @@ class PawnTransactionService:
         as_of_date: Optional[datetime] = None
     ) -> Dict[str, Any]:
         """
-        Calculate current balance for a transaction including interest accrual.
+        Calculate current balance for a transaction including interest accrual with caching.
         
         Args:
             transaction_id: Unique transaction identifier
@@ -309,6 +332,11 @@ class PawnTransactionService:
         Raises:
             PawnTransactionError: Transaction not found
         """
+        # For current date calculations, use short-term cache
+        if as_of_date is None:
+            cached_balance = await BusinessCache.get_transaction_balance(transaction_id)
+            if cached_balance:
+                return cached_balance
         transaction = await PawnTransactionService.get_transaction_by_id(transaction_id)
         if not transaction:
             raise PawnTransactionError(f"Transaction {transaction_id} not found")
@@ -359,7 +387,7 @@ class PawnTransactionService:
             if remaining_payments > 0:
                 principal_paid = min(remaining_payments, principal_due)
         
-        return {
+        balance_data = {
             "transaction_id": transaction_id,
             "as_of_date": as_of_date.isoformat(),
             "loan_amount": transaction.loan_amount,
@@ -382,6 +410,12 @@ class PawnTransactionService:
             "is_in_grace_period": ensure_timezone_aware(transaction.maturity_date) < as_of_date <= ensure_timezone_aware(transaction.grace_period_end),
             "days_until_forfeiture": (ensure_timezone_aware(transaction.grace_period_end) - as_of_date).days if as_of_date < ensure_timezone_aware(transaction.grace_period_end) else 0
         }
+        
+        # Cache current balance calculations for short term
+        if as_of_date is None or (datetime.now(UTC) - as_of_date).total_seconds() < 3600:
+            await BusinessCache.set_transaction_balance(transaction_id, balance_data)
+        
+        return balance_data
     
     @staticmethod
     async def update_transaction_status(
@@ -770,6 +804,9 @@ class PawnTransactionService:
         if transaction.status not in valid_statuses:
             raise TransactionStateError(f"Cannot redeem transaction with status {transaction.status}")
         
+        # Invalidate transaction cache before status update
+        await BusinessCache.invalidate_transaction_data(transaction_id)
+        
         # Update transaction status
         return await PawnTransactionService.update_transaction_status(
             transaction_id=transaction_id,
@@ -814,6 +851,9 @@ class PawnTransactionService:
         forfeit_notes = f"Transaction forfeited by {staff_user.first_name} {staff_user.last_name}"
         if reason:
             forfeit_notes += f". Reason: {reason}"
+        
+        # Invalidate transaction cache before status update
+        await BusinessCache.invalidate_transaction_data(transaction_id)
         
         # Update transaction status
         return await PawnTransactionService.update_transaction_status(

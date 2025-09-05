@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 # Third-party imports
 from beanie import init_beanie
 from fastapi import FastAPI
+from fastapi.middleware.gzip import GZipMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 
 # Local imports
@@ -117,6 +118,9 @@ add_request_id_middleware(app)
 
 # Add timezone middleware for dynamic timezone handling
 add_timezone_middleware(app)
+
+# Add response compression middleware
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # Register exception handlers for comprehensive error handling
 register_exception_handlers(app)

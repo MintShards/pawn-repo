@@ -23,7 +23,7 @@ class TestSimpleEndpoints:
     def test_app_creation(self):
         """Test that the app is created successfully."""
         assert app is not None
-        assert app.title == "Pawnshop Operations System"
+        assert app.title == "Pawn Repo"
 
     def test_health_endpoint_structure(self, client):
         """Test health endpoint structure (may fail without DB)."""

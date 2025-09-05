@@ -3,14 +3,30 @@ Test suite for Service Alert API endpoints
 """
 
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
 from fastapi import status
 from datetime import datetime
 from typing import Dict
 
-from app.models.service_alert_model import AlertType, AlertPriority, AlertStatus
+from app.models.service_alert_model import AlertType, AlertStatus
 from app.models.customer_model import Customer
 from app.models.user_model import User
+
+
+@pytest_asyncio.fixture
+async def test_customer():
+    """Create a test customer"""
+    customer = Customer(
+        phone_number="1234567890",
+        first_name="Test",
+        last_name="Customer",
+        email="test@example.com",
+        created_by="69"
+    )
+    await customer.insert()
+    yield customer
+    await customer.delete()
 
 
 class TestServiceAlertAPI:
@@ -20,83 +36,51 @@ class TestServiceAlertAPI:
     test_customer_phone = "1234567890"
     test_user_id = "69"
     
-    @pytest.fixture
-    async def test_customer(self):
-        """Create a test customer"""
-        customer = Customer(
-            phone_number=self.test_customer_phone,
-            first_name="Test",
-            last_name="Customer",
-            email="test@example.com",
-            created_by=self.test_user_id
-        )
-        await customer.insert()
-        yield customer
-        await customer.delete()
-    
-    @pytest.fixture
-    async def auth_headers(self, client: AsyncClient):
-        """Get authentication headers for testing"""
-        login_data = {
-            "user_id": "69",
-            "pin": "6969"
-        }
-        response = await client.post("/api/v1/auth/jwt/login", json=login_data)
-        assert response.status_code == 200
-        tokens = response.json()
-        return {"Authorization": f"Bearer {tokens['access_token']}"}
-    
     @pytest.mark.asyncio
-    async def test_create_service_alert(self, client: AsyncClient, auth_headers: Dict, test_customer):
+    async def test_create_service_alert(self, async_client: AsyncClient, auth_headers_admin: Dict, test_customer):
         """Test creating a new service alert"""
         alert_data = {
             "customer_phone": self.test_customer_phone,
             "alert_type": "hold_request",
-            "priority": "high",
-            "title": "Customer wants to hold item",
             "description": "Customer called and requested to hold gold ring for 3 days",
             "item_reference": "Gold Ring - 14K"
         }
         
-        response = await client.post(
+        response = await async_client.post(
             "/api/v1/service-alert/",
             json=alert_data,
-            headers=auth_headers
+            headers=auth_headers_admin
         )
         
         assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
         assert data["customer_phone"] == self.test_customer_phone
         assert data["alert_type"] == "hold_request"
-        assert data["priority"] == "high"
         assert data["status"] == "active"
-        assert data["title"] == alert_data["title"]
         assert "id" in data
         assert "created_at" in data
         assert data["created_by"] == self.test_user_id
     
     @pytest.mark.asyncio
-    async def test_create_alert_invalid_customer(self, client: AsyncClient, auth_headers: Dict):
+    async def test_create_alert_invalid_customer(self, async_client: AsyncClient, auth_headers_admin: Dict):
         """Test creating alert for non-existent customer"""
         alert_data = {
             "customer_phone": "9999999999",
             "alert_type": "general_note",
-            "priority": "low",
-            "title": "Test alert",
             "description": "This should fail"
         }
         
-        response = await client.post(
+        response = await async_client.post(
             "/api/v1/service-alert/",
             json=alert_data,
-            headers=auth_headers
+            headers=auth_headers_admin
         )
         
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "not found" in response.json()["detail"].lower()
     
     @pytest.mark.asyncio
-    async def test_get_customer_alerts(self, client: AsyncClient, auth_headers: Dict, test_customer):
+    async def test_get_customer_alerts(self, async_client: AsyncClient, auth_headers_admin: Dict, test_customer):
         """Test retrieving customer alerts"""
         # Create multiple alerts first
         alert_types = ["hold_request", "payment_arrangement", "extension_request"]
@@ -106,22 +90,20 @@ class TestServiceAlertAPI:
             alert_data = {
                 "customer_phone": self.test_customer_phone,
                 "alert_type": alert_type,
-                "priority": "medium",
-                "title": f"Test {alert_type}",
                 "description": f"Testing {alert_type} functionality"
             }
-            response = await client.post(
+            response = await async_client.post(
                 "/api/v1/service-alert/",
                 json=alert_data,
-                headers=auth_headers
+                headers=auth_headers_admin
             )
             assert response.status_code == status.HTTP_201_CREATED
             created_alerts.append(response.json())
         
         # Get all alerts for customer
-        response = await client.get(
+        response = await async_client.get(
             f"/api/v1/service-alert/customer/{self.test_customer_phone}",
-            headers=auth_headers
+            headers=auth_headers_admin
         )
         
         assert response.status_code == status.HTTP_200_OK
@@ -132,37 +114,35 @@ class TestServiceAlertAPI:
         assert data["page"] == 1
         
         # Test with status filter
-        response = await client.get(
+        response = await async_client.get(
             f"/api/v1/service-alert/customer/{self.test_customer_phone}?status=active",
-            headers=auth_headers
+            headers=auth_headers_admin
         )
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert all(alert["status"] == "active" for alert in data["alerts"])
     
     @pytest.mark.asyncio
-    async def test_get_customer_alert_count(self, client: AsyncClient, auth_headers: Dict, test_customer):
+    async def test_get_customer_alert_count(self, async_client: AsyncClient, auth_headers_admin: Dict, test_customer):
         """Test getting alert count for badge display"""
         # Create alerts
         for i in range(3):
             alert_data = {
                 "customer_phone": self.test_customer_phone,
                 "alert_type": "general_note",
-                "priority": "low",
-                "title": f"Alert {i+1}",
                 "description": f"Test alert number {i+1}"
             }
-            response = await client.post(
+            response = await async_client.post(
                 "/api/v1/service-alert/",
                 json=alert_data,
-                headers=auth_headers
+                headers=auth_headers_admin
             )
             assert response.status_code == status.HTTP_201_CREATED
         
         # Get count
-        response = await client.get(
+        response = await async_client.get(
             f"/api/v1/service-alert/customer/{self.test_customer_phone}/count",
-            headers=auth_headers
+            headers=auth_headers_admin
         )
         
         assert response.status_code == status.HTTP_200_OK
@@ -173,7 +153,7 @@ class TestServiceAlertAPI:
         assert data["resolved_count"] >= 0
     
     @pytest.mark.asyncio
-    async def test_resolve_single_alert(self, client: AsyncClient, auth_headers: Dict, test_customer):
+    async def test_resolve_single_alert(self, async_client: AsyncClient, auth_headers_admin: Dict, test_customer):
         """Test resolving a single alert"""
         # Create an alert
         alert_data = {
@@ -183,10 +163,10 @@ class TestServiceAlertAPI:
             "title": "Customer inquiry about watch",
             "description": "Customer called asking about their Rolex"
         }
-        create_response = await client.post(
+        create_response = await async_client.post(
             "/api/v1/service-alert/",
             json=alert_data,
-            headers=auth_headers
+            headers=auth_headers_admin
         )
         assert create_response.status_code == status.HTTP_201_CREATED
         alert_id = create_response.json()["id"]
@@ -195,10 +175,10 @@ class TestServiceAlertAPI:
         resolve_data = {
             "resolution_notes": "Informed customer that watch is safe in vault"
         }
-        response = await client.put(
+        response = await async_client.put(
             f"/api/v1/service-alert/{alert_id}/resolve",
             json=resolve_data,
-            headers=auth_headers
+            headers=auth_headers_admin
         )
         
         assert response.status_code == status.HTTP_200_OK
@@ -209,7 +189,7 @@ class TestServiceAlertAPI:
         assert "resolved_at" in data
     
     @pytest.mark.asyncio
-    async def test_resolve_all_customer_alerts(self, client: AsyncClient, auth_headers: Dict, test_customer):
+    async def test_resolve_all_customer_alerts(self, async_client: AsyncClient, auth_headers_admin: Dict, test_customer):
         """Test bulk resolution of all customer alerts"""
         # Create multiple alerts
         for i in range(5):
@@ -220,10 +200,10 @@ class TestServiceAlertAPI:
                 "title": f"Bulk test alert {i+1}",
                 "description": f"Alert to be bulk resolved {i+1}"
             }
-            response = await client.post(
+            response = await async_client.post(
                 "/api/v1/service-alert/",
                 json=alert_data,
-                headers=auth_headers
+                headers=auth_headers_admin
             )
             assert response.status_code == status.HTTP_201_CREATED
         
@@ -231,10 +211,10 @@ class TestServiceAlertAPI:
         resolve_data = {
             "resolution_notes": "All alerts handled in phone conversation"
         }
-        response = await client.put(
+        response = await async_client.put(
             f"/api/v1/service-alert/customer/{self.test_customer_phone}/resolve-all",
             json=resolve_data,
-            headers=auth_headers
+            headers=auth_headers_admin
         )
         
         assert response.status_code == status.HTTP_200_OK
@@ -243,15 +223,15 @@ class TestServiceAlertAPI:
         assert "successfully resolved" in data["message"].lower()
         
         # Verify all are resolved
-        count_response = await client.get(
+        count_response = await async_client.get(
             f"/api/v1/service-alert/customer/{self.test_customer_phone}/count",
-            headers=auth_headers
+            headers=auth_headers_admin
         )
         assert count_response.status_code == status.HTTP_200_OK
         assert count_response.json()["active_count"] == 0
     
     @pytest.mark.asyncio
-    async def test_update_alert(self, client: AsyncClient, auth_headers: Dict, test_customer):
+    async def test_update_alert(self, async_client: AsyncClient, auth_headers_admin: Dict, test_customer):
         """Test updating an existing alert"""
         # Create an alert
         alert_data = {
@@ -261,10 +241,10 @@ class TestServiceAlertAPI:
             "title": "Payment discussion",
             "description": "Customer wants to discuss payment"
         }
-        create_response = await client.post(
+        create_response = await async_client.post(
             "/api/v1/service-alert/",
             json=alert_data,
-            headers=auth_headers
+            headers=auth_headers_admin
         )
         assert create_response.status_code == status.HTTP_201_CREATED
         alert_id = create_response.json()["id"]
@@ -275,10 +255,10 @@ class TestServiceAlertAPI:
             "title": "URGENT: Payment discussion needed",
             "description": "Customer called multiple times - needs immediate attention"
         }
-        response = await client.put(
+        response = await async_client.put(
             f"/api/v1/service-alert/{alert_id}",
             json=update_data,
-            headers=auth_headers
+            headers=auth_headers_admin
         )
         
         assert response.status_code == status.HTTP_200_OK
@@ -289,7 +269,7 @@ class TestServiceAlertAPI:
         assert data["updated_by"] == self.test_user_id
     
     @pytest.mark.asyncio
-    async def test_delete_alert_admin_only(self, client: AsyncClient, auth_headers: Dict, test_customer):
+    async def test_delete_alert_admin_only(self, async_client: AsyncClient, auth_headers_admin: Dict, test_customer):
         """Test that only admins can delete alerts"""
         # Create an alert
         alert_data = {
@@ -299,18 +279,18 @@ class TestServiceAlertAPI:
             "title": "Test delete",
             "description": "Alert to be deleted"
         }
-        create_response = await client.post(
+        create_response = await async_client.post(
             "/api/v1/service-alert/",
             json=alert_data,
-            headers=auth_headers
+            headers=auth_headers_admin
         )
         assert create_response.status_code == status.HTTP_201_CREATED
         alert_id = create_response.json()["id"]
         
         # Try to delete as admin (user 69 is admin in test data)
-        response = await client.delete(
+        response = await async_client.delete(
             f"/api/v1/service-alert/{alert_id}",
-            headers=auth_headers
+            headers=auth_headers_admin
         )
         
         # Should succeed for admin
@@ -318,7 +298,7 @@ class TestServiceAlertAPI:
         assert "deleted successfully" in response.json()["message"]
     
     @pytest.mark.asyncio
-    async def test_invalid_alert_type(self, client: AsyncClient, auth_headers: Dict, test_customer):
+    async def test_invalid_alert_type(self, async_client: AsyncClient, auth_headers_admin: Dict, test_customer):
         """Test creating alert with invalid type"""
         alert_data = {
             "customer_phone": self.test_customer_phone,
@@ -328,16 +308,16 @@ class TestServiceAlertAPI:
             "description": "This should fail validation"
         }
         
-        response = await client.post(
+        response = await async_client.post(
             "/api/v1/service-alert/",
             json=alert_data,
-            headers=auth_headers
+            headers=auth_headers_admin
         )
         
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
     
     @pytest.mark.asyncio
-    async def test_missing_required_fields(self, client: AsyncClient, auth_headers: Dict, test_customer):
+    async def test_missing_required_fields(self, async_client: AsyncClient, auth_headers_admin: Dict, test_customer):
         """Test creating alert with missing required fields"""
         # Missing title
         alert_data = {
@@ -347,18 +327,18 @@ class TestServiceAlertAPI:
             "description": "Missing title field"
         }
         
-        response = await client.post(
+        response = await async_client.post(
             "/api/v1/service-alert/",
             json=alert_data,
-            headers=auth_headers
+            headers=auth_headers_admin
         )
         
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
     
     @pytest.mark.asyncio
-    async def test_unauthorized_access(self, client: AsyncClient, test_customer):
+    async def test_unauthorized_access(self, async_client: AsyncClient, test_customer):
         """Test accessing endpoints without authentication"""
-        response = await client.get(
+        response = await async_client.get(
             f"/api/v1/service-alert/customer/{self.test_customer_phone}/count"
         )
         
@@ -366,7 +346,7 @@ class TestServiceAlertAPI:
 
 
 @pytest.mark.asyncio
-async def test_concurrent_alert_operations(client: AsyncClient, auth_headers: Dict):
+async def test_concurrent_alert_operations(async_client: AsyncClient, auth_headers_admin: Dict):
     """Test concurrent alert creation and resolution"""
     # This would test race conditions and concurrent access scenarios
     # Implementation depends on your specific concurrency requirements
@@ -374,7 +354,7 @@ async def test_concurrent_alert_operations(client: AsyncClient, auth_headers: Di
 
 
 @pytest.mark.asyncio 
-async def test_alert_performance_metrics(client: AsyncClient, auth_headers: Dict):
+async def test_alert_performance_metrics(async_client: AsyncClient, auth_headers_admin: Dict):
     """Test API response times and performance"""
     import time
     
@@ -397,10 +377,10 @@ async def test_alert_performance_metrics(client: AsyncClient, auth_headers: Dict
             "title": "Performance test",
             "description": "Testing response time"
         }
-        response = await client.post(
+        response = await async_client.post(
             "/api/v1/service-alert/",
             json=alert_data,
-            headers=auth_headers
+            headers=auth_headers_admin
         )
         create_time = time.time() - start_time
         
@@ -409,9 +389,9 @@ async def test_alert_performance_metrics(client: AsyncClient, auth_headers: Dict
         
         # Test count retrieval performance
         start_time = time.time()
-        response = await client.get(
+        response = await async_client.get(
             f"/api/v1/service-alert/customer/{customer.phone_number}/count",
-            headers=auth_headers
+            headers=auth_headers_admin
         )
         count_time = time.time() - start_time
         

@@ -21,6 +21,7 @@ from app.models.pawn_transaction_model import PawnTransaction
 from app.models.pawn_item_model import PawnItem
 from app.models.payment_model import Payment
 from app.models.extension_model import Extension
+from app.models.service_alert_model import ServiceAlert
 from app.core.config import settings
 
 
@@ -47,7 +48,7 @@ async def db_client():
     # Initialize Beanie with test database
     await init_beanie(
         database=database,
-        document_models=[User, Customer, PawnTransaction, PawnItem, Payment, Extension]
+        document_models=[User, Customer, PawnTransaction, PawnItem, Payment, Extension, ServiceAlert]
     )
     
     yield database
@@ -67,6 +68,7 @@ async def clean_db(db_client):
     await PawnItem.delete_all()
     await Payment.delete_all()
     await Extension.delete_all()
+    await ServiceAlert.delete_all()
     yield
     # Clean up after test
     await User.delete_all()
@@ -75,6 +77,7 @@ async def clean_db(db_client):
     await PawnItem.delete_all()
     await Payment.delete_all()
     await Extension.delete_all()
+    await ServiceAlert.delete_all()
 
 
 @pytest.fixture

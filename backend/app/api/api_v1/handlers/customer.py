@@ -21,6 +21,7 @@ from app.schemas.customer_schema import (
     CustomerStatsResponse, CustomerArchiveRequest, LoanLimitUpdateRequest, LoanLimitResponse
 )
 from app.services.customer_service import CustomerService
+from app.core.redis_cache import BusinessCache, cached_result, CacheConfig
 
 
 # Create router
@@ -144,10 +145,11 @@ async def get_customers_list(
         403: {"description": "Forbidden"}
     }
 )
+@cached_result(prefix="stats:customer:", ttl=CacheConfig.MEDIUM_TTL)
 async def get_customer_statistics(
     current_user: User = Depends(get_current_user)
 ) -> CustomerStatsResponse:
-    """Get customer statistics for dashboard"""
+    """Get customer statistics for dashboard with caching"""
     return await CustomerService.get_customer_statistics()
 
 
@@ -220,11 +222,12 @@ async def update_loan_limit_config(
         500: {"description": "Internal server error"}
     }
 )
+@cached_result(prefix="customer:", ttl=CacheConfig.LONG_TTL)
 async def get_customer_by_phone(
     phone_number: str,
     current_user: User = Depends(get_current_user)
 ) -> CustomerResponse:
-    """Get customer details by phone number"""
+    """Get customer details by phone number with caching"""
     try:
         # Validate phone number format
         if not phone_number.isdigit() or len(phone_number) != 10:
@@ -232,6 +235,11 @@ async def get_customer_by_phone(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid phone number format. Must be 10 digits."
             )
+        
+        # Try cache first
+        cached_customer = await BusinessCache.get_customer(phone_number)
+        if cached_customer:
+            return CustomerResponse.model_validate(cached_customer)
         
         customer = await CustomerService.get_customer_by_phone(phone_number)
         if not customer:
@@ -243,6 +251,10 @@ async def get_customer_by_phone(
         # Add computed properties before response
         customer_dict = customer.model_dump()
         customer_dict["can_borrow_amount"] = customer.can_borrow_amount
+        
+        # Cache the result
+        await BusinessCache.set_customer(phone_number, customer_dict)
+        
         return CustomerResponse.model_validate(customer_dict)
         
     except HTTPException:
@@ -298,6 +310,9 @@ async def update_customer(
             updated_by=current_user.user_id,
             is_admin=is_admin
         )
+        
+        # Invalidate cache after update
+        await BusinessCache.invalidate_customer(phone_number)
         
         # Add computed properties before response
         customer_dict = customer.model_dump()
