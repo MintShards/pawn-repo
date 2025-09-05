@@ -29,11 +29,6 @@ class ExtensionBase(BaseModel):
         max_length=200,
         description="Reason for extension"
     )
-    internal_notes: Optional[str] = Field(
-        None,
-        max_length=500,
-        description="Internal staff notes about extension"
-    )
 
 
 class ExtensionCreate(ExtensionBase):

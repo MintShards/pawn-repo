@@ -18,11 +18,6 @@ class PaymentBase(BaseModel):
         le=10000,
         description="Payment amount in whole dollars (max $10,000)"
     )
-    internal_notes: Optional[str] = Field(
-        None,
-        max_length=500,
-        description="Internal staff notes about payment"
-    )
 
 
 class PaymentCreate(PaymentBase):

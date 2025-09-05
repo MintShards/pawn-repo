@@ -63,7 +63,6 @@ class PaymentService:
         transaction_id: str,
         payment_amount: int,
         processed_by_user_id: str,
-        internal_notes: Optional[str] = None,
         client_timezone: Optional[str] = None
     ) -> Payment:
         """
@@ -73,7 +72,6 @@ class PaymentService:
             transaction_id: Transaction to make payment on
             payment_amount: Amount paid in whole dollars (cash only)
             processed_by_user_id: Staff member processing payment
-            internal_notes: Optional internal notes about the payment
             
         Returns:
             Payment: Created payment record with updated balances
@@ -157,8 +155,7 @@ class PaymentService:
                 interest_portion=interest_portion,
                 extension_fees_portion=extension_fees_portion,
                 payment_method="cash",
-                payment_date=payment_date_utc,
-                internal_notes=internal_notes
+                payment_date=payment_date_utc
             )
             
             # Save payment within transaction session

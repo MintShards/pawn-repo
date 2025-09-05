@@ -66,7 +66,6 @@ class ExtensionService:
         extension_fee_per_month: int,
         processed_by_user_id: str,
         extension_reason: Optional[str] = None,
-        internal_notes: Optional[str] = None,
         client_timezone: Optional[str] = None
     ) -> Extension:
         """
@@ -78,7 +77,6 @@ class ExtensionService:
             extension_fee_per_month: Fee per month in whole dollars (staff-adjustable)
             processed_by_user_id: Staff member processing extension
             extension_reason: Optional reason for extension
-            internal_notes: Optional internal staff notes
             
         Returns:
             Extension: Created extension record with updated transaction
@@ -163,8 +161,7 @@ class ExtensionService:
                 total_extension_fee=total_extension_fee,
                 original_maturity_date=fresh_transaction.maturity_date,
                 extension_date=extension_date_utc,
-                extension_reason=extension_reason,
-                internal_notes=internal_notes
+                extension_reason=extension_reason
             )
             
             # Calculate dates before saving (needed for audit entry)

@@ -3,7 +3,6 @@ import { Calendar, X, Calculator, AlertCircle, CheckCircle, Clock, DollarSign } 
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
-import { Textarea } from '../../ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '../../ui/card';
 import { Alert, AlertDescription } from '../../ui/alert';
@@ -34,8 +33,7 @@ const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
     isFormValid
   } = useFormValidation({
     extension_months: '1',
-    extension_fee_per_month: transaction?.monthly_interest_amount?.toString() || '0',
-    internal_notes: ''
+    extension_fee_per_month: transaction?.monthly_interest_amount?.toString() || '0'
   }, formValidators);
   
   const [eligibility, setEligibility] = useState(null);
@@ -163,8 +161,7 @@ const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
       const extensionData = {
         transaction_id: transaction.transaction_id,
         extension_months: parseInt(formData.extension_months),
-        extension_fee_per_month: Math.round(parseFloat(formData.extension_fee_per_month)),
-        internal_notes: formData.internal_notes.trim() || null
+        extension_fee_per_month: Math.round(parseFloat(formData.extension_fee_per_month))
       };
 
       const result = await extensionService.processExtension(extensionData);
@@ -306,19 +303,6 @@ const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
           </div>
 
 
-          {/* Internal Notes */}
-          <div className="space-y-2">
-            <Label htmlFor="notes">Internal Notes</Label>
-            <Textarea
-              id="notes"
-              value={formData.internal_notes}
-              onChange={(e) => handleInputChange('internal_notes', e.target.value)}
-              placeholder="Optional internal notes..."
-              rows={3}
-              disabled={submitting}
-              className="border-slate-300 focus:border-extension-accent focus:ring-0 focus:ring-offset-0 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
-            />
-          </div>
 
           {/* Eligibility Check - Only show if there are issues or warnings */}
           {eligibility && !eligibility.is_eligible && (

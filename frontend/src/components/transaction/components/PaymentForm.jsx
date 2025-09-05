@@ -3,7 +3,6 @@ import { CreditCard, X, AlertCircle, CheckCircle, DollarSign, Calculator } from 
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
-import { Textarea } from '../../ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '../../ui/card';
 import { Badge } from '../../ui/badge';
 import { Alert, AlertDescription } from '../../ui/alert';
@@ -38,8 +37,7 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
     getFieldSuggestions,
     isFormValid
   } = useFormValidation({
-    payment_amount: '',
-    internal_notes: ''
+    payment_amount: ''
   }, formValidators);
   
   const [balance, setBalance] = useState(null);
@@ -143,8 +141,7 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
 
       const paymentData = {
         transaction_id: transaction.transaction_id,
-        payment_amount: Math.round(parseFloat(formData.payment_amount)), // Convert to integer dollars
-        internal_notes: formData.internal_notes.trim() || null
+        payment_amount: Math.round(parseFloat(formData.payment_amount)) // Convert to integer dollars
       };
 
       const result = await paymentService.processPayment(paymentData);
@@ -381,18 +378,6 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
           )}
 
 
-          {/* Internal Notes */}
-          <div className="space-y-2">
-            <Label htmlFor="notes">Internal Notes</Label>
-            <Textarea
-              id="notes"
-              value={formData.internal_notes}
-              onChange={(e) => handleInputChange('internal_notes', e.target.value)}
-              placeholder="Optional payment notes..."
-              rows={3}
-              className="border-slate-300 focus:border-payment-accent focus:ring-0 focus:ring-offset-0 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
-            />
-          </div>
 
           {/* Form Validation Errors */}
           {Object.keys(formValidators).map(field => {
