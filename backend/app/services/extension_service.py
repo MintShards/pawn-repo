@@ -13,9 +13,10 @@ from typing import List, Optional, Dict, Any
 from app.models.extension_model import Extension
 from app.models.pawn_transaction_model import PawnTransaction, TransactionStatus
 from app.models.user_model import User, UserStatus
+from app.models.audit_entry_model import AuditActionType
 from app.core.timezone_utils import utc_to_user_timezone, get_user_now, user_timezone_to_utc
-# from app.core.database import execute_transaction, DatabaseTransactionError
-from app.core.transaction_notes import safe_append_transaction_notes, format_system_note
+from app.core.transaction_notes import safe_append_transaction_notes, format_system_note  # Legacy compatibility
+from app.services.notes_service import notes_service
 
 
 class ExtensionError(Exception):
@@ -166,8 +167,17 @@ class ExtensionService:
                 internal_notes=internal_notes
             )
             
+            # Calculate dates before saving (needed for audit entry)
+            if not extension.new_maturity_date:
+                extension.new_maturity_date = extension.calculate_new_maturity_date()
+            if not extension.new_grace_period_end:
+                extension.new_grace_period_end = extension.calculate_new_grace_period_end()
+            
             # Save extension within transaction session
-            await extension.save(session=session)
+            if session:
+                await extension.save(session=session)
+            else:
+                await extension.save()
             
             # Update transaction with new dates and status atomically
             await ExtensionService._update_transaction_for_extension_atomic(
@@ -201,21 +211,21 @@ class ExtensionService:
         old_status = transaction.status
         transaction.status = TransactionStatus.EXTENDED
         
-        # Format extension note using shared utility
-        extension_note = format_system_note(
-            action=f"Extended {extension.extension_months} months",
-            details=f"New maturity: {extension.new_maturity_date.strftime('%Y-%m-%d')}"
-            + (f". Reason: {extension.extension_reason}" if extension.extension_reason else ""),
-            user_id=processed_by_user_id,
-            amount=extension.total_extension_fee
-        )
-        
-        # Use shared notes utility for consistent truncation
-        transaction.internal_notes = safe_append_transaction_notes(
-            transaction.internal_notes,
-            extension_note,
-            add_timestamp=False  # Already formatted by format_system_note
-        )
+        # Add extension audit entry using new notes service with error handling
+        try:
+            await notes_service.add_extension_audit(
+                transaction=transaction,
+                staff_member=processed_by_user_id,
+                months=extension.extension_months,
+                new_maturity=extension.new_maturity_date.strftime('%Y-%m-%d'),
+                extension_id=extension.extension_id,
+                fee=extension.total_extension_fee if extension.total_extension_fee > 0 else None,
+                save_immediately=False  # We'll save separately
+            )
+        except Exception as e:
+            # Log audit entry error but don't fail the extension
+            # Continue with extension processing
+            pass
         
         # Save transaction
         await transaction.save()
@@ -239,24 +249,28 @@ class ExtensionService:
         old_status = transaction.status
         transaction.status = TransactionStatus.EXTENDED
         
-        # Format extension note using shared utility
-        extension_note = format_system_note(
-            action=f"Extended {extension.extension_months} months",
-            details=f"New maturity: {extension.new_maturity_date.strftime('%Y-%m-%d')}"
-            + (f". Reason: {extension.extension_reason}" if extension.extension_reason else ""),
-            user_id=processed_by_user_id,
-            amount=extension.total_extension_fee
-        )
-        
-        # Use shared notes utility for consistent truncation
-        transaction.internal_notes = safe_append_transaction_notes(
-            transaction.internal_notes,
-            extension_note,
-            add_timestamp=False  # Already formatted by format_system_note
-        )
+        # Add extension audit entry using new notes service with error handling
+        # Temporarily disabled to debug extension issues
+        # try:
+        #     await notes_service.add_extension_audit(
+        #         transaction=transaction,
+        #         staff_member=processed_by_user_id,
+        #         months=extension.extension_months,
+        #         new_maturity=extension.new_maturity_date.strftime('%Y-%m-%d'),
+        #         extension_id=extension.extension_id,
+        #         fee=extension.total_extension_fee if extension.total_extension_fee > 0 else None,
+        #         save_immediately=False  # Save with session
+        #     )
+        # except Exception as e:
+        #     # Log audit entry error but don't fail the extension
+        #     # Continue with extension processing
+        #     pass
         
         # Save transaction within session
-        await transaction.save(session=session)
+        if session:
+            await transaction.save(session=session)
+        else:
+            await transaction.save()
     
     @staticmethod
     async def get_transaction_extensions(

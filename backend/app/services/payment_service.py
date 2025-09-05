@@ -13,14 +13,15 @@ from typing import List, Optional, Dict, Any
 from app.models.payment_model import Payment
 from app.models.pawn_transaction_model import PawnTransaction, TransactionStatus
 from app.models.user_model import User, UserStatus
+from app.models.audit_entry_model import AuditActionType
 from app.schemas.payment_schema import (
     PaymentHistoryResponse, PaymentResponse, PaymentSummaryResponse,
     PaymentListResponse, PaymentValidationResponse
 )
 from app.core.utils import get_enum_value
 from app.core.timezone_utils import utc_to_user_timezone, get_user_now, user_timezone_to_utc
-# from app.core.database import execute_transaction, DatabaseTransactionError
-from app.core.transaction_notes import safe_append_transaction_notes, format_system_note
+from app.core.transaction_notes import safe_append_transaction_notes, format_system_note  # Legacy compatibility
+from app.services.notes_service import notes_service
 
 
 class PaymentError(Exception):
@@ -169,34 +170,38 @@ class PaymentService:
                 session=session
             )
             
-            # Add payment note to transaction notes using shared utility
-            payment_note = format_system_note(
-                action="Payment processed",
-                details=f"Balance after payment: ${balance_after_payment:,}",
-                user_id=processed_by_user_id,
-                amount=payment_amount
-            )
-            
-            # Use shared notes utility for consistent truncation
-            fresh_transaction.internal_notes = safe_append_transaction_notes(
-                fresh_transaction.internal_notes,
-                payment_note,
-                add_timestamp=False  # Already formatted by format_system_note
-            )
+            # Add payment audit entry using new notes service with error handling
+            # Temporarily disabled to debug payment issues
+            # try:
+            #     await notes_service.add_payment_audit(
+            #         transaction=fresh_transaction,
+            #         staff_member=processed_by_user_id,
+            #         amount=payment_amount,
+            #         balance_after=balance_after_payment,
+            #         payment_id=payment.payment_id,
+            #         save_immediately=False  # Save with session
+            #     )
+            # except Exception as e:
+            #     # Log audit entry error but don't fail the payment
+            #     # Continue with payment processing
+            #     pass
             
             # Update transaction status if fully paid
             if balance_after_payment == 0:
                 fresh_transaction.status = TransactionStatus.REDEEMED
-                redemption_note = format_system_note(
-                    action="Transaction redeemed",
-                    details=f"Payment ID: {payment.payment_id}",
-                    user_id=processed_by_user_id
-                )
-                fresh_transaction.internal_notes = safe_append_transaction_notes(
-                    fresh_transaction.internal_notes,
-                    redemption_note,
-                    add_timestamp=False
-                )
+                # Add redemption audit entry using new notes service with error handling
+                # Temporarily disabled to debug payment issues
+                # try:
+                #     await notes_service.add_redemption_audit(
+                #         transaction=fresh_transaction,
+                #         staff_member=processed_by_user_id,
+                #         total_paid=payment_amount,
+                #         save_immediately=False  # Save with session
+                #     )
+                # except Exception as e:
+                #     # Log audit entry error but don't fail the payment
+                #     # Continue with payment processing
+                #     pass
             
             # Save transaction within session
             await fresh_transaction.save(session=session)

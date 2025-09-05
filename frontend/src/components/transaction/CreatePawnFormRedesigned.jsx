@@ -348,7 +348,9 @@ const CreatePawnFormRedesigned = ({ onSuccess, onCancel }) => {
         }))
       };
 
+      // Submit transaction data
       const result = await transactionService.createTransaction(transactionData);
+      // Transaction created successfully
       
       // Clear draft on success
       localStorage.removeItem('pawnTransactionDraft');
@@ -1259,10 +1261,13 @@ const CreatePawnFormRedesigned = ({ onSuccess, onCancel }) => {
                       <Textarea
                         value={formData.internal_notes}
                         onChange={(e) => updateField('internal_notes', e.target.value)}
-                        placeholder="Add any special instructions, conditions, or notes about this transaction..."
+                        placeholder="Add initial staff notes about this transaction (e.g., special instructions, customer requests, item conditions)..."
                         rows={4}
                         className="resize-none bg-white/70 dark:bg-slate-700/70 border-slate-200 dark:border-slate-600 focus:border-slate-400 dark:focus:border-slate-500"
                       />
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
+                        Additional notes can be added anytime from the transaction detail view.
+                      </p>
                     </CardContent>
                   </Card>
                   

@@ -304,7 +304,7 @@ const TransactionList = ({
   useEffect(() => {
     loadTransactions();
     fetchAllTransactionsCounts(); // Fetch counts for filter badges
-  }, [loadTransactions]);
+  }, [loadTransactions, fetchAllTransactionsCounts]);
 
 
   // Reset to page 1 when search or filters change
@@ -385,9 +385,6 @@ const TransactionList = ({
   const effectiveTotalTransactions = totalTransactions || allTransactionsCounts.all || 0;
   const totalPages = Math.ceil(effectiveTotalTransactions / transactionsPerPage);
 
-  const handleSearch = () => {
-    loadTransactions();
-  };
 
   const handleStatusFilter = (status) => {
     setFilters(prev => ({ 

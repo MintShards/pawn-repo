@@ -14,6 +14,7 @@ from app.api.api_v1.handlers.pawn_transaction import pawn_transaction_router
 from app.api.api_v1.handlers.payment import payment_router
 from app.api.api_v1.handlers.extension import extension_router
 from app.api.api_v1.handlers.service_alert import service_alert_router
+from app.api.api_v1.handlers.notes import notes_router
 from app.api.api_v1.handlers.database_health import router as database_health_router
 
 # Main API v1 router
@@ -73,6 +74,13 @@ router.include_router(
     service_alert_router,
     prefix="/service-alert",
     tags=["Service Alert Management"],
+    responses={403: {"description": "Staff or Admin access required"}}
+)
+
+router.include_router(
+    notes_router,
+    prefix="/notes",
+    tags=["Notes Management"],
     responses={403: {"description": "Staff or Admin access required"}}
 )
 

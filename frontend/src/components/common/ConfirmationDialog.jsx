@@ -55,9 +55,9 @@ const ConfirmationDialog = ({
             {getIcon()}
             <AlertDialogTitle>{title}</AlertDialogTitle>
           </div>
-          {description && (
-            <AlertDialogDescription>{description}</AlertDialogDescription>
-          )}
+          <AlertDialogDescription>
+            {description || 'Please confirm this action.'}
+          </AlertDialogDescription>
         </AlertDialogHeader>
         
         {children && (

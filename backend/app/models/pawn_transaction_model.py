@@ -9,9 +9,12 @@ for simplified calculation and accuracy.
 from beanie import Document, Indexed
 from pydantic import Field, field_validator, ConfigDict
 from datetime import datetime, timedelta, UTC
-from typing import Optional
+from typing import Optional, List
 from uuid import uuid4
 from enum import Enum
+
+# Import the new AuditEntry model
+from .audit_entry_model import AuditEntry
 
 
 class TransactionStatus(str, Enum):
@@ -89,10 +92,23 @@ class PawnTransaction(Document):
         min_length=1,
         description="Physical storage location (e.g., 'Shelf A-5')"
     )
+    # Legacy combined notes field (maintained for backward compatibility)
     internal_notes: Optional[str] = Field(
         default=None,
         max_length=500,
-        description="Internal staff notes about the transaction"
+        description="Legacy combined notes field for backward compatibility"
+    )
+    
+    # New separate notes architecture
+    manual_notes: Optional[str] = Field(
+        default=None,
+        max_length=5000,
+        description="Manual staff notes (preserved indefinitely, high character limit)"
+    )
+    
+    system_audit_log: List[AuditEntry] = Field(
+        default_factory=list,
+        description="Structured system audit trail with unlimited entries"
     )
     
     # Timestamps
@@ -116,7 +132,17 @@ class PawnTransaction(Document):
                 "loan_amount": 500,
                 "monthly_interest_amount": 50,
                 "storage_location": "Shelf A-5",
-                "internal_notes": "Customer needs quick cash for rent"
+                "internal_notes": "[2024-01-15 14:30 UTC by 01] Customer needs quick cash for rent",
+                "manual_notes": "[2024-01-15 14:30 UTC by 01] Customer needs quick cash for rent. Called back next week to check on situation.",
+                "system_audit_log": [
+                    {
+                        "action_type": "transaction_created",
+                        "staff_member": "01",
+                        "action_summary": "Transaction created",
+                        "details": "Initial loan setup completed",
+                        "amount": 500
+                    }
+                ]
             }
         }
     )
@@ -269,6 +295,160 @@ class PawnTransaction(Document):
         
         return months_elapsed
     
+    # Notes Management Methods
+    
+    def add_manual_note(self, note: str, staff_member: str) -> None:
+        """
+        Add a manual staff note to the transaction.
+        
+        Manual notes are preserved indefinitely and have a high character limit.
+        They are kept separate from system audit logs to prevent truncation.
+        
+        Args:
+            note: The manual note to add
+            staff_member: User ID of the staff member adding the note
+        """
+        if not note or not note.strip():
+            return
+        
+        note = note.strip()
+        timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+        formatted_note = f"[{timestamp} by {staff_member}] {note}"
+        
+        if self.manual_notes:
+            self.manual_notes = f"{self.manual_notes}\n{formatted_note}".strip()
+        else:
+            self.manual_notes = formatted_note
+        
+        # Update legacy field for backward compatibility
+        self._update_legacy_internal_notes()
+    
+    def add_system_audit_entry(self, audit_entry: AuditEntry) -> None:
+        """
+        Add a system audit entry to the structured audit log.
+        
+        System audit entries are stored as structured data with no character limits.
+        They maintain full transaction history for compliance and debugging.
+        
+        Args:
+            audit_entry: AuditEntry instance with system event details
+        """
+        if not self.system_audit_log:
+            self.system_audit_log = []
+        
+        self.system_audit_log.append(audit_entry)
+        
+        # Update legacy field for backward compatibility
+        self._update_legacy_internal_notes()
+    
+    def get_combined_notes_display(self, max_length: Optional[int] = None) -> str:
+        """
+        Generate a combined view of manual notes and system audit log for display.
+        
+        This method provides a unified view while keeping the underlying data separate.
+        Used for UI display and backward compatibility.
+        
+        Args:
+            max_length: Optional maximum length for truncation
+            
+        Returns:
+            Combined notes string formatted for display
+        """
+        parts = []
+        
+        # Add manual notes first (highest priority)
+        if self.manual_notes:
+            parts.append("MANUAL NOTES:")
+            parts.append(self.manual_notes)
+            parts.append("")  # Add spacing
+        
+        # Add recent system audit entries
+        if self.system_audit_log:
+            parts.append("SYSTEM ACTIVITY:")
+            # Show most recent entries first, limit to last 10 for display
+            recent_entries = sorted(self.system_audit_log, key=lambda x: x.timestamp, reverse=True)[:10]
+            
+            for entry in recent_entries:
+                parts.append(entry.to_legacy_string())
+        
+        combined = "\n".join(parts).strip()
+        
+        # Apply truncation if requested
+        if max_length and len(combined) > max_length:
+            # Always prioritize manual notes in truncation
+            if self.manual_notes and len(self.manual_notes) < max_length - 100:
+                # Keep all manual notes, truncate system entries
+                manual_section = f"MANUAL NOTES:\n{self.manual_notes}"
+                available_for_system = max_length - len(manual_section) - 20
+                
+                if available_for_system > 50 and self.system_audit_log:
+                    system_preview = "\n\nSYSTEM ACTIVITY (recent):\n"
+                    recent_entry = self.system_audit_log[-1] if self.system_audit_log else None
+                    if recent_entry:
+                        entry_text = recent_entry.to_legacy_string()
+                        if len(entry_text) <= available_for_system - 20:
+                            system_preview += entry_text
+                            if len(self.system_audit_log) > 1:
+                                system_preview += f"\n... and {len(self.system_audit_log) - 1} more entries"
+                        else:
+                            system_preview += f"... {len(self.system_audit_log)} system entries (see full log)"
+                    
+                    combined = manual_section + system_preview
+                else:
+                    combined = manual_section
+            else:
+                # Truncate entire combined view
+                combined = combined[:max_length-3] + "..."
+        
+        return combined
+    
+    def _update_legacy_internal_notes(self) -> None:
+        """
+        Update the legacy internal_notes field for backward compatibility.
+        
+        This maintains compatibility with existing code that expects internal_notes
+        while the new separate architecture is being adopted.
+        """
+        # Generate a combined view limited to the legacy 500-character limit
+        combined = self.get_combined_notes_display(max_length=500)
+        self.internal_notes = combined if combined else None
+    
+    def get_manual_notes_only(self) -> str:
+        """
+        Get only the manual staff notes without system entries.
+        
+        Returns:
+            Manual notes string or empty string if none
+        """
+        return self.manual_notes or ""
+    
+    def get_system_audit_summary(self, limit: int = 20) -> List[str]:
+        """
+        Get a summary of recent system audit entries.
+        
+        Args:
+            limit: Maximum number of entries to return
+            
+        Returns:
+            List of formatted audit entry strings
+        """
+        if not self.system_audit_log:
+            return []
+        
+        # Sort by timestamp (most recent first)
+        recent_entries = sorted(self.system_audit_log, key=lambda x: x.timestamp, reverse=True)[:limit]
+        
+        return [entry.to_legacy_string() for entry in recent_entries]
+    
+    def count_audit_entries(self) -> int:
+        """
+        Count the total number of system audit entries.
+        
+        Returns:
+            Number of audit entries
+        """
+        return len(self.system_audit_log) if self.system_audit_log else 0
+    
     def update_status(self) -> None:
         """
         Update transaction status based on current date.
@@ -310,6 +490,9 @@ class PawnTransaction(Document):
         
         # Calculate total due
         self.calculate_total_due()
+        
+        # Update legacy internal_notes field for backward compatibility
+        self._update_legacy_internal_notes()
         
         # Call parent save
         await super().save(*args, **kwargs)

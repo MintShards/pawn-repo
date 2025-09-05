@@ -154,6 +154,14 @@ class PawnTransactionService:
                 pawn_date=pawn_date_utc
             )
             
+            # If initial notes were provided, also add them to the new notes architecture
+            if internal_notes and internal_notes.strip():
+                # Format the note with timestamp and user ID for the new system
+                from datetime import datetime, UTC
+                now_utc = datetime.now(UTC)
+                formatted_note = f"[{now_utc.strftime('%Y-%m-%d %H:%M UTC')} by {created_by_user_id}] {internal_notes.strip()}"
+                transaction.manual_notes = formatted_note
+            
             # Calculate maturity date using user's timezone calendar
             if client_timezone:
                 transaction.maturity_date = add_months_user_timezone(pawn_date_utc, 3, client_timezone)

@@ -16,6 +16,9 @@ from .payment_model import Payment
 from .extension_model import Extension
 from .service_alert_model import ServiceAlert
 
+# Audit and notes models
+from .audit_entry_model import AuditEntry, AuditActionType
+
 __all__ = [
     "User",
     "Customer",
@@ -23,5 +26,7 @@ __all__ = [
     "PawnItem",
     "Payment",
     "Extension",
-    "ServiceAlert"
+    "ServiceAlert",
+    "AuditEntry",
+    "AuditActionType"
 ]

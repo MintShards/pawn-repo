@@ -1,6 +1,6 @@
 import React from 'react';
 import { Loader2 } from 'lucide-react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog';
 
 const LoadingDialog = ({ 
   open, 
@@ -20,13 +20,13 @@ const LoadingDialog = ({
             <Loader2 className="h-5 w-5 animate-spin" />
             <span>{title}</span>
           </DialogTitle>
+          <DialogDescription>
+            {description}
+          </DialogDescription>
         </DialogHeader>
         
         <div className="py-6">
           <div className="text-center">
-            <div className="text-sm text-muted-foreground mb-4">
-              {description}
-            </div>
             
             {progress && (
               <div className="space-y-2">

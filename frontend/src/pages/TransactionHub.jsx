@@ -16,7 +16,6 @@ import {
   Calendar,
   Package,
   Phone,
-  RefreshCw,
   BarChart3,
   Mail,
 } from 'lucide-react';
@@ -33,9 +32,10 @@ import CreatePawnDialogRedesigned from '../components/transaction/CreatePawnDial
 import PaymentForm from '../components/transaction/components/PaymentForm';
 import ExtensionForm from '../components/transaction/components/ExtensionForm';
 import StatusUpdateForm from '../components/transaction/components/StatusUpdateForm';
-import { formatTransactionId, formatExtensionId, formatStorageLocation, formatCurrency } from '../utils/transactionUtils';
+import TransactionNotesDisplay from '../components/transaction/TransactionNotesDisplay';
+import { formatTransactionId, formatStorageLocation, formatCurrency } from '../utils/transactionUtils';
 import { getRoleTitle, getUserDisplayString } from '../utils/roleUtils';
-import { formatLocalDate, formatRedemptionDate, formatBusinessDate } from '../utils/timezoneUtils';
+import { formatRedemptionDate, formatBusinessDate } from '../utils/timezoneUtils';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '../components/ui/resizable';
 import { ScrollArea } from '../components/ui/scroll-area';
 import transactionService from '../services/transactionService';
@@ -78,7 +78,7 @@ const TransactionHub = () => {
     if (!user && fetchUserDataIfNeeded) {
       fetchUserDataIfNeeded();
     }
-  }, []); // Only run once on mount
+  }, [user, fetchUserDataIfNeeded]); // Only run once on mount
 
   // Fetch transaction stats
   useEffect(() => {
@@ -182,6 +182,7 @@ const TransactionHub = () => {
       // Fetch comprehensive transaction summary with items and balance (with cache busting)
       const bustCacheUrl = `/api/v1/pawn-transaction/${transaction.transaction_id}/summary?_t=${Date.now()}`;
       const fullTransaction = await authService.apiRequest(bustCacheUrl, { method: 'GET' });
+      // Transaction details loaded successfully
       
       // Fetch customer details if available
       const customerPhone = transaction.customer_id || transaction.customer_phone;
@@ -1148,61 +1149,18 @@ const TransactionHub = () => {
                             </CardContent>
                           </Card>
 
-                          {/* Internal Notes Section */}
-                          {(() => {
-                            const internalNotes = getTransactionField('internal_notes');
-                            if (!internalNotes) return null;
-                            
-                            // Filter out automated entries (extensions, payments, status changes)
-                            const lines = internalNotes.split('\n');
-                            const filteredLines = [];
-                            
-                            // First, try to extract any manual notes (lines without timestamps)
-                            // These are important and should be preserved
-                            for (const line of lines) {
-                              // Skip empty lines and ellipsis
-                              if (!line.trim() || line.trim() === '...') continue;
-                              
-                              // If it doesn't contain a system timestamp, it's likely a manual note
-                              if (!line.match(/\[\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC by [^\]]+\]/)) {
-                                filteredLines.push(line);
+                          {/* Transaction Notes Section */}
+                          <TransactionNotesDisplay 
+                            transaction={selectedTransaction?.transaction || selectedTransaction}
+                            onNotesUpdate={() => {
+                              // Refresh transaction data when notes are updated
+                              if (selectedTransaction) {
+                                // You might want to refresh the transaction data here
+                                // This depends on how your transaction data is managed
+                                // Notes updated successfully
                               }
-                            }
-                            
-                            const filteredNotes = filteredLines.join('\n').trim();
-                            
-                            // Check if notes were truncated (starts with ...)
-                            const isTruncated = internalNotes.trim().startsWith('...');
-                            
-                            // Only show if there are notes after filtering or if truncation detected
-                            if (!filteredNotes && !isTruncated) return null;
-                            
-                            return (
-                              <Card className="bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800">
-                                <CardHeader className="pb-2">
-                                  <CardTitle className="flex items-center space-x-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
-                                    <FileText className="w-4 h-4 text-amber-600" />
-                                    <span>Internal Notes</span>
-                                    {isTruncated && (
-                                      <span className="text-xs text-red-600 dark:text-red-400">(Truncated)</span>
-                                    )}
-                                  </CardTitle>
-                                </CardHeader>
-                                <CardContent className="pt-0">
-                                  {filteredNotes ? (
-                                    <div className="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap">
-                                      {filteredNotes}
-                                    </div>
-                                  ) : isTruncated ? (
-                                    <div className="text-sm text-red-600 dark:text-red-400 italic">
-                                      Original notes were truncated due to too many system entries. 
-                                      Manual notes may have been lost.
-                                    </div>
-                                  ) : null}
-                                </CardContent>
-                              </Card>
-                            );
-                          })()}
+                            }}
+                          />
                         </div>
                       </ScrollArea>
                     </div>

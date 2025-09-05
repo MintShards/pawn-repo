@@ -3,12 +3,19 @@ Transaction Notes Utility
 
 Shared utility functions for consistent internal notes handling across all services.
 Provides standardized truncation, validation, and formatting for transaction notes.
+
+NOTE: This module now provides backward compatibility wrappers around the new 
+separate notes architecture. New code should use NotesService directly.
 """
 
 # Standard library imports
 from typing import Optional
 from datetime import datetime, UTC
 import re
+
+# Import new notes service
+from app.services.notes_service import notes_service
+from app.models.audit_entry_model import AuditActionType
 
 
 class NotesError(Exception):
@@ -345,3 +352,149 @@ TRUNCATION_ELLIPSIS = "..."
 # Validation patterns
 TIMESTAMP_PATTERN = re.compile(r'\[\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC(?:\s+by\s+\w+)?\]')
 SYSTEM_NOTE_PATTERN = re.compile(r'\[\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC(?:\s+by\s+\w+)?\]\s+(.+)')
+
+
+# ===============================================================================
+# BACKWARD COMPATIBILITY FUNCTIONS
+# 
+# These functions maintain the existing API while redirecting to the new 
+# separate notes architecture. They should be used during migration period.
+# ===============================================================================
+
+async def add_system_note_to_transaction(
+    transaction,
+    action: str,
+    staff_member: str,
+    details: Optional[str] = None,
+    amount: Optional[int] = None,
+    save_immediately: bool = True
+) -> None:
+    """
+    Backward compatibility wrapper for adding system notes.
+    
+    DEPRECATED: Use NotesService.add_system_audit() instead.
+    
+    Args:
+        transaction: PawnTransaction instance  
+        action: Action description
+        staff_member: User ID
+        details: Optional details
+        amount: Optional amount
+        save_immediately: Whether to save transaction
+    """
+    # Determine action type from action string
+    action_lower = action.lower()
+    if 'payment' in action_lower:
+        action_type = AuditActionType.PAYMENT_PROCESSED
+    elif 'extension' in action_lower:
+        action_type = AuditActionType.EXTENSION_APPLIED
+    elif 'status' in action_lower:
+        action_type = AuditActionType.STATUS_CHANGED
+    elif 'redemption' in action_lower or 'redeemed' in action_lower:
+        action_type = AuditActionType.REDEMPTION_COMPLETED
+    else:
+        action_type = AuditActionType.SYSTEM_NOTIFICATION
+    
+    await notes_service.add_system_audit(
+        transaction=transaction,
+        action_type=action_type,
+        staff_member=staff_member,
+        action_summary=action,
+        details=details,
+        amount=amount,
+        save_immediately=save_immediately
+    )
+
+
+async def add_manual_note_to_transaction(
+    transaction,
+    note: str,
+    staff_member: str,
+    save_immediately: bool = True
+) -> None:
+    """
+    Backward compatibility wrapper for adding manual notes.
+    
+    DEPRECATED: Use NotesService.add_manual_note() instead.
+    
+    Args:
+        transaction: PawnTransaction instance
+        note: Manual note text
+        staff_member: User ID
+        save_immediately: Whether to save transaction
+    """
+    await notes_service.add_manual_note(
+        transaction=transaction,
+        note=note,
+        staff_member=staff_member,
+        save_immediately=save_immediately
+    )
+
+
+def safe_append_transaction_notes_new_architecture(
+    transaction,
+    new_note: str,
+    staff_member: str,
+    is_system_note: bool = True,
+    add_timestamp: bool = True,
+    user_id: Optional[str] = None
+) -> str:
+    """
+    Enhanced version of safe_append_transaction_notes that uses new architecture.
+    
+    This function determines whether the note is a system audit entry or manual note
+    and routes it to the appropriate storage mechanism.
+    
+    Args:
+        transaction: PawnTransaction instance
+        new_note: Note content
+        staff_member: User ID adding the note
+        is_system_note: Whether this is a system-generated note
+        add_timestamp: Whether to add timestamp (handled by new architecture)
+        user_id: Legacy parameter for compatibility
+        
+    Returns:
+        Combined notes string for backward compatibility
+    """
+    # Use staff_member from parameter, fallback to user_id for compatibility
+    user = staff_member or user_id or "unknown"
+    
+    if is_system_note:
+        # This is a system note - parse it to create proper audit entry
+        action_type = AuditActionType.SYSTEM_NOTIFICATION
+        
+        # Try to determine action type from note content
+        note_lower = new_note.lower()
+        if 'payment' in note_lower:
+            action_type = AuditActionType.PAYMENT_PROCESSED
+        elif 'extension' in note_lower:
+            action_type = AuditActionType.EXTENSION_APPLIED
+        elif 'status' in note_lower:
+            action_type = AuditActionType.STATUS_CHANGED
+        elif 'redeemed' in note_lower:
+            action_type = AuditActionType.REDEMPTION_COMPLETED
+        
+        # Extract amount if present
+        amount = notes_service._extract_amount(new_note)
+        
+        # Create audit entry (don't save immediately - let caller handle)
+        from app.models.audit_entry_model import AuditEntry
+        audit_entry = AuditEntry(
+            action_type=action_type,
+            staff_member=user,
+            action_summary=new_note.split('.')[0].strip(),
+            details=new_note if '.' in new_note else None,
+            amount=amount
+        )
+        
+        transaction.add_system_audit_entry(audit_entry)
+    else:
+        # This is a manual note
+        transaction.add_manual_note(new_note, user)
+    
+    # Return combined view for backward compatibility
+    return transaction.get_combined_notes_display(max_length=500)
+
+
+# Note: The original safe_append_transaction_notes function is defined above 
+# and maintained for backward compatibility during the migration period.

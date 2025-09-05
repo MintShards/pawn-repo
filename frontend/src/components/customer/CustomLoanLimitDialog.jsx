@@ -23,6 +23,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from '../ui/dialog';
 import {
   Alert,
@@ -242,6 +243,9 @@ const CustomLoanLimitDialog = ({
               </span>
             </div>
           </DialogTitle>
+          <DialogDescription>
+            Configure a custom loan limit specifically for this customer, overriding the default system limits.
+          </DialogDescription>
         </DialogHeader>
 
         {!isAdmin ? (
