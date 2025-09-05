@@ -42,7 +42,7 @@ import TransactionCard from './TransactionCard';
 import StatusBadge from './components/StatusBadge';
 import transactionService from '../../services/transactionService';
 import { matchesTransactionSearch, initializeSequenceNumbers, formatTransactionId, formatStorageLocation, formatCurrency } from '../../utils/transactionUtils';
-import { formatLocalDate } from '../../utils/timezoneUtils';
+import { formatBusinessDate } from '../../utils/timezoneUtils';
 
 const TransactionList = ({ 
   onCreateNew, 
@@ -438,7 +438,8 @@ const TransactionList = ({
     setCurrentPage(1);
   };
 
-  const formatDate = (dateString) => formatLocalDate(dateString);
+  // Use business timezone for consistent date display across the application
+  const formatDate = (dateString) => formatBusinessDate(dateString);
 
   // Fetch balances for transactions
   // Handle viewing items for a transaction

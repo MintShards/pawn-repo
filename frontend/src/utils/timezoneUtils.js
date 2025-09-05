@@ -3,7 +3,13 @@
  * 
  * Provides automatic timezone detection from browser and utilities for
  * sending timezone information to the backend API.
+ * 
+ * IMPORTANT: Business operates in Pacific Time (America/Vancouver).
+ * Use business timezone functions for consistent date display.
  */
+
+// Business timezone configuration
+const BUSINESS_TIMEZONE = 'America/Vancouver';
 
 /**
  * Get the user's timezone from the browser.
@@ -184,4 +190,166 @@ const isDaylightSavingTime = (date) => {
   const january = new Date(date.getFullYear(), 0, 1);
   const july = new Date(date.getFullYear(), 6, 1);
   return Math.max(january.getTimezoneOffset(), july.getTimezoneOffset()) !== date.getTimezoneOffset();
+};
+
+// ============================================================================
+// BUSINESS TIMEZONE FUNCTIONS
+// ============================================================================
+// These functions ensure consistent date handling in Pacific Time (business timezone)
+// Always use these for transaction dates, redemption dates, and business operations
+
+/**
+ * Parse a UTC date string and format it in business timezone (Pacific Time).
+ * This is the PRIMARY function to use for all business date displays.
+ * 
+ * CRITICAL: This function prevents timezone conversion bugs by always using Pacific Time.
+ * 
+ * @param {string} utcDateString - UTC date string from backend (with or without 'Z')
+ * @param {Object} options - Formatting options
+ * @returns {string} Formatted date in Pacific Time
+ */
+export const formatBusinessDate = (utcDateString, options = {}) => {
+  if (!utcDateString) return 'Not Set';
+  
+  try {
+    // Ensure proper UTC parsing by adding 'Z' if missing
+    let dateString = utcDateString;
+    if (!dateString.endsWith('Z') && !dateString.includes('+') && !dateString.includes('-')) {
+      dateString = dateString + 'Z';
+    }
+    
+    const utcDate = new Date(dateString);
+    
+    // Validate the date
+    if (isNaN(utcDate.getTime())) {
+      console.warn('Invalid date string:', utcDateString);
+      return 'Invalid Date';
+    }
+    
+    const defaultOptions = {
+      timeZone: BUSINESS_TIMEZONE,
+      month: 'short',
+      day: 'numeric', 
+      year: 'numeric',
+      ...options
+    };
+    
+    return new Intl.DateTimeFormat('en-US', defaultOptions).format(utcDate);
+  } catch (error) {
+    console.error('Error formatting business date:', error, 'Input:', utcDateString);
+    return 'Invalid Date';
+  }
+};
+
+/**
+ * Format a UTC date/time string in business timezone with time included.
+ * 
+ * @param {string} utcDateString - UTC date string from backend
+ * @param {Object} options - Formatting options
+ * @returns {string} Formatted date/time in Pacific Time
+ */
+export const formatBusinessDateTime = (utcDateString, options = {}) => {
+  const defaultOptions = {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZoneName: 'short',
+    ...options
+  };
+  
+  return formatBusinessDate(utcDateString, defaultOptions);
+};
+
+/**
+ * Parse UTC timestamp and return a Date object adjusted for business timezone display.
+ * Use this when you need the Date object rather than formatted string.
+ * 
+ * @param {string} utcDateString - UTC date string from backend
+ * @returns {Date} Date object (still in UTC but represents business timezone moment)
+ */
+export const parseBusinessDate = (utcDateString) => {
+  if (!utcDateString) return null;
+  
+  try {
+    // Ensure proper UTC parsing
+    let dateString = utcDateString;
+    if (!dateString.endsWith('Z') && !dateString.includes('+') && !dateString.includes('-')) {
+      dateString = dateString + 'Z';
+    }
+    
+    return new Date(dateString);
+  } catch (error) {
+    console.error('Error parsing business date:', error, 'Input:', utcDateString);
+    return null;
+  }
+};
+
+/**
+ * Get current date/time in business timezone.
+ * 
+ * @returns {string} Current date/time formatted in Pacific Time
+ */
+export const getBusinessNow = () => {
+  return formatBusinessDateTime(new Date().toISOString());
+};
+
+/**
+ * Legacy function compatibility - redirects to business timezone formatting.
+ * This ensures existing code automatically uses Pacific Time.
+ * 
+ * @deprecated Use formatBusinessDate() for new code
+ * @param {string} utcDateString - UTC date string
+ * @returns {string} Formatted date in Pacific Time
+ */
+export const formatTransactionDate = (utcDateString) => {
+  return formatBusinessDate(utcDateString);
+};
+
+/**
+ * BULLETPROOF redemption date formatter that can't be affected by other code.
+ * This completely independent function prevents any timezone conversion bugs.
+ * 
+ * @param {string} utcDateString - UTC date string from redemption
+ * @returns {string} Formatted redemption date in Pacific Time
+ */
+export const formatRedemptionDate = (utcDateString) => {
+  if (!utcDateString) {
+    return 'Not Set';
+  }
+
+  try {
+    // CRITICAL FIX: Always add 'Z' for UTC parsing unless it has explicit timezone
+    let cleanDateString = utcDateString.trim();
+    
+    // Check if it already has timezone info (Z, +XX:XX, -XX:XX format)
+    const hasTimezoneInfo = cleanDateString.endsWith('Z') || 
+                           /[+-]\d{2}:\d{2}$/.test(cleanDateString) ||
+                           /[+-]\d{4}$/.test(cleanDateString);
+    
+    if (!hasTimezoneInfo) {
+      cleanDateString = cleanDateString + 'Z';
+    }
+    
+    // Parse as UTC date
+    const utcDate = new Date(cleanDateString);
+    
+    if (isNaN(utcDate.getTime())) {
+      console.error('Invalid redemption date:', utcDateString);
+      return 'Invalid Date';
+    }
+    
+    // BULLETPROOF: Direct formatting in Pacific timezone
+    const pacificFormatted = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Vancouver',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    }).format(utcDate);
+    
+    return pacificFormatted;
+    
+  } catch (error) {
+    console.error('Error formatting redemption date:', error, 'Input:', utcDateString);
+    return 'Error';
+  }
 };

@@ -12,7 +12,7 @@ import {
 import StatusBadge from './components/StatusBadge';
 import transactionService from '../../services/transactionService';
 import { formatTransactionId, formatStorageLocation, formatCurrency } from '../../utils/transactionUtils';
-import { formatLocalDate } from '../../utils/timezoneUtils';
+import { formatBusinessDate } from '../../utils/timezoneUtils';
 
 const TransactionCard = ({ 
   transaction, 
@@ -205,7 +205,7 @@ const TransactionCard = ({
               <span className="text-sm text-slate-600 dark:text-slate-400">Loan Date:</span>
             </div>
             <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
-              {formatLocalDate(transaction.pawn_date)}
+              {formatBusinessDate(transaction.pawn_date)}
             </span>
           </div>
 

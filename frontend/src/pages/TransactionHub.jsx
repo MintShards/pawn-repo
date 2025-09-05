@@ -35,15 +35,20 @@ import ExtensionForm from '../components/transaction/components/ExtensionForm';
 import StatusUpdateForm from '../components/transaction/components/StatusUpdateForm';
 import { formatTransactionId, formatExtensionId, formatStorageLocation, formatCurrency } from '../utils/transactionUtils';
 import { getRoleTitle, getUserDisplayString } from '../utils/roleUtils';
-import { formatLocalDate } from '../utils/timezoneUtils';
+import { formatLocalDate, formatRedemptionDate, formatBusinessDate } from '../utils/timezoneUtils';
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '../components/ui/resizable';
+import { ScrollArea } from '../components/ui/scroll-area';
 import transactionService from '../services/transactionService';
 import extensionService from '../services/extensionService';
 import customerService from '../services/customerService';
+import authService from '../services/authService';
 
 const TransactionHub = () => {
   const { user, logout, loading, fetchUserDataIfNeeded } = useAuth();
   const navigate = useNavigate();
   const [selectedTransaction, setSelectedTransaction] = useState(null);
+  const [selectedTransactionCustomer, setSelectedTransactionCustomer] = useState(null);
+  const [showAllExtensions, setShowAllExtensions] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
   const [showExtensionForm, setShowExtensionForm] = useState(false);
@@ -170,15 +175,29 @@ const TransactionHub = () => {
   const handleViewTransaction = async (transaction) => {
     setLoadingTransactionDetails(true);
     setShowTransactionDetails(true);
-    setSelectedTransaction(transaction); // Show basic info immediately
+    setSelectedTransaction(null); // Clear any stale data first
+    setSelectedTransactionCustomer(null); // Reset customer data
     
     try {
-      // Fetch comprehensive transaction summary with items and balance
-      const fullTransaction = await transactionService.getTransactionSummary(transaction.transaction_id);
+      // Fetch comprehensive transaction summary with items and balance (with cache busting)
+      const bustCacheUrl = `/api/v1/pawn-transaction/${transaction.transaction_id}/summary?_t=${Date.now()}`;
+      const fullTransaction = await authService.apiRequest(bustCacheUrl, { method: 'GET' });
       
-      // Fetch extensions separately
+      // Fetch customer details if available
+      const customerPhone = transaction.customer_id || transaction.customer_phone;
+      if (customerPhone && customerPhone !== 'No Customer') {
+        try {
+          const customerData = await customerService.getCustomerByPhone(customerPhone);
+          setSelectedTransactionCustomer(customerData);
+        } catch (error) {
+          console.warn('Could not fetch customer details:', error);
+          // Continue without customer details
+        }
+      }
+      
+      // Fetch extensions separately with cache busting
       try {
-        const extensions = await extensionService.getExtensionHistory(transaction.transaction_id);
+        const extensions = await extensionService.getExtensionHistory(transaction.transaction_id, true); // bustCache = true
         // Handle different response formats
         let extensionArray = [];
         if (Array.isArray(extensions)) {
@@ -296,24 +315,93 @@ const TransactionHub = () => {
   };
 
   // Handle successful payment
-  const handlePaymentSuccess = (paymentResult) => {
+  const handlePaymentSuccess = async (paymentResult) => {
     setShowPaymentForm(false);
-    setSelectedTransaction(null);
-    // Immediate refresh - cache has been cleared by the service
+    
+    // Clear transaction cache to ensure fresh data
+    transactionService.clearTransactionCache();
+    
+    // If transaction details dialog is open, refresh the transaction data
+    if (showTransactionDetails && selectedTransaction) {
+      try {
+        const transactionId = selectedTransaction.transaction_id || selectedTransaction.transaction?.transaction_id;
+        
+        // Add cache busting to force fresh data
+        const bustCacheUrl = `/api/v1/pawn-transaction/${transactionId}/summary?_t=${Date.now()}`;
+        const updatedTransaction = await authService.apiRequest(bustCacheUrl, { method: 'GET' });
+        
+        // Always fetch extensions separately after payment to ensure they're preserved
+        try {
+          const extensions = await extensionService.getExtensionHistory(transactionId, true);
+          let extensionArray = [];
+          if (Array.isArray(extensions)) {
+            extensionArray = extensions;
+          } else if (extensions && extensions.extensions) {
+            extensionArray = extensions.extensions;
+          }
+          updatedTransaction.extensions = extensionArray;
+        } catch (extError) {
+          console.warn('Could not fetch extensions after payment:', extError);
+        }
+        
+        setSelectedTransaction(updatedTransaction);
+      } catch (error) {
+        console.error('Failed to refresh transaction after payment:', error);
+      }
+    } else {
+      setSelectedTransaction(null);
+    }
+    
+    // Always refresh the transaction list to show updated balance/status
     setRefreshKey(prev => prev + 1);
+    handleSuccess('Payment processed successfully');
   };
 
   // Handle successful extension
   const handleExtensionSuccess = async (extensionResult) => {
     setShowExtensionForm(false);
-    setSelectedTransaction(null);
     
     // Clear all caches immediately
     transactionService.clearTransactionCache();
     extensionService.clearExtensionCache();
     
-    // Force immediate refresh of transaction list
+    // If transaction details dialog is open, refresh the transaction data
+    if (showTransactionDetails && selectedTransaction) {
+      try {
+        // Fetch updated transaction with new extensions
+        const transactionId = selectedTransaction.transaction_id || selectedTransaction.transaction?.transaction_id;
+        
+        // Add cache busting to force fresh data
+        const bustCacheUrl = `/api/v1/pawn-transaction/${transactionId}/summary?_t=${Date.now()}`;
+        const updatedTransaction = await authService.apiRequest(bustCacheUrl, { method: 'GET' });
+        
+        // Also fetch updated extensions
+        try {
+          const extensions = await extensionService.getExtensionHistory(transactionId, true); // bustCache = true
+          
+          let extensionArray = [];
+          if (Array.isArray(extensions)) {
+            extensionArray = extensions;
+          } else if (extensions && extensions.extensions) {
+            extensionArray = extensions.extensions;
+          }
+          
+          updatedTransaction.extensions = extensionArray;
+        } catch (extError) {
+          console.warn('Could not fetch extensions:', extError);
+        }
+        
+        setSelectedTransaction(updatedTransaction);
+      } catch (error) {
+        console.error('Failed to refresh transaction after extension:', error);
+      }
+    } else {
+      setSelectedTransaction(null);
+    }
+    
+    // Always refresh the transaction list to show updated maturity date
     setRefreshKey(prev => prev + 1);
+    handleSuccess('Extension processed successfully');
     
     // Immediately recalculate and update transaction stats
     const refreshStats = async () => {
@@ -371,22 +459,57 @@ const TransactionHub = () => {
   };
 
   // Handle successful status update
-  const handleStatusUpdateSuccess = () => {
+  const handleStatusUpdateSuccess = async () => {
     setShowStatusUpdateForm(false);
-    setSelectedTransaction(null);
+    
+    // If transaction details dialog is open, refresh the transaction data
+    if (showTransactionDetails && selectedTransaction) {
+      try {
+        const updatedTransaction = await transactionService.getTransactionSummary(
+          selectedTransaction.transaction_id || selectedTransaction.transaction?.transaction_id
+        );
+        setSelectedTransaction(updatedTransaction);
+      } catch (error) {
+        console.error('Failed to refresh transaction after status update:', error);
+      }
+    } else {
+      setSelectedTransaction(null);
+    }
+    
     setRefreshKey(prev => prev + 1); // Trigger immediate TransactionList refresh
     handleSuccess('Transaction status updated successfully');
   };
 
 
   // Format date helper
+  // ============================================================================
+  // TIMEZONE SAFETY: CRITICAL FOR PREVENTING RECURRING TIMEZONE BUGS
+  // ============================================================================
+  // This function uses the centralized business timezone utility to ensure
+  // ALL dates in this component display in Pacific Time (business timezone).
+  // 
+  // NEVER modify this to use formatLocalDate() or user timezone functions!
+  // 
+  // For details, see: /frontend/TIMEZONE_GUIDELINES.md
   const formatDate = (dateString) => {
-    if (!dateString) return 'Not Set';
-    try {
-      return formatLocalDate(dateString);
-    } catch {
-      return 'Invalid Date';
-    }
+    return formatBusinessDate(dateString);
+  };
+
+
+  // Helper to get transaction field consistently
+  const getTransactionField = (field) => {
+    return selectedTransaction?.transaction?.[field] || selectedTransaction?.[field];
+  };
+
+  // Helper to get transaction status
+  const getTransactionStatus = () => {
+    return getTransactionField('status') || 'Unknown';
+  };
+
+  // Helper to check if status allows actions
+  const canProcessActions = () => {
+    const status = getTransactionStatus();
+    return ['active', 'overdue', 'extended'].includes(status);
   };
 
   return (
@@ -811,380 +934,685 @@ const TransactionHub = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Enhanced Transaction Details Dialog */}
-      <Dialog open={showTransactionDetails} onOpenChange={setShowTransactionDetails}>
-        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto bg-details-light dark:bg-details-dark backdrop-blur-xl border border-details-medium/20 dark:border-details-medium/40">
-          <DialogHeader className="pb-6 border-b border-details-medium/20 dark:border-details-medium/40">
+      {/* Enhanced Three-Panel Transaction Details Dialog */}
+      <Dialog open={showTransactionDetails} onOpenChange={(open) => {
+        setShowTransactionDetails(open);
+        if (!open) {
+          setSelectedTransactionCustomer(null); // Reset customer data when closing
+          setShowAllExtensions(false); // Reset extension view
+        }
+      }}>
+        <DialogContent className="max-w-7xl max-h-[95vh] p-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+          <DialogHeader className="px-4 md:px-6 py-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
             <DialogTitle className="flex items-center space-x-3">
-              <div className="w-12 h-12 bg-details-accent rounded-xl flex items-center justify-center shadow-lg">
-                <FileText className="w-6 h-6 text-white" />
+              <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg">
+                <FileText className="w-5 h-5 text-white" />
               </div>
               <div>
-                <div className="text-2xl font-bold text-details-dark dark:text-details-secondary">
+                <div className="text-xl font-bold text-slate-900 dark:text-slate-100">
                   Transaction #{selectedTransaction ? formatTransactionId(selectedTransaction.transaction || selectedTransaction) : 'Loading...'}
                 </div>
-                <div className="text-sm text-details-medium dark:text-slate-400">
-                  {loadingTransactionDetails ? 'Loading transaction details...' : 'Complete transaction overview and history'}
+                <div className="text-sm text-slate-600 dark:text-slate-400">
+                  {loadingTransactionDetails ? 'Loading transaction details...' : 'Three-panel transaction overview'}
                 </div>
               </div>
             </DialogTitle>
           </DialogHeader>
           
           {selectedTransaction && (
-            <div className="space-y-6">
+            <div className="flex-1 min-h-0 h-[calc(95vh-120px)]">
               {/* Loading State */}
               {loadingTransactionDetails && (
                 <div className="flex items-center justify-center py-12">
                   <div className="flex items-center space-x-3">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-details-accent"></div>
-                    <span className="text-details-medium dark:text-slate-400">Loading transaction details...</span>
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                    <span className="text-slate-600 dark:text-slate-400">Loading transaction details...</span>
                   </div>
                 </div>
               )}
-              
+
+              {/* Three-Panel Layout */}
               {!loadingTransactionDetails && (
-                <>
-                  {/* Status Banner */}
-                  <div className={`p-4 rounded-xl border-l-4 shadow-sm ${
-                    (selectedTransaction?.transaction?.status || selectedTransaction?.status) === 'active' 
-                      ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-500 dark:border-emerald-400' 
-                      : (selectedTransaction?.transaction?.status || selectedTransaction?.status) === 'overdue'
-                      ? 'bg-red-50 dark:bg-red-950/20 border-red-500 dark:border-red-400'
-                      : (selectedTransaction?.transaction?.status || selectedTransaction?.status) === 'extended'
-                      ? 'bg-blue-50 dark:bg-blue-950/20 border-blue-500 dark:border-blue-400'
-                      : (selectedTransaction?.transaction?.status || selectedTransaction?.status) === 'redeemed'
-                      ? 'bg-green-50 dark:bg-green-950/20 border-green-500 dark:border-green-400'
-                      : 'bg-slate-50 dark:bg-slate-800/20 border-slate-500 dark:border-slate-400'
-                  }`}>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-3">
-                        <div className={`w-4 h-4 rounded-full ${
-                          (selectedTransaction?.transaction?.status || selectedTransaction?.status) === 'active' ? 'bg-emerald-500' :
-                          (selectedTransaction?.transaction?.status || selectedTransaction?.status) === 'overdue' ? 'bg-red-500' :
-                          (selectedTransaction?.transaction?.status || selectedTransaction?.status) === 'extended' ? 'bg-blue-500' :
-                          (selectedTransaction?.transaction?.status || selectedTransaction?.status) === 'redeemed' ? 'bg-green-500' : 'bg-slate-500'
-                        }`}></div>
-                        <span className="font-bold text-xl capitalize">
-                          {(selectedTransaction?.transaction?.status || selectedTransaction?.status) || 'Unknown Status'}
-                        </span>
-                        {(selectedTransaction?.transaction?.status || selectedTransaction?.status) === 'overdue' && (
-                          <AlertTriangle className="w-5 h-5 text-red-500" />
-                        )}
-                        {(selectedTransaction?.transaction?.status || selectedTransaction?.status) === 'redeemed' && (
-                          <CheckCircle className="w-5 h-5 text-green-500" />
-                        )}
-                      </div>
-                      <div className="text-sm text-details-medium dark:text-slate-400">
-                        Loan Date: {(selectedTransaction?.transaction?.pawn_date || selectedTransaction?.pawn_date) ? 
-                          formatDate(selectedTransaction.transaction?.pawn_date || selectedTransaction.pawn_date) : 'Not Available'}
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {/* Key Metrics Cards */}
-              {!loadingTransactionDetails && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <Card className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm border border-details-medium/20 dark:border-details-medium/40 shadow-lg">
-                    <CardContent className="p-4">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-10 h-10 bg-details-accent/10 dark:bg-details-accent/20 rounded-lg flex items-center justify-center">
-                          <Phone className="w-5 h-5 text-details-accent" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm text-details-medium dark:text-slate-400">Customer</div>
-                          <div className="font-bold text-xl text-details-dark dark:text-details-secondary">
-                            {(selectedTransaction?.transaction?.customer_phone || selectedTransaction?.customer_phone) ||
-                             (selectedTransaction?.transaction?.customer_name || selectedTransaction?.customer_name) ||
-                             (selectedTransaction?.transaction?.customer_id || selectedTransaction?.customer_id) || 'No Customer'}
-                          </div>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm border border-details-medium/20 dark:border-details-medium/40 shadow-lg">
-                    <CardContent className="p-4">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-10 h-10 bg-details-accent/10 dark:bg-details-accent/20 rounded-lg flex items-center justify-center">
-                          <DollarSign className="w-5 h-5 text-details-accent" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm text-details-medium dark:text-slate-400">Loan Amount</div>
-                          <div className="font-bold text-xl text-details-dark dark:text-details-secondary">
-                            {(selectedTransaction?.transaction?.loan_amount || selectedTransaction?.loan_amount) 
-                              ? formatCurrency(selectedTransaction.transaction?.loan_amount || selectedTransaction.loan_amount) 
-                              : 'Not Set'}
-                          </div>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm border border-details-medium/20 dark:border-details-medium/40 shadow-lg">
-                    <CardContent className="p-4">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-10 h-10 bg-details-accent/10 dark:bg-details-accent/20 rounded-lg flex items-center justify-center">
-                          <Clock className="w-5 h-5 text-details-accent" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm text-details-medium dark:text-slate-400">Pawn Date</div>
-                          <div className="font-bold text-details-dark dark:text-details-secondary">
-                            {formatDate(selectedTransaction?.transaction?.pawn_date || selectedTransaction?.pawn_date)}
-                          </div>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-              )}
-
-              {/* Redesigned Layout - Emphasis on Pawn Items */}
-              {!loadingTransactionDetails && (
-                <div className="space-y-8">
-                  {/* Main Content Area */}
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                    {/* Left Column - Financial & Extensions */}
-                    <div className="space-y-3">
-                      {/* Financial Details - Ultra Compact */}
-                      <Card className="bg-details-light dark:bg-details-medium/20 backdrop-blur-sm shadow-lg border border-details-medium/20 dark:border-details-medium/40">
-                        <CardHeader className="pb-1 pt-3">
-                          <CardTitle className="flex items-center space-x-1.5 text-sm font-semibold text-details-dark dark:text-details-secondary">
-                            <DollarSign className="w-3.5 h-3.5 text-details-accent" />
-                            <span>Financial</span>
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent className="pt-2 space-y-2">
-                          <div className="p-2 bg-details-accent/10 dark:bg-details-accent/20 rounded border border-details-accent/20 dark:border-details-accent/40">
-                            <div className="text-xs text-details-accent font-medium">Monthly Interest</div>
-                            <div className="font-bold text-base text-details-dark dark:text-details-secondary">
-                              {(selectedTransaction?.transaction?.monthly_interest_amount || selectedTransaction?.monthly_interest_amount) 
-                                ? formatCurrency(selectedTransaction.transaction?.monthly_interest_amount || selectedTransaction.monthly_interest_amount) 
-                                : 'Not Set'}
+                <ResizablePanelGroup 
+                  direction="horizontal" 
+                  className="h-full hidden lg:flex"
+                >
+                  {/* LEFT PANEL - Customer, Financial & Info */}
+                  <ResizablePanel defaultSize={25} minSize={20} maxSize={35}>
+                    <div className="p-6 h-full bg-slate-50 dark:bg-slate-800/30">
+                      <ScrollArea className="h-full">
+                        <div className="space-y-4 pr-4">
+                          {/* Status Badge */}
+                          <div className={`p-3 rounded-lg border-l-4 ${
+                            getTransactionStatus() === 'active' 
+                              ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-500'
+                              : getTransactionStatus() === 'overdue'
+                              ? 'bg-red-50 dark:bg-red-950/20 border-red-500'
+                              : getTransactionStatus() === 'extended'
+                              ? 'bg-blue-50 dark:bg-blue-950/20 border-blue-500'
+                              : getTransactionStatus() === 'redeemed'
+                              ? 'bg-green-50 dark:bg-green-950/20 border-green-500'
+                              : 'bg-slate-50 dark:bg-slate-800/20 border-slate-500'
+                          }`}>
+                            <div className="flex items-center space-x-2">
+                              <div className={`w-3 h-3 rounded-full ${
+                                getTransactionStatus() === 'active' ? 'bg-emerald-500' :
+                                getTransactionStatus() === 'overdue' ? 'bg-red-500' :
+                                getTransactionStatus() === 'extended' ? 'bg-blue-500' :
+                                getTransactionStatus() === 'redeemed' ? 'bg-green-500' : 'bg-slate-500'
+                              }`}></div>
+                              <span className="font-bold capitalize text-slate-900 dark:text-slate-100">
+                                {getTransactionStatus()}
+                              </span>
+                              {getTransactionStatus() === 'overdue' && (
+                                <AlertTriangle className="w-4 h-4 text-red-500" />
+                              )}
                             </div>
                           </div>
-                          
-                          <div className="space-y-1">
-                            <div className="flex justify-between items-center">
-                              <div className="text-xs text-details-medium dark:text-slate-400">Maturity</div>
-                              <div className="text-xs font-semibold text-details-dark dark:text-details-secondary">
-                                {formatDate(selectedTransaction?.transaction?.maturity_date || selectedTransaction?.maturity_date)}
-                              </div>
-                            </div>
-                            {(selectedTransaction?.transaction?.grace_period_end || selectedTransaction?.grace_period_end) && (
-                              <div className="flex justify-between items-center">
-                                <div className="text-xs text-details-medium dark:text-slate-400">Grace End</div>
-                                <div className="text-xs font-semibold text-details-dark dark:text-details-secondary">
-                                  {formatDate(selectedTransaction?.transaction?.grace_period_end || selectedTransaction?.grace_period_end)}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </CardContent>
-                      </Card>
 
-                      {/* Transaction Info - Ultra Compact */}
-                      <Card className="bg-details-light dark:bg-details-medium/20 backdrop-blur-sm shadow-lg border border-details-medium/20 dark:border-details-medium/40">
-                        <CardHeader className="pb-1 pt-3">
-                          <CardTitle className="flex items-center space-x-1.5 text-sm font-semibold text-details-dark dark:text-details-secondary">
-                            <Activity className="w-3.5 h-3.5 text-details-accent" />
-                            <span>Info</span>
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent className="pt-2 space-y-1">
-                          {(selectedTransaction?.transaction?.storage_location || selectedTransaction?.storage_location) && (
-                            <div className="flex justify-between items-center">
-                              <div className="text-xs text-details-medium dark:text-slate-400">Storage:</div>
-                              <div className="text-xs font-mono font-medium text-details-dark dark:text-details-secondary">
-                                {formatStorageLocation(selectedTransaction?.transaction?.storage_location || selectedTransaction?.storage_location)}
-                              </div>
-                            </div>
-                          )}
-                          <div className="flex justify-between items-center">
-                            <div className="text-xs text-details-medium dark:text-slate-400">Created by:</div>
-                            <div className="text-xs font-medium text-details-dark dark:text-details-secondary">
-                              User #{selectedTransaction?.transaction?.created_by_user_id || selectedTransaction?.created_by_user_id || 'Unknown'}
-                            </div>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <div className="text-xs text-details-medium dark:text-slate-400">Date:</div>
-                            <div className="text-xs font-medium text-details-dark dark:text-details-secondary">
-                              {formatDate(selectedTransaction?.transaction?.pawn_date || selectedTransaction?.pawn_date)}
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-
-                      {/* Extensions - Ultra Compact */}
-                      <Card className="bg-details-light dark:bg-details-medium/20 backdrop-blur-sm shadow-lg border border-details-medium/20 dark:border-details-medium/40">
-                        <CardHeader className="pb-1 pt-3">
-                          <CardTitle className="flex items-center space-x-1.5 text-sm font-semibold text-details-dark dark:text-details-secondary">
-                            <Calendar className="w-3.5 h-3.5 text-details-accent" />
-                            <span>Extensions</span>
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent className="pt-2">
-                          {(selectedTransaction?.extensions || selectedTransaction?.transaction?.extensions) && 
-                           (selectedTransaction?.extensions?.length > 0 || selectedTransaction?.transaction?.extensions?.length > 0) ? (
-                            <div className="space-y-1.5">
-                              {(selectedTransaction?.extensions || selectedTransaction?.transaction?.extensions).map((extension, index) => (
-                                <div key={index} className="p-1.5 bg-details-accent/10 dark:bg-details-accent/20 rounded border border-details-accent/20 dark:border-details-accent/40">
-                                  <div className="flex items-center justify-between mb-0.5">
-                                    <div className="font-mono text-xs font-medium text-details-accent">
-                                      {formatExtensionId(extension)}
+                          {/* Customer Section */}
+                          <Card 
+                            className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950/20 transition-colors"
+                            onClick={() => {
+                              const customerPhone = getTransactionField('customer_phone') || getTransactionField('customer_id');
+                              if (customerPhone && customerPhone !== 'No Customer') {
+                                handleViewCustomer(customerPhone);
+                              }
+                            }}
+                          >
+                            <CardHeader className="pb-2">
+                              <CardTitle className="flex items-center space-x-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                <Phone className="w-4 h-4 text-blue-600" />
+                                <span>Customer</span>
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent className="pt-0">
+                              {(() => {
+                                const customerPhone = getTransactionField('customer_phone') || getTransactionField('customer_id');
+                                
+                                // Use fetched customer data if available
+                                if (selectedTransactionCustomer && customerPhone && customerPhone !== 'No Customer') {
+                                  const customerName = `${selectedTransactionCustomer.first_name || ''} ${selectedTransactionCustomer.last_name || ''}`.trim().toUpperCase();
+                                  return (
+                                    <div className="space-y-1">
+                                      <div className="text-base font-bold text-slate-900 dark:text-slate-100">
+                                        {customerName}
+                                      </div>
+                                      <div className="text-sm text-slate-600 dark:text-slate-400 font-mono">
+                                        {customerPhone}
+                                      </div>
                                     </div>
-                                    <div className="text-xs text-details-medium dark:text-slate-400">
-                                      {formatDate(extension.extension_date || extension.created_at)}
-                                    </div>
-                                  </div>
-                                  <div className="flex items-center justify-between">
-                                    <div className="text-xs font-medium text-details-dark dark:text-details-secondary">
-                                      {extension.extension_months}mo
-                                    </div>
-                                    <div className="text-xs font-bold text-details-accent">
-                                      {formatCurrency(
-                                        extension.total_extension_fee || 
-                                        extension.extension_fee || 
-                                        extension.fee || 
-                                        extension.amount || 
-                                        (extension.extension_months && extension.extension_fee_per_month ? 
-                                          extension.extension_months * extension.extension_fee_per_month : 0)
+                                  );
+                                } else if (customerPhone && customerPhone !== 'No Customer') {
+                                  return (
+                                    <div className="space-y-1">
+                                      <div className="text-base font-bold text-slate-900 dark:text-slate-100">
+                                        {customerPhone}
+                                      </div>
+                                      {loadingTransactionDetails && (
+                                        <div className="text-xs text-slate-500 dark:text-slate-400">
+                                          Loading customer details...
+                                        </div>
                                       )}
                                     </div>
+                                  );
+                                } else {
+                                  return (
+                                    <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                                      No Customer
+                                    </div>
+                                  );
+                                }
+                              })()}
+                              {(getTransactionField('customer_phone') || getTransactionField('customer_id')) !== 'No Customer' && (
+                                <div className="text-xs text-blue-600 dark:text-blue-400 mt-2">
+                                  Click to view profile
+                                </div>
+                              )}
+                            </CardContent>
+                          </Card>
+
+                          {/* Financial Summary */}
+                          <Card>
+                            <CardHeader className="pb-2">
+                              <CardTitle className="flex items-center space-x-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                <DollarSign className="w-4 h-4 text-green-600" />
+                                <span>Financial</span>
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent className="pt-0 space-y-3">
+                              <div className="p-3 bg-green-50 dark:bg-green-950/20 rounded-lg border border-green-200 dark:border-green-800">
+                                <div className="text-xs text-green-700 dark:text-green-400 font-medium">Loan Amount</div>
+                                <div className="font-bold text-lg text-green-900 dark:text-green-100">
+                                  {getTransactionField('loan_amount') 
+                                    ? formatCurrency(getTransactionField('loan_amount')) 
+                                    : 'Not Set'}
+                                </div>
+                              </div>
+                              <div className="p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                                <div className="text-xs text-blue-700 dark:text-blue-400 font-medium">Monthly Interest</div>
+                                <div className="font-bold text-lg text-blue-900 dark:text-blue-100">
+                                  {getTransactionField('monthly_interest_amount') 
+                                    ? formatCurrency(getTransactionField('monthly_interest_amount')) 
+                                    : 'Not Set'}
+                                </div>
+                              </div>
+                              <div className="space-y-2">
+                                <div className="flex justify-between items-center">
+                                  <div className="text-xs text-slate-600 dark:text-slate-400">Maturity</div>
+                                  <div className="text-xs font-semibold text-slate-900 dark:text-slate-100">
+                                    {formatDate(getTransactionField('maturity_date'))}
                                   </div>
                                 </div>
+                                {getTransactionField('grace_period_end') && (
+                                  <div className="flex justify-between items-center">
+                                    <div className="text-xs text-slate-600 dark:text-slate-400">Grace End</div>
+                                    <div className="text-xs font-semibold text-slate-900 dark:text-slate-100">
+                                      {formatDate(getTransactionField('grace_period_end'))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </CardContent>
+                          </Card>
+
+                          {/* Info Section */}
+                          <Card>
+                            <CardHeader className="pb-2">
+                              <CardTitle className="flex items-center space-x-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                <Activity className="w-4 h-4 text-purple-600" />
+                                <span>Info</span>
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent className="pt-0 space-y-2">
+                              <div className="flex justify-between items-center">
+                                <div className="text-xs text-slate-600 dark:text-slate-400">Created by:</div>
+                                <div className="text-xs font-medium text-slate-900 dark:text-slate-100">
+                                  User #{getTransactionField('created_by_user_id') || 'Unknown'}
+                                </div>
+                              </div>
+                              <div className="flex justify-between items-center">
+                                <div className="text-xs text-slate-600 dark:text-slate-400">Loan Date:</div>
+                                <div className="text-xs font-medium text-slate-900 dark:text-slate-100">
+                                  {formatDate(getTransactionField('pawn_date'))}
+                                </div>
+                              </div>
+                              {getTransactionField('storage_location') && (
+                                <div className="flex justify-between items-center">
+                                  <div className="text-xs text-slate-600 dark:text-slate-400">Storage:</div>
+                                  <div className="text-xs font-mono font-medium text-slate-900 dark:text-slate-100">
+                                    {formatStorageLocation(getTransactionField('storage_location'))}
+                                  </div>
+                                </div>
+                              )}
+                            </CardContent>
+                          </Card>
+
+                          {/* Internal Notes Section */}
+                          {(() => {
+                            const internalNotes = getTransactionField('internal_notes');
+                            if (!internalNotes) return null;
+                            
+                            // Filter out automated entries (extensions, payments, status changes)
+                            const lines = internalNotes.split('\n');
+                            const filteredLines = [];
+                            
+                            // First, try to extract any manual notes (lines without timestamps)
+                            // These are important and should be preserved
+                            for (const line of lines) {
+                              // Skip empty lines and ellipsis
+                              if (!line.trim() || line.trim() === '...') continue;
+                              
+                              // If it doesn't contain a system timestamp, it's likely a manual note
+                              if (!line.match(/\[\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC by [^\]]+\]/)) {
+                                filteredLines.push(line);
+                              }
+                            }
+                            
+                            const filteredNotes = filteredLines.join('\n').trim();
+                            
+                            // Check if notes were truncated (starts with ...)
+                            const isTruncated = internalNotes.trim().startsWith('...');
+                            
+                            // Only show if there are notes after filtering or if truncation detected
+                            if (!filteredNotes && !isTruncated) return null;
+                            
+                            return (
+                              <Card className="bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800">
+                                <CardHeader className="pb-2">
+                                  <CardTitle className="flex items-center space-x-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                    <FileText className="w-4 h-4 text-amber-600" />
+                                    <span>Internal Notes</span>
+                                    {isTruncated && (
+                                      <span className="text-xs text-red-600 dark:text-red-400">(Truncated)</span>
+                                    )}
+                                  </CardTitle>
+                                </CardHeader>
+                                <CardContent className="pt-0">
+                                  {filteredNotes ? (
+                                    <div className="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap">
+                                      {filteredNotes}
+                                    </div>
+                                  ) : isTruncated ? (
+                                    <div className="text-sm text-red-600 dark:text-red-400 italic">
+                                      Original notes were truncated due to too many system entries. 
+                                      Manual notes may have been lost.
+                                    </div>
+                                  ) : null}
+                                </CardContent>
+                              </Card>
+                            );
+                          })()}
+                        </div>
+                      </ScrollArea>
+                    </div>
+                  </ResizablePanel>
+
+                  <ResizableHandle withHandle />
+
+                  {/* CENTER PANEL - Pawn Items (Main Focus) */}
+                  <ResizablePanel defaultSize={50} minSize={40}>
+                    <div className="p-6 h-full">
+                      <div className="h-full flex flex-col">
+                        <div className="mb-4">
+                          <div className="flex items-center space-x-3 mb-2">
+                            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                              <Package className="w-4 h-4 text-white" />
+                            </div>
+                            <div>
+                              <div className="text-lg font-bold text-slate-900 dark:text-slate-100">Pawn Items</div>
+                              <div className="text-sm text-slate-600 dark:text-slate-400">
+                                {(getTransactionField('items'))?.length || 0} item(s) in this transaction
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <ScrollArea className="flex-1">
+                          {getTransactionField('items') && getTransactionField('items').length > 0 ? (
+                            <div className="space-y-2 pr-4 pb-6">
+                              {getTransactionField('items').map((item, index) => (
+                                <Card key={index} className="hover:shadow-md transition-shadow">
+                                  <CardContent className="p-2.5">
+                                    <div className="space-y-1.5">
+                                      <div className="flex items-start justify-between">
+                                        <div className="flex items-center space-x-3 flex-1 min-w-0">
+                                          <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center flex-shrink-0">
+                                            <span className="text-sm font-bold text-blue-600 dark:text-blue-400">#{index + 1}</span>
+                                          </div>
+                                          <div className="font-semibold text-base text-slate-900 dark:text-slate-100 break-words min-w-0">
+                                            {item.description}
+                                          </div>
+                                        </div>
+                                        {item.estimated_value && (
+                                          <div className="bg-green-100 dark:bg-green-900/30 px-3 py-1 rounded-full flex-shrink-0 ml-2">
+                                            <span className="text-sm font-bold text-green-700 dark:text-green-300">
+                                              {formatCurrency(item.estimated_value)}
+                                            </span>
+                                          </div>
+                                        )}
+                                      </div>
+                                      
+                                      <div className="grid grid-cols-2 gap-2">
+                                        {item.category && (
+                                          <div className="flex items-center space-x-2">
+                                            <div className="w-2 h-2 bg-blue-600 rounded-full"></div>
+                                            <span className="text-sm text-slate-700 dark:text-slate-300 capitalize">{item.category}</span>
+                                          </div>
+                                        )}
+                                        {item.condition && (
+                                          <div className="flex items-center space-x-2">
+                                            <div className={`w-2 h-2 rounded-full ${
+                                              item.condition === 'excellent' ? 'bg-green-500' :
+                                              item.condition === 'good' ? 'bg-yellow-500' :
+                                              item.condition === 'fair' ? 'bg-orange-500' : 'bg-red-500'
+                                            }`}></div>
+                                            <span className="text-sm text-slate-600 dark:text-slate-400 capitalize">{item.condition}</span>
+                                          </div>
+                                        )}
+                                      </div>
+                                      
+                                      <div className="grid grid-cols-1 gap-1">
+                                        {item.serial_number && (
+                                          <div className="p-1.5 bg-slate-100 dark:bg-slate-700/50 rounded">
+                                            <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">Serial Number</div>
+                                            <div className="text-sm font-mono font-medium text-slate-900 dark:text-slate-100 break-all">
+                                              {item.serial_number}
+                                            </div>
+                                          </div>
+                                        )}
+                                        {item.notes && (
+                                          <div className="p-1.5 bg-blue-50 dark:bg-blue-900/20 rounded">
+                                            <div className="text-xs text-blue-600 dark:text-blue-400 font-medium">Internal Notes</div>
+                                            <div className="text-sm text-slate-700 dark:text-slate-300 break-words">
+                                              {item.notes}
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </CardContent>
+                                </Card>
                               ))}
                             </div>
                           ) : (
-                            <div className="text-center text-slate-500 dark:text-slate-400 py-2 text-xs">
-                              No extensions
+                            <div className="flex flex-col items-center justify-center h-full text-center">
+                              <div className="w-16 h-16 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mb-4">
+                                <Package className="w-8 h-8 text-slate-400" />
+                              </div>
+                              <div className="text-slate-500 dark:text-slate-400 font-medium">No items found</div>
                             </div>
                           )}
-                        </CardContent>
-                      </Card>
+                        </ScrollArea>
+                      </div>
                     </div>
+                  </ResizablePanel>
 
-                    {/* Center Column - Pawn Items (Featured) */}
-                    <Card className="lg:col-span-2 bg-details-light dark:bg-details-medium/20 backdrop-blur-sm shadow-xl border border-details-medium/20 dark:border-details-medium/40">
-                      <CardHeader className="pb-6 border-b border-details-medium/20 dark:border-details-medium/40">
-                        <CardTitle className="flex items-center justify-between">
-                          <div className="flex items-center space-x-4">
-                            <div className="w-12 h-12 bg-details-accent rounded-lg flex items-center justify-center shadow-lg">
-                              <Package className="w-6 h-6 text-white" />
-                            </div>
-                            <div>
-                              <div className="text-2xl font-bold text-details-dark dark:text-details-secondary">Pawn Items</div>
-                              <div className="text-base text-details-medium dark:text-slate-400 mt-1">
-                                {(selectedTransaction?.items || selectedTransaction?.transaction?.items)?.length || 0} item(s) in this transaction
-                              </div>
-                            </div>
+                  <ResizableHandle withHandle />
+
+                  {/* RIGHT PANEL - Actions & Timeline */}
+                  <ResizablePanel defaultSize={25} minSize={20} maxSize={35}>
+                    <div className="p-6 h-full bg-slate-50 dark:bg-slate-800/30">
+                      <div className="h-full flex flex-col">
+                        <div className="mb-4">
+                          <div className="text-lg font-bold text-slate-900 dark:text-slate-100 mb-2">Quick Actions</div>
+                        </div>
+                        
+                        <div className="space-y-3 mb-6">
+                          {canProcessActions() && (
+                            <>
+                              <Button 
+                                onClick={() => {
+                                  handlePayment(selectedTransaction?.transaction || selectedTransaction);
+                                }}
+                                className="w-full bg-green-600 hover:bg-green-700 text-white"
+                              >
+                                <DollarSign className="w-4 h-4 mr-2" />
+                                Process Payment
+                              </Button>
+                              <Button 
+                                variant="outline"
+                                onClick={() => {
+                                  handleExtension(selectedTransaction?.transaction || selectedTransaction);
+                                }}
+                                className="w-full border-blue-300 text-blue-700 hover:bg-blue-50 dark:border-blue-700 dark:text-blue-400 dark:hover:bg-blue-950/20"
+                              >
+                                <Calendar className="w-4 h-4 mr-2" />
+                                Extend Loan
+                              </Button>
+                            </>
+                          )}
+                          <Button 
+                            variant="outline"
+                            onClick={() => {
+                              handleStatusUpdate(selectedTransaction?.transaction || selectedTransaction);
+                            }}
+                            className="w-full"
+                          >
+                            <Activity className="w-4 h-4 mr-2" />
+                            Update Status
+                          </Button>
+                        </div>
+
+                        {/* Timeline Section */}
+                        <div className="flex-1 min-h-0 overflow-hidden">
+                          <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-3 flex items-center justify-between">
+                            <span>Timeline</span>
+                            {(selectedTransaction?.extensions || selectedTransaction?.transaction?.extensions)?.length > 0 && (
+                              <span className="text-xs text-slate-500 dark:text-slate-400">
+                                {(selectedTransaction?.extensions || selectedTransaction?.transaction?.extensions)?.length} extensions
+                              </span>
+                            )}
                           </div>
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent className="pt-6">
-                        {(selectedTransaction?.items || selectedTransaction?.transaction?.items) && 
-                         (selectedTransaction?.items?.length > 0 || selectedTransaction?.transaction?.items?.length > 0) ? (
-                          <div className="grid grid-cols-1 gap-6 max-h-[500px] overflow-y-auto pr-2">
-                            {(selectedTransaction?.items || selectedTransaction?.transaction?.items).map((item, index) => (
-                              <div key={index} className="group p-5 bg-white/90 dark:bg-slate-800/90 rounded-xl border border-details-medium/20 dark:border-details-medium/40 shadow-sm hover:shadow-md transition-all duration-200 hover:border-details-accent dark:hover:border-details-accent">
-                                <div className="space-y-4">
-                                  <div className="flex items-start justify-between">
-                                    <div className="font-semibold text-xl text-details-dark dark:text-details-secondary group-hover:text-details-accent transition-colors">
-                                      {item.description}
+                          <ScrollArea className="h-[calc(100%-2rem)]">
+                            <div className="space-y-3 pr-4 pb-4">
+                              {/* Status indicator - Most Recent */}
+                              {getTransactionStatus() !== 'active' && (
+                                <div className="flex space-x-3">
+                                  <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${
+                                    getTransactionStatus() === 'redeemed' ? 'bg-green-500' :
+                                    getTransactionStatus() === 'overdue' ? 'bg-red-500' :
+                                    getTransactionStatus() === 'extended' ? 'bg-blue-500' : 'bg-slate-500'
+                                  }`}></div>
+                                  <div>
+                                    <div className="text-sm font-medium text-slate-900 dark:text-slate-100 capitalize">
+                                      {getTransactionStatus()}
                                     </div>
-                                    {item.estimated_value && (
-                                      <div className="bg-gradient-to-r from-emerald-100 to-teal-100 dark:from-emerald-900/30 dark:to-teal-900/30 px-4 py-2 rounded-full">
-                                        <span className="text-base font-bold text-emerald-700 dark:text-emerald-300">{formatCurrency(item.estimated_value)}</span>
-                                      </div>
-                                    )}
-                                  </div>
-                                  
-                                  <div className="grid grid-cols-2 gap-6">
-                                    {item.category && (
-                                      <div className="flex items-center space-x-3">
-                                        <div className="w-3 h-3 bg-details-accent rounded-full"></div>
-                                        <span className="text-base text-slate-700 dark:text-slate-300 capitalize font-medium">{item.category}</span>
-                                      </div>
-                                    )}
-                                    {item.condition && (
-                                      <div className="flex items-center space-x-3">
-                                        <div className={`w-3 h-3 rounded-full ${
-                                          item.condition === 'excellent' ? 'bg-green-400' :
-                                          item.condition === 'good' ? 'bg-yellow-400' :
-                                          item.condition === 'fair' ? 'bg-orange-400' : 'bg-red-400'
-                                        }`}></div>
-                                        <span className="text-base text-details-medium dark:text-slate-400 capitalize font-medium">{item.condition}</span>
-                                      </div>
-                                    )}
-                                  </div>
-                                  
-                                  {item.serial_number && (
-                                    <div className="mt-3 p-3 bg-slate-100 dark:bg-slate-700/50 rounded-lg">
-                                      <div className="text-sm text-slate-500 dark:text-slate-400 mb-2 font-medium">Serial Number</div>
-                                      <div className="text-base font-mono font-medium text-details-dark dark:text-details-secondary break-all">{item.serial_number}</div>
+                                    <div className="text-xs text-slate-600 dark:text-slate-400">
+                                      {(() => {
+                                        const status = getTransactionStatus();
+                                        if (status === 'redeemed') {
+                                          // Get the raw timestamp
+                                          const rawDate = getTransactionField('redeemed_date') || 
+                                                         getTransactionField('redemption_date') || 
+                                                         getTransactionField('updated_at');
+                                          
+                                          // Use the centralized business timezone utility to prevent timezone bugs
+                                          const displayDate = formatRedemptionDate(rawDate);
+                                          
+                                          const redeemedBy = getTransactionField('redeemed_by_user_id') ||
+                                                            getTransactionField('updated_by_user_id') ||
+                                                            getTransactionField('processed_by_user_id') ||
+                                                            getTransactionField('last_updated_by') ||
+                                                            user?.user_id;
+                                          
+                                          return (
+                                            <div>
+                                              {displayDate && (
+                                                <div>{displayDate}</div>
+                                              )}
+                                              {redeemedBy && <div>by User #{redeemedBy}</div>}
+                                            </div>
+                                          );
+                                        }
+                                        return 'Current status';
+                                      })()}
                                     </div>
-                                  )}
+                                  </div>
+                                </div>
+                              )}
+                              
+                              {/* Extensions Timeline - Most Recent First */}
+                              {(() => {
+                                const extensions = selectedTransaction?.extensions || selectedTransaction?.transaction?.extensions || [];
+                                const sortedExtensions = [...extensions].sort((a, b) => 
+                                  new Date(b.extension_date || b.created_at) - new Date(a.extension_date || a.created_at)
+                                );
+                                const displayLimit = 5;
+                                const hasMany = sortedExtensions.length > displayLimit;
+                                const displayExtensions = showAllExtensions ? sortedExtensions : sortedExtensions.slice(0, displayLimit);
+                                
+                                return (
+                                  <>
+                                    {displayExtensions.map((extension, index) => (
+                                      <div key={index} className="flex space-x-3">
+                                        <div className="w-2 h-2 bg-amber-500 rounded-full mt-2 flex-shrink-0"></div>
+                                        <div>
+                                          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                            Extension #{extensions.length - index} ({extension.extension_months}mo)
+                                          </div>
+                                          <div className="text-xs text-slate-600 dark:text-slate-400">
+                                            {(() => {
+                                              const extRawDate = extension.extension_date || extension.created_at;
+                                              // Use the centralized business timezone utility for consistency
+                                              return formatBusinessDate(extRawDate);
+                                            })()}
+                                          </div>
+                                          <div className="text-xs text-amber-600 dark:text-amber-400 font-medium">
+                                            Fee: {formatCurrency(
+                                              extension.total_extension_fee || 
+                                              extension.extension_fee || 
+                                              extension.fee || 
+                                              (extension.extension_months * (extension.extension_fee_per_month || 0))
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ))}
+                                    
+                                    {hasMany && !showAllExtensions && (
+                                      <Button 
+                                        variant="ghost" 
+                                        size="sm" 
+                                        onClick={() => setShowAllExtensions(true)}
+                                        className="w-full text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-xs"
+                                      >
+                                        Show {extensions.length - displayLimit} more extensions
+                                      </Button>
+                                    )}
+                                    
+                                    {hasMany && showAllExtensions && (
+                                      <Button 
+                                        variant="ghost" 
+                                        size="sm" 
+                                        onClick={() => setShowAllExtensions(false)}
+                                        className="w-full text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-xs"
+                                      >
+                                        Show less
+                                      </Button>
+                                    )}
+                                  </>
+                                );
+                              })()}
+                              
+                              {/* Transaction Creation Event - Oldest */}
+                              <div className="flex space-x-3">
+                                <div className="w-2 h-2 bg-blue-600 rounded-full mt-2 flex-shrink-0"></div>
+                                <div>
+                                  <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                    Transaction Created
+                                  </div>
+                                  <div className="text-xs text-slate-600 dark:text-slate-400">
+                                    {formatDate(getTransactionField('pawn_date'))}
+                                  </div>
+                                  <div className="text-xs text-slate-500 dark:text-slate-500">
+                                    by User #{getTransactionField('created_by_user_id')}
+                                  </div>
                                 </div>
                               </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="flex flex-col items-center justify-center py-16 text-center">
-                            <div className="w-20 h-20 bg-details-accent/10 dark:bg-details-accent/20 rounded-full flex items-center justify-center mb-6">
-                              <Package className="w-10 h-10 text-details-accent" />
                             </div>
-                            <div className="text-base text-slate-500 dark:text-slate-400 font-medium">No items found for this transaction</div>
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  </div>
+                          </ScrollArea>
+                        </div>
 
+                        {/* Close Button */}
+                        <div className="pt-4 border-t border-slate-200 dark:border-slate-700 mt-4">
+                          <Button 
+                            variant="outline"
+                            onClick={() => setShowTransactionDetails(false)}
+                            className="w-full"
+                          >
+                            Close
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </ResizablePanel>
+                </ResizablePanelGroup>
+              )}
 
-                  {/* Internal Notes */}
-                  {(selectedTransaction?.transaction?.notes || selectedTransaction?.notes) && (
-                    <Card className="bg-details-light dark:bg-details-medium/20 backdrop-blur-sm shadow-lg border border-details-medium/20 dark:border-details-medium/40">
-                      <CardHeader className="pb-4">
-                        <CardTitle className="flex items-center space-x-3 text-lg font-semibold text-details-dark dark:text-details-secondary">
-                          <FileText className="w-5 h-5 text-details-accent" />
-                          <span>Internal Notes</span>
+              {/* Mobile/Tablet Layout - Stacked Panels */}
+              {!loadingTransactionDetails && (
+                <div className="lg:hidden p-4 space-y-6">
+                  {/* Customer & Financial Summary (Mobile) */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Card 
+                      className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950/20 transition-colors"
+                      onClick={() => {
+                        const customerPhone = getTransactionField('customer_phone') || getTransactionField('customer_id');
+                        if (customerPhone && customerPhone !== 'No Customer') {
+                          handleViewCustomer(customerPhone);
+                        }
+                      }}
+                    >
+                      <CardHeader className="pb-2">
+                        <CardTitle className="flex items-center space-x-2 text-sm">
+                          <Phone className="w-4 h-4 text-blue-600" />
+                          <span>Customer</span>
                         </CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <div className="p-4 bg-details-accent/5 dark:bg-details-accent/10 rounded-lg border border-details-accent/20 dark:border-details-accent/30">
-                          <div className="text-base text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed">
-                            {selectedTransaction?.transaction?.notes || selectedTransaction?.notes}
+                        <div className="text-lg font-bold">
+                          {getTransactionField('customer_phone') ||
+                           getTransactionField('customer_name') ||
+                           getTransactionField('customer_id') || 'No Customer'}
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="flex items-center space-x-2 text-sm">
+                          <DollarSign className="w-4 h-4 text-green-600" />
+                          <span>Financial</span>
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        <div>
+                          <div className="text-xs text-slate-600 dark:text-slate-400">Loan Amount</div>
+                          <div className="font-bold text-lg text-green-900 dark:text-green-100">
+                            {formatCurrency(getTransactionField('loan_amount') || 0)}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-slate-600 dark:text-slate-400">Monthly Interest</div>
+                          <div className="font-bold text-lg text-blue-900 dark:text-blue-100">
+                            {formatCurrency(getTransactionField('monthly_interest_amount') || 0)}
                           </div>
                         </div>
                       </CardContent>
                     </Card>
-                  )}
+                  </div>
 
-                  {/* Action Buttons */}
-                  <div className="flex justify-between items-center pt-6 border-t border-details-medium/20 dark:border-details-medium/40">
-                    <Button 
-                      variant="outline"
-                      onClick={() => setShowTransactionDetails(false)}
-                      className="text-details-medium dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
-                    >
-                      Close
-                    </Button>
-                    
-                    <div className="flex space-x-3">
-                      {((selectedTransaction?.transaction?.status || selectedTransaction?.status) === 'active' || 
-                        (selectedTransaction?.transaction?.status || selectedTransaction?.status) === 'overdue' || 
-                        (selectedTransaction?.transaction?.status || selectedTransaction?.status) === 'extended') && (
+                  {/* Pawn Items (Mobile) */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center space-x-3">
+                        <Package className="w-5 h-5 text-blue-600" />
+                        <span>Pawn Items ({getTransactionField('items')?.length || 0})</span>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {getTransactionField('items')?.length > 0 ? (
+                        <div className="space-y-3">
+                          {getTransactionField('items').map((item, index) => (
+                            <div key={index} className="p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                              <div className="flex items-center space-x-2 mb-2">
+                                <span className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">
+                                  {index + 1}
+                                </span>
+                                <div className="font-semibold">{item.description}</div>
+                              </div>
+                              {item.serial_number && (
+                                <div className="text-xs text-slate-600 dark:text-slate-400 font-mono">
+                                  SN: {item.serial_number}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center text-slate-500 py-4">No items found</div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Quick Actions (Mobile) */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-sm">Quick Actions</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {canProcessActions() && (
                         <>
                           <Button 
                             onClick={() => {
                               setShowTransactionDetails(false);
                               handlePayment(selectedTransaction?.transaction || selectedTransaction);
                             }}
-                            className="bg-gradient-to-r from-payment-accent to-green-600 hover:from-green-600 hover:to-green-700 text-white shadow-lg"
+                            className="w-full bg-green-600 hover:bg-green-700 text-white"
                           >
                             <DollarSign className="w-4 h-4 mr-2" />
-                            Quick Payment
+                            Process Payment
                           </Button>
                           <Button 
                             variant="outline"
@@ -1192,10 +1620,10 @@ const TransactionHub = () => {
                               setShowTransactionDetails(false);
                               handleExtension(selectedTransaction?.transaction || selectedTransaction);
                             }}
-                            className="border-extension-accent/30 dark:border-extension-accent/40 text-extension-accent hover:bg-extension-accent/10 dark:hover:bg-extension-accent/20"
+                            className="w-full"
                           >
                             <Calendar className="w-4 h-4 mr-2" />
-                            Quick Extension
+                            Extend Loan
                           </Button>
                         </>
                       )}
@@ -1205,13 +1633,20 @@ const TransactionHub = () => {
                           setShowTransactionDetails(false);
                           handleStatusUpdate(selectedTransaction?.transaction || selectedTransaction);
                         }}
-                        className="border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800"
+                        className="w-full"
                       >
                         <Activity className="w-4 h-4 mr-2" />
                         Update Status
                       </Button>
-                    </div>
-                  </div>
+                      <Button 
+                        variant="outline"
+                        onClick={() => setShowTransactionDetails(false)}
+                        className="w-full"
+                      >
+                        Close
+                      </Button>
+                    </CardContent>
+                  </Card>
                 </div>
               )}
             </div>
