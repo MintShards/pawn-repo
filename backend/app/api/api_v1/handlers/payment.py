@@ -143,7 +143,6 @@ async def process_payment(
             transaction_id=payment_data.transaction_id.strip(),
             payment_amount=payment_data.payment_amount,
             processed_by_user_id=current_user.user_id,
-            internal_notes=payment_data.internal_notes.strip() if payment_data.internal_notes else None,
             client_timezone=client_timezone
         )
         

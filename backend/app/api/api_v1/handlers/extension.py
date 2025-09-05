@@ -65,7 +65,6 @@ async def process_extension(
             extension_fee_per_month=extension_data.extension_fee_per_month,
             processed_by_user_id=current_user.user_id,
             extension_reason=extension_data.extension_reason,
-            internal_notes=extension_data.internal_notes,
             client_timezone=client_timezone
         )
         

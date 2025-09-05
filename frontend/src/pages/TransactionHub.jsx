@@ -447,6 +447,74 @@ const TransactionHub = () => {
     }, 200);
   };
 
+  // Handle payment form cancellation - refresh transaction data to prevent stale state
+  const handlePaymentCancel = async () => {
+    setShowPaymentForm(false);
+    
+    // If transaction details dialog is open, refresh the transaction data
+    if (showTransactionDetails && selectedTransaction) {
+      try {
+        const transactionId = selectedTransaction.transaction_id || selectedTransaction.transaction?.transaction_id;
+        
+        // Add cache busting to force fresh data
+        const bustCacheUrl = `/api/v1/pawn-transaction/${transactionId}/summary?_t=${Date.now()}`;
+        const updatedTransaction = await authService.apiRequest(bustCacheUrl, { method: 'GET' });
+        
+        // Always fetch extensions separately to ensure they're preserved
+        try {
+          const extensions = await extensionService.getExtensionHistory(transactionId, true);
+          let extensionArray = [];
+          if (Array.isArray(extensions)) {
+            extensionArray = extensions;
+          } else if (extensions && extensions.extensions) {
+            extensionArray = extensions.extensions;
+          }
+          updatedTransaction.extensions = extensionArray;
+        } catch (extError) {
+          console.warn('Could not fetch extensions after payment cancel:', extError);
+        }
+        
+        setSelectedTransaction(updatedTransaction);
+      } catch (error) {
+        console.error('Failed to refresh transaction after payment cancel:', error);
+      }
+    }
+  };
+
+  // Handle extension form cancellation - refresh transaction data to prevent stale state
+  const handleExtensionCancel = async () => {
+    setShowExtensionForm(false);
+    
+    // If transaction details dialog is open, refresh the transaction data
+    if (showTransactionDetails && selectedTransaction) {
+      try {
+        const transactionId = selectedTransaction.transaction_id || selectedTransaction.transaction?.transaction_id;
+        
+        // Add cache busting to force fresh data
+        const bustCacheUrl = `/api/v1/pawn-transaction/${transactionId}/summary?_t=${Date.now()}`;
+        const updatedTransaction = await authService.apiRequest(bustCacheUrl, { method: 'GET' });
+        
+        // Always fetch extensions separately to ensure they're current
+        try {
+          const extensions = await extensionService.getExtensionHistory(transactionId, true);
+          let extensionArray = [];
+          if (Array.isArray(extensions)) {
+            extensionArray = extensions;
+          } else if (extensions && extensions.extensions) {
+            extensionArray = extensions.extensions;
+          }
+          updatedTransaction.extensions = extensionArray;
+        } catch (extError) {
+          console.warn('Could not fetch extensions after extension cancel:', extError);
+        }
+        
+        setSelectedTransaction(updatedTransaction);
+      } catch (error) {
+        console.error('Failed to refresh transaction after extension cancel:', error);
+      }
+    }
+  };
+
   // Handle extension
   const handleExtension = (transaction) => {
     setSelectedTransaction(transaction);
@@ -912,7 +980,7 @@ const TransactionHub = () => {
             <PaymentForm
               transaction={selectedTransaction}
               onSuccess={handlePaymentSuccess}
-              onCancel={() => setShowPaymentForm(false)}
+              onCancel={handlePaymentCancel}
             />
           )}
         </DialogContent>
@@ -929,7 +997,7 @@ const TransactionHub = () => {
             <ExtensionForm
               transaction={selectedTransaction}
               onSuccess={handleExtensionSuccess}
-              onCancel={() => setShowExtensionForm(false)}
+              onCancel={handleExtensionCancel}
             />
           )}
         </DialogContent>
