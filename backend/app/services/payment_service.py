@@ -170,38 +170,26 @@ class PaymentService:
                 session=session
             )
             
-            # Add payment audit entry using new notes service with error handling
-            # Temporarily disabled to debug payment issues
-            # try:
-            #     await notes_service.add_payment_audit(
-            #         transaction=fresh_transaction,
-            #         staff_member=processed_by_user_id,
-            #         amount=payment_amount,
-            #         balance_after=balance_after_payment,
-            #         payment_id=payment.payment_id,
-            #         save_immediately=False  # Save with session
-            #     )
-            # except Exception as e:
-            #     # Log audit entry error but don't fail the payment
-            #     # Continue with payment processing
-            #     pass
+            # Add payment audit entry using new notes service
+            await notes_service.add_payment_audit(
+                transaction=fresh_transaction,
+                staff_member=processed_by_user_id,
+                amount=payment_amount,
+                balance_after=balance_after_payment,
+                payment_id=payment.payment_id,
+                save_immediately=False  # Save with session
+            )
             
             # Update transaction status if fully paid
             if balance_after_payment == 0:
                 fresh_transaction.status = TransactionStatus.REDEEMED
-                # Add redemption audit entry using new notes service with error handling
-                # Temporarily disabled to debug payment issues
-                # try:
-                #     await notes_service.add_redemption_audit(
-                #         transaction=fresh_transaction,
-                #         staff_member=processed_by_user_id,
-                #         total_paid=payment_amount,
-                #         save_immediately=False  # Save with session
-                #     )
-                # except Exception as e:
-                #     # Log audit entry error but don't fail the payment
-                #     # Continue with payment processing
-                #     pass
+                # Add redemption audit entry using new notes service
+                await notes_service.add_redemption_audit(
+                    transaction=fresh_transaction,
+                    staff_member=processed_by_user_id,
+                    total_paid=payment_amount,
+                    save_immediately=False  # Save with session
+                )
             
             # Save transaction within session
             await fresh_transaction.save(session=session)

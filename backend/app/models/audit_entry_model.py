@@ -5,8 +5,8 @@ Model for structured system audit log entries that track all system-generated
 events and transactions. Used to separate system audit logs from manual staff notes.
 """
 
-from pydantic import BaseModel, Field, field_validator
-from datetime import datetime, UTC
+from pydantic import BaseModel, Field, field_validator, ConfigDict
+from datetime import datetime, UTC, timezone
 from typing import Optional
 from enum import Enum
 
@@ -106,6 +106,15 @@ class AuditEntry(BaseModel):
             raise ValueError('Staff member ID too long')
         return v
     
+    @field_validator('timestamp')
+    @classmethod
+    def validate_timestamp(cls, v: datetime) -> datetime:
+        """Ensure timestamp is timezone-aware."""
+        if v.tzinfo is None:
+            # If naive, assume UTC
+            return v.replace(tzinfo=UTC)
+        return v
+    
     def to_legacy_string(self) -> str:
         """
         Convert audit entry to legacy internal_notes format for backward compatibility.
@@ -132,9 +141,10 @@ class AuditEntry(BaseModel):
         """String representation for display."""
         return self.to_legacy_string()
     
-    class Config:
-        """Pydantic model configuration."""
-        json_schema_extra = {
+    model_config = ConfigDict(
+        validate_assignment=True,
+        arbitrary_types_allowed=True,
+        json_schema_extra={
             "example": {
                 "action_type": "payment_processed",
                 "staff_member": "02",
@@ -144,6 +154,7 @@ class AuditEntry(BaseModel):
                 "related_id": "payment_123"
             }
         }
+    )
 
 
 def create_audit_entry(

@@ -211,21 +211,16 @@ class ExtensionService:
         old_status = transaction.status
         transaction.status = TransactionStatus.EXTENDED
         
-        # Add extension audit entry using new notes service with error handling
-        try:
-            await notes_service.add_extension_audit(
-                transaction=transaction,
-                staff_member=processed_by_user_id,
-                months=extension.extension_months,
-                new_maturity=extension.new_maturity_date.strftime('%Y-%m-%d'),
-                extension_id=extension.extension_id,
-                fee=extension.total_extension_fee if extension.total_extension_fee > 0 else None,
-                save_immediately=False  # We'll save separately
-            )
-        except Exception as e:
-            # Log audit entry error but don't fail the extension
-            # Continue with extension processing
-            pass
+        # Add extension audit entry using new notes service
+        await notes_service.add_extension_audit(
+            transaction=transaction,
+            staff_member=processed_by_user_id,
+            months=extension.extension_months,
+            new_maturity=extension.new_maturity_date.strftime('%Y-%m-%d'),
+            extension_id=extension.extension_id,
+            fee=extension.total_extension_fee if extension.total_extension_fee > 0 else None,
+            save_immediately=False  # We'll save separately
+        )
         
         # Save transaction
         await transaction.save()
