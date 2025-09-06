@@ -112,6 +112,12 @@ class PawnTransactionResponse(PawnTransactionBase):
     customer_id: str = Field(..., description="Customer phone number")
     created_by_user_id: str = Field(..., description="Staff member who created transaction")
     
+    # Items information
+    items: Optional[List[PawnItemResponse]] = Field(
+        default_factory=list,
+        description="List of pawned items"
+    )
+    
     # Calculated dates
     pawn_date: datetime = Field(..., description="Date when item was pawned")
     maturity_date: datetime = Field(..., description="Loan maturity date (3 months)")

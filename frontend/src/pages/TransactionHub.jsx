@@ -718,7 +718,7 @@ const TransactionHub = () => {
                   </p>
                 </div>
                 <div className="w-12 h-12 bg-cyan-500/20 rounded-xl flex items-center justify-center">
-                  <CheckCircle className="w-6 h-6 text-cyan-600 dark:text-cyan-400" />
+                  <CreditCard className="w-6 h-6 text-cyan-600 dark:text-cyan-400" />
                 </div>
               </div>
             </CardContent>
@@ -799,8 +799,8 @@ const TransactionHub = () => {
 
         {/* Quick Actions & Transaction Content Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-          {/* Quick Actions Sidebar */}
-          <div className="lg:col-span-1 space-y-4">
+          {/* Quick Actions & Reports Sidebar */}
+          <div className="lg:col-span-1 space-y-4 max-h-[calc(100vh-300px)] overflow-y-auto">
             {/* Quick Actions Card */}
             <Card className="border-0 shadow-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 overflow-hidden relative z-10">
               <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-indigo-500/5 pointer-events-none"></div>
@@ -862,20 +862,37 @@ const TransactionHub = () => {
                   </div>
                   <span className="font-medium text-sm">Manage Customers</span>
                 </Button>
-                
+              </CardContent>
+            </Card>
+
+            {/* Reports Section */}
+            <Card className="border-0 shadow-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 overflow-hidden relative z-10">
+              <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 via-transparent to-pink-500/5 pointer-events-none"></div>
+              <CardHeader className="relative pb-3">
+                <div className="flex items-center space-x-3">
+                  <div className="relative">
+                    <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl flex items-center justify-center shadow-lg shadow-purple-500/30">
+                      <FileText className="w-5 h-5 text-white" />
+                    </div>
+                    <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-orange-500 rounded-full border-2 border-slate-900"></div>
+                  </div>
+                  <div>
+                    <CardTitle className="text-white text-lg font-bold">Reports</CardTitle>
+                    <p className="text-xs text-slate-400">Analytics and documentation</p>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="relative space-y-3 pt-2 z-20">
                 <Button 
-                  onClick={() => {
-                    // Generate daily cash report
-                  }}
-                  className="w-full justify-start h-11 bg-gradient-to-r from-slate-800/50 to-slate-700/50 hover:from-slate-700/60 hover:to-slate-600/60 text-slate-300 border border-slate-600/30 hover:border-slate-500/50 shadow-md hover:shadow-lg transition-all duration-200 group" 
+                  className="w-full justify-start h-11 bg-gradient-to-r from-slate-700 to-slate-600 hover:from-slate-600 hover:to-slate-500 text-white border border-slate-600/50 hover:border-slate-500/70 shadow-md hover:shadow-lg transition-all duration-200 group" 
                   variant="outline"
                 >
-                  <div className="w-6 h-6 bg-slate-600/30 rounded-md flex items-center justify-center mr-2 group-hover:bg-slate-500/40 transition-colors">
-                    <BarChart3 className="w-4 h-4" />
+                  <div className="w-6 h-6 bg-slate-500/30 rounded-md flex items-center justify-center mr-2 group-hover:bg-slate-400/40 transition-colors">
+                    <Calendar className="w-4 h-4" />
                   </div>
-                  <span className="font-medium text-sm">Daily Cash Report</span>
+                  <span className="font-medium text-sm">Today's Summary</span>
                 </Button>
-                
+
                 <Button 
                   className="w-full justify-start h-11 bg-gradient-to-r from-slate-800/50 to-slate-700/50 hover:from-slate-700/60 hover:to-slate-600/60 text-slate-300 border border-slate-600/30 hover:border-slate-500/50 shadow-md hover:shadow-lg transition-all duration-200 group" 
                   variant="outline"
@@ -914,6 +931,7 @@ const TransactionHub = () => {
                 </div>
               </CardContent>
             </Card>
+
           </div>
 
           {/* Main Content Area */}

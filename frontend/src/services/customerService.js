@@ -86,6 +86,15 @@ class CustomerService {
     return `${firstName} ${lastName}`.trim();
   }
 
+  // Get customer name in DOE, J. format
+  getCustomerNameFormatted(customer) {
+    if (!customer || !customer.first_name || !customer.last_name) return '';
+    const firstName = customer.first_name.toUpperCase();
+    const lastName = customer.last_name.toUpperCase();
+    const firstInitial = firstName.charAt(0);
+    return `${lastName}, ${firstInitial}.`;
+  }
+
   // Get customer statistics (admin only) with enhanced caching
   async getCustomerStatistics() {
     try {

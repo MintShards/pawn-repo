@@ -11,6 +11,7 @@ import {
 } from '../ui/dropdown-menu';
 import StatusBadge from './components/StatusBadge';
 import transactionService from '../../services/transactionService';
+import customerService from '../../services/customerService';
 import { formatTransactionId, formatStorageLocation, formatCurrency } from '../../utils/transactionUtils';
 import { formatBusinessDate } from '../../utils/timezoneUtils';
 
@@ -23,7 +24,8 @@ const TransactionCard = ({
   onStatusUpdate,
   isSelected = false,
   onSelect,
-  refreshTrigger // Add prop to trigger balance refresh
+  refreshTrigger, // Add prop to trigger balance refresh
+  customerData = {} // Customer data map
 }) => {
   const [balance, setBalance] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -184,16 +186,36 @@ const TransactionCard = ({
             </div>
             {(transaction.customer_phone || transaction.customer_id) && 
              (transaction.customer_phone !== 'No Customer' && transaction.customer_id !== 'No Customer') ? (
-              <Button
-                variant="link"
-                className="h-auto p-0 text-sm font-medium text-blue-700 dark:text-blue-300 hover:text-blue-800 dark:hover:text-blue-200 underline-offset-2"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onViewCustomer?.(transaction.customer_phone || transaction.customer_id);
-                }}
-              >
-                {transaction.customer_phone || transaction.customer_id}
-              </Button>
+              <div className="space-y-1">
+                {/* Customer Name in DOE, J. format */}
+                <div className="min-h-[20px]">
+                  {customerData[transaction.customer_phone || transaction.customer_id] ? (
+                    <Button
+                      variant="link"
+                      className="h-auto p-0 text-sm font-bold text-slate-900 dark:text-slate-100 hover:text-blue-700 dark:hover:text-blue-300 underline-offset-2"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onViewCustomer?.(transaction.customer_phone || transaction.customer_id);
+                      }}
+                    >
+                      {customerService.getCustomerNameFormatted(customerData[transaction.customer_phone || transaction.customer_id])}
+                    </Button>
+                  ) : (
+                    <div className="text-xs text-slate-400 dark:text-slate-500">Loading...</div>
+                  )}
+                </div>
+                {/* Customer Phone Number */}
+                <Button
+                  variant="link"
+                  className="h-auto p-0 text-xs font-normal text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 underline-offset-2 opacity-75"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onViewCustomer?.(transaction.customer_phone || transaction.customer_id);
+                  }}
+                >
+                  {transaction.customer_phone || transaction.customer_id}
+                </Button>
+              </div>
             ) : (
               <span className="text-sm font-medium text-slate-400 dark:text-slate-500">No Customer</span>
             )}

@@ -41,6 +41,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import TransactionCard from './TransactionCard';
 import StatusBadge from './components/StatusBadge';
 import transactionService from '../../services/transactionService';
+import customerService from '../../services/customerService';
 import { matchesTransactionSearch, initializeSequenceNumbers, formatTransactionId, formatStorageLocation, formatCurrency } from '../../utils/transactionUtils';
 import { formatBusinessDate } from '../../utils/timezoneUtils';
 
@@ -90,6 +91,9 @@ const TransactionList = ({
     loanAmount: '',
     storageLocation: ''
   });
+
+  // Customer data for name display
+  const [customerData, setCustomerData] = useState({});
 
   // Responsive detection
   useEffect(() => {
@@ -154,6 +158,36 @@ const TransactionList = ({
       return sortDirection === 'desc' ? -comparison : comparison;
     });
 
+  // Fetch customer names for transactions
+  const fetchCustomerNames = useCallback(async (transactionList) => {
+    try {
+      // Get unique customer IDs from transactions
+      const customerIds = [...new Set(
+        transactionList
+          .map(t => t.customer_id)
+          .filter(id => id && id !== 'N/A' && id !== 'No Customer')
+      )];
+
+      if (customerIds.length === 0) return;
+
+      // Fetch customer data for all unique phone numbers
+      const customerResults = await customerService.getMultipleCustomers(customerIds);
+      
+      // Build customer data map
+      const customerMap = {};
+      customerResults.forEach(result => {
+        if (result.data) {
+          customerMap[result.phone] = result.data;
+        }
+      });
+
+      setCustomerData(customerMap);
+    } catch (error) {
+      console.warn('Failed to fetch customer names:', error);
+      // Don't throw error as customer names are optional enhancement
+    }
+  }, []);
+
   const loadTransactions = useCallback(async () => {
     try {
       setLoading(true);
@@ -198,6 +232,9 @@ const TransactionList = ({
       initializeSequenceNumbers(transactionList);
       
       setTransactions(transactionList);
+
+      // Fetch customer names for display
+      await fetchCustomerNames(transactionList);
       
       // Fetch balances for active/overdue/extended transactions immediately
       const activeTransactions = transactionList.filter(t => 
@@ -861,16 +898,36 @@ const TransactionList = ({
                         </TableCell>
                         <TableCell>
                           {transaction.customer_id && transaction.customer_id !== 'N/A' ? (
-                            <Button
-                              variant="link"
-                              className="h-auto p-0 font-medium text-blue-700 dark:text-blue-300 hover:text-blue-800 dark:hover:text-blue-200 underline-offset-2"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onViewCustomer?.(transaction.customer_id);
-                              }}
-                            >
-                              {transaction.customer_id}
-                            </Button>
+                            <div className="space-y-1">
+                              {/* Customer Name in DOE, J. format */}
+                              <div className="min-h-[20px]">
+                                {customerData[transaction.customer_id] ? (
+                                  <Button
+                                    variant="link"
+                                    className="h-auto p-0 text-sm font-bold text-slate-900 dark:text-slate-100 hover:text-blue-700 dark:hover:text-blue-300 underline-offset-2"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onViewCustomer?.(transaction.customer_id);
+                                    }}
+                                  >
+                                    {customerService.getCustomerNameFormatted(customerData[transaction.customer_id])}
+                                  </Button>
+                                ) : (
+                                  <div className="text-xs text-slate-400 dark:text-slate-500">Loading...</div>
+                                )}
+                              </div>
+                              {/* Customer Phone Number */}
+                              <Button
+                                variant="link"
+                                className="h-auto p-0 text-xs font-normal text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 underline-offset-2 opacity-75"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onViewCustomer?.(transaction.customer_id);
+                                }}
+                              >
+                                {transaction.customer_id}
+                              </Button>
+                            </div>
                           ) : (
                             <div className="font-medium text-slate-400 dark:text-slate-500">N/A</div>
                           )}
@@ -887,11 +944,9 @@ const TransactionList = ({
                             >
                               IT{formatTransactionId(transaction).replace('PW', '')}
                             </Button>
-                            {transaction.items && transaction.items.length > 0 && (
-                              <div className="text-xs text-slate-500 dark:text-slate-400">
-                                {transaction.items.length} item{transaction.items.length !== 1 ? 's' : ''}
-                              </div>
-                            )}
+                            <div className="text-xs text-slate-500 dark:text-slate-400">
+                              {(transaction.items && transaction.items.length) || 0} item{((transaction.items && transaction.items.length) || 0) !== 1 ? 's' : ''}
+                            </div>
                           </div>
                         </TableCell>
                         <TableCell>
@@ -995,6 +1050,7 @@ const TransactionList = ({
                   onStatusUpdate={onStatusUpdate}
                   isSelected={selectedTransactionIds.includes(transaction.transaction_id)}
                   onSelect={() => handleSelectTransaction(transaction.transaction_id)}
+                  customerData={customerData}
                 />
               ))}
             </div>

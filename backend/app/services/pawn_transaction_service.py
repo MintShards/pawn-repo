@@ -602,10 +602,14 @@ class PawnTransactionService:
             skip = (filters.page - 1) * filters.page_size
             transactions = await query.skip(skip).limit(filters.page_size).to_list()
             
-            # Convert to response format with timezone-aware dates
+            # Convert to response format with timezone-aware dates and items
             transaction_responses = []
             for transaction in transactions:
                 transaction_dict = transaction.model_dump()
+                
+                # Fetch items for this transaction
+                items = await PawnItem.find(PawnItem.transaction_id == transaction.transaction_id).to_list()
+                transaction_dict['items'] = [item.model_dump() for item in items]
                 
                 # Convert UTC dates to user timezone for display
                 if client_timezone:
