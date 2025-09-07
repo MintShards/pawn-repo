@@ -42,6 +42,7 @@ class ExtensionCreate(ExtensionBase):
 class ExtensionResponse(ExtensionBase):
     """Schema for extension response"""
     extension_id: str = Field(..., description="Unique extension identifier")
+    formatted_id: Optional[str] = Field(None, description="Display-friendly extension ID (e.g., 'EX000001')")
     transaction_id: str = Field(..., description="Associated transaction ID")
     processed_by_user_id: str = Field(..., description="Staff member who processed extension")
     

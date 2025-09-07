@@ -9,9 +9,10 @@ balance calculations, status updates, and transaction management.
 from datetime import datetime, UTC
 from typing import List, Optional, Dict, Any
 import structlog
+import re
 
 # Third-party imports
-from beanie.operators import In
+from beanie.operators import In, Or, RegEx
 
 # Local imports
 from app.models.pawn_transaction_model import PawnTransaction, TransactionStatus
@@ -144,7 +145,11 @@ class PawnTransactionService:
                 pawn_date_utc = utc_now.replace(hour=0, minute=0, second=0, microsecond=0)
                 logger.warning("No client timezone provided, using UTC business date")
             
-            # Create the transaction with explicit pawn_date
+            # Get the next formatted ID for this transaction
+            from app.services.formatted_id_service import FormattedIdService
+            formatted_id = await FormattedIdService.get_next_formatted_id()
+            
+            # Create the transaction with explicit pawn_date and formatted_id
             transaction = PawnTransaction(
                 customer_id=customer_phone,
                 created_by_user_id=created_by_user_id,
@@ -152,7 +157,8 @@ class PawnTransactionService:
                 monthly_interest_amount=monthly_interest_amount,
                 storage_location=storage_location,
                 internal_notes=internal_notes,
-                pawn_date=pawn_date_utc
+                pawn_date=pawn_date_utc,
+                formatted_id=formatted_id
             )
             
             # If initial notes were provided, also add them to the new notes architecture
@@ -502,6 +508,13 @@ class PawnTransactionService:
         
         await transaction.save()
         
+        # PERFORMANCE: Invalidate search cache when transaction is updated
+        try:
+            await BusinessCache.invalidate_by_pattern("transactions_list_*")
+            logger.debug("🗑️ CACHE INVALIDATED: Cleared transaction search cache after status update")
+        except Exception as e:
+            logger.debug(f"Cache invalidation failed: {e}")
+        
         # Update customer statistics for terminal states
         if new_status in [TransactionStatus.REDEEMED, TransactionStatus.FORFEITED, TransactionStatus.SOLD]:
             customer = await Customer.find_one(Customer.phone_number == transaction.customer_id)
@@ -544,10 +557,37 @@ class PawnTransactionService:
         
         return updated_counts
     
+
+    @staticmethod
+    def _generate_filters_hash(filters) -> str:
+        """Generate a consistent hash for filters to use as cache key."""
+        import hashlib
+        import json
+        
+        # Convert filters to a consistent string representation
+        filter_dict = {
+            'search_text': filters.search_text,
+            'status': str(filters.status) if filters.status else None,
+            'customer_id': filters.customer_id,
+            'min_amount': filters.min_amount,
+            'max_amount': filters.max_amount,
+            'start_date': filters.start_date.isoformat() if filters.start_date else None,
+            'end_date': filters.end_date.isoformat() if filters.end_date else None,
+            'storage_location': filters.storage_location,
+            'page': filters.page,
+            'page_size': filters.page_size,
+            'sort_by': str(filters.sort_by),
+            'sort_order': str(filters.sort_order)
+        }
+        
+        # Sort keys for consistent hashing
+        filter_str = json.dumps(filter_dict, sort_keys=True)
+        return hashlib.md5(filter_str.encode()).hexdigest()[:12]
+
     @staticmethod
     async def get_transactions_list(filters, client_timezone: Optional[str] = None) -> Dict[str, Any]:
         """
-        Get paginated list of transactions with filtering.
+        Get paginated list of transactions with filtering (with caching for performance).
         
         Args:
             filters: TransactionSearchFilters object with pagination and filter options
@@ -557,6 +597,18 @@ class PawnTransactionService:
             Dictionary containing transactions list and pagination info
         """
         from app.schemas.pawn_transaction_schema import PawnTransactionListResponse, PawnTransactionResponse
+        
+        # Simple cache implementation
+        cache_key = f"transactions_list_{PawnTransactionService._generate_filters_hash(filters)}_{client_timezone or 'UTC'}"
+        
+        # Check cache first (using BusinessCache if available)
+        try:
+            cached_result = await BusinessCache.get(cache_key)
+            if cached_result is not None:
+                logger.info(f"🚀 CACHE HIT: Returning cached transaction list for key {cache_key[:20]}...")
+                return cached_result
+        except Exception as e:
+            logger.debug(f"Cache read failed, proceeding without cache: {e}")
         
         try:
             # Build query
@@ -568,6 +620,146 @@ class PawnTransactionService:
                 
             if filters.customer_id:
                 query = query.find(PawnTransaction.customer_id == filters.customer_id)
+            
+            # Handle search with improved logic
+            if filters.search_text:
+                search_term = filters.search_text.strip()
+                logger.info(f"🔍 SEARCH START: Processing search term '{search_term}'")
+                
+                # Check if it's a transaction ID pattern (PW000123, #PW000123, #123, or 123 - max 6 digits)
+                if re.match(r'^#?(PW)?\d{1,6}$', search_term, re.IGNORECASE):
+                    logger.info(f"✅ SEARCH PATTERN: Detected transaction ID pattern for '{search_term}'")
+                    
+                    # Extract the number from search term and format as PW000123
+                    number_match = re.search(r'\d+', search_term)
+                    if number_match:
+                        target_number = int(number_match.group())
+                        formatted_search_id = f"PW{target_number:06d}"
+                        logger.info(f"🎯 SEARCH TARGET: Looking for formatted ID {formatted_search_id}")
+                        
+                        # Use indexed lookup for exact match
+                        from app.services.formatted_id_service import FormattedIdService
+                        transaction = await FormattedIdService.find_by_formatted_id(formatted_search_id)
+                        
+                        if transaction:
+                            logger.info(f"✅ SEARCH SUCCESS: Found transaction {formatted_search_id} via indexed lookup")
+                            query = query.find(PawnTransaction.transaction_id == transaction.transaction_id)
+                        else:
+                            logger.warning(f"❌ SEARCH NOT FOUND: No transaction found for formatted ID {formatted_search_id}")
+                            query = query.find(PawnTransaction.transaction_id == "nonexistent")
+                    else:
+                        # Shouldn't happen with regex, but fallback
+                        logger.warning(f"⚠️ SEARCH WARNING: Could not extract number from '{search_term}'")
+                        query = query.find(PawnTransaction.transaction_id == "nonexistent")
+                
+                # Check if it's an extension ID pattern (EX000123, #EX000123)
+                elif re.match(r'^#?(EX)\d+$', search_term, re.IGNORECASE):
+                    logger.info(f"📋 SEARCH PATTERN: Detected extension ID pattern for '{search_term}'")
+                    
+                    # Try direct extension lookup first
+                    try:
+                        from app.services.formatted_id_service import FormattedIdService
+                        
+                        # Extract and normalize the search term
+                        formatted_search_id = search_term.upper()
+                        if not formatted_search_id.startswith('EX'):
+                            # Handle cases like "#123" or "123" for extension IDs
+                            number_match = re.search(r'\d+', formatted_search_id)
+                            if number_match:
+                                extension_number = int(number_match.group())
+                                formatted_search_id = f"EX{extension_number:06d}"
+                        
+                        # Search for extension by formatted ID
+                        extension = await FormattedIdService.find_extension_by_formatted_id(formatted_search_id)
+                        
+                        if extension:
+                            logger.info(f"✅ EXTENSION SEARCH: Found extension {formatted_search_id}, searching for transaction {extension.transaction_id}")
+                            # Search for the transaction that has this extension
+                            query = query.find(PawnTransaction.transaction_id == extension.transaction_id)
+                        else:
+                            logger.info(f"❌ EXTENSION SEARCH: Extension {formatted_search_id} not found, checking transactions with any extensions")
+                            # Fallback: search for transactions with extensions
+                            query = query.find({"extensions.0": {"$exists": True}})
+                            filters.page_size = 200  # Load more transactions for extension search
+                            
+                    except Exception as e:
+                        logger.warning(f"⚠️ EXTENSION SEARCH ERROR: {e}, falling back to extension array search")
+                        # Fallback to finding transactions with extensions
+                        query = query.find({"extensions.0": {"$exists": True}})
+                        filters.page_size = 200
+                    
+                    logger.info(f"📊 SEARCH SCOPE: Extension search for '{search_term}'")
+                
+                # Check if it's an item ID pattern (IT000123, #IT000123)  
+                elif re.match(r'^#?(IT)\d+$', search_term, re.IGNORECASE):
+                    logger.info(f"📦 SEARCH PATTERN: Detected item ID pattern for '{search_term}'")
+                    # Similar to extension, items don't have direct lookup
+                    # Will need to search within transactions
+                    query = query  # Keep query as-is
+                    filters.page_size = 200  # Load more transactions
+                    logger.info(f"📊 SEARCH SCOPE: Item search - page size increased to {filters.page_size}")
+                
+                # Check if it's a loan amount (pure number less than 7 digits)
+                elif search_term.isdigit() and len(search_term) < 7:
+                    logger.info(f"💰 SEARCH PATTERN: Detected loan amount pattern for '{search_term}'")
+                    amount_value = int(search_term)
+                    # Search for exact amount match
+                    query = query.find(PawnTransaction.loan_amount == amount_value)
+                    # Use normal pagination for amount searches
+                    logger.info(f"📊 SEARCH SCOPE: Amount search for ${amount_value} - using normal pagination")
+                
+                # Check if it's a phone number (7+ digits) - customer search 
+                elif search_term.isdigit() and len(search_term) >= 7:
+                    logger.info(f"📞 SEARCH PATTERN: Detected customer phone number pattern for '{search_term}'")
+                    # Search for phone number in customer_id field (exact match or contains)
+                    query = query.find(RegEx(PawnTransaction.customer_id, f".*{search_term}.*"))
+                    # Respect normal pagination for phone searches
+                    logger.info(f"📊 SEARCH SCOPE: Phone search for '{search_term}' - using normal pagination")
+                
+                # For any other search terms, treat as customer/general search
+                else:
+                    logger.info(f"🔤 SEARCH PATTERN: Treating as general customer/name search for '{search_term}'")
+                    
+                    # For customer name searches, we need to search in the Customer collection first
+                    # Then find transactions matching those customer phone numbers
+                    try:
+                        from app.models.customer_model import Customer
+                        
+                        # Search for customers matching the name pattern
+                        matching_customers = await Customer.find({
+                            "$or": [
+                                {"first_name": RegEx(f".*{search_term}.*", "i")},
+                                {"last_name": RegEx(f".*{search_term}.*", "i")},
+                                # Also search in combined name (first + last)
+                                {"$expr": {
+                                    "$regexMatch": {
+                                        "input": {"$concat": ["$first_name", " ", "$last_name"]},
+                                        "regex": search_term,
+                                        "options": "i"
+                                    }
+                                }}
+                            ]
+                        }).to_list()
+                        
+                        if matching_customers:
+                            # Get phone numbers of matching customers
+                            customer_phones = [customer.phone_number for customer in matching_customers]
+                            logger.info(f"🔍 CUSTOMER NAME SEARCH: Found {len(matching_customers)} customers matching '{search_term}', phones: {customer_phones}")
+                            
+                            # Search for transactions with those customer phone numbers
+                            query = query.find({"customer_id": {"$in": customer_phones}})
+                        else:
+                            logger.info(f"🔍 CUSTOMER NAME SEARCH: No customers found matching '{search_term}'")
+                            # No matching customers, return empty result
+                            query = query.find({"customer_id": "no-match-found"})
+                            
+                    except Exception as e:
+                        logger.warning(f"⚠️ CUSTOMER NAME SEARCH ERROR: {e}, falling back to customer_id search")
+                        # Fallback to searching in customer_id (phone) field
+                        query = query.find(RegEx(PawnTransaction.customer_id, f".*{search_term}.*", "i"))
+                    
+                    # Use normal pagination for general searches
+                    logger.info(f"📊 SEARCH SCOPE: General search for '{search_term}' - using normal pagination")
                 
             if filters.min_amount is not None:
                 query = query.find(PawnTransaction.loan_amount >= filters.min_amount)
@@ -602,14 +794,28 @@ class PawnTransactionService:
             skip = (filters.page - 1) * filters.page_size
             transactions = await query.skip(skip).limit(filters.page_size).to_list()
             
+            # PERFORMANCE OPTIMIZATION: Batch fetch all items for all transactions (fix N+1 problem)
+            transaction_ids = [t.transaction_id for t in transactions]
+            all_items = []
+            if transaction_ids:
+                all_items = await PawnItem.find(
+                    {"transaction_id": {"$in": transaction_ids}}
+                ).sort(PawnItem.item_number).to_list()
+            
+            # Group items by transaction_id for O(1) lookup
+            items_by_transaction = {}
+            for item in all_items:
+                if item.transaction_id not in items_by_transaction:
+                    items_by_transaction[item.transaction_id] = []
+                items_by_transaction[item.transaction_id].append(item.model_dump())
+            
             # Convert to response format with timezone-aware dates and items
             transaction_responses = []
             for transaction in transactions:
                 transaction_dict = transaction.model_dump()
                 
-                # Fetch items for this transaction
-                items = await PawnItem.find(PawnItem.transaction_id == transaction.transaction_id).to_list()
-                transaction_dict['items'] = [item.model_dump() for item in items]
+                # Get pre-fetched items for this transaction
+                transaction_dict['items'] = items_by_transaction.get(transaction.transaction_id, [])
                 
                 # Convert UTC dates to user timezone for display
                 if client_timezone:
@@ -635,13 +841,29 @@ class PawnTransactionService:
             # Calculate pagination info
             has_next = (skip + filters.page_size) < total_count
             
-            return PawnTransactionListResponse(
+            # Final search result logging
+            if filters.search_text:
+                logger.info(f"🏁 SEARCH COMPLETE: Returning {len(transaction_responses)} transactions for '{filters.search_text}' (total: {total_count})")
+                if transaction_responses:
+                    first_txn_id = transaction_responses[0].transaction_id
+                    logger.info(f"📄 FIRST RESULT: Transaction ID {first_txn_id}")
+            
+            result = PawnTransactionListResponse(
                 transactions=transaction_responses,
                 total_count=total_count,
                 page=filters.page,
                 page_size=filters.page_size,
                 has_next=has_next
             )
+            
+            # Cache the result for future requests (60 second TTL)
+            try:
+                await BusinessCache.set(cache_key, result, ttl_seconds=60)
+                logger.debug(f"💾 CACHE SET: Cached transaction list for key {cache_key[:20]}...")
+            except Exception as e:
+                logger.debug(f"Cache write failed, continuing without cache: {e}")
+            
+            return result
             
         except Exception as e:
             raise PawnTransactionError(f"Failed to retrieve transactions list: {str(e)}")
@@ -678,12 +900,16 @@ class PawnTransactionService:
             ).sort(PawnItem.item_number).to_list()
             
             # Convert to response schemas
-            transaction_response = PawnTransactionResponse.model_validate(transaction.model_dump())
+            transaction_dict = transaction.model_dump()
             
             item_responses = []
             for item in items:
                 item_dict = item.model_dump()
                 item_responses.append(PawnItemResponse.model_validate(item_dict))
+            
+            # Add items to transaction response
+            transaction_dict['items'] = item_responses
+            transaction_response = PawnTransactionResponse.model_validate(transaction_dict)
             
             # Get current balance (using a simplified version for now)
             balance_info = await InterestCalculationService.calculate_current_balance(

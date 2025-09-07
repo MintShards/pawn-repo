@@ -1,7 +1,5 @@
 import authService from './authService';
 import extensionService from './extensionService';
-import { matchesExtensionSearch } from '../utils/transactionUtils';
-import { getTimezoneHeaders } from '../utils/timezoneUtils';
 
 class TransactionService {
   constructor() {
@@ -241,35 +239,32 @@ class TransactionService {
     }
   }
 
-  // Search for transactions by extension ID
+  // Search for transactions by extension ID using the dedicated search endpoint
   async searchTransactionsByExtension(extensionSearchTerm) {
     try {
-      // Get all transactions first
-      const allTransactions = await this.getAllTransactions({ page_size: 100 }); // Get more transactions for search
-      const transactions = allTransactions.transactions || [];
-      
-      // Enrich with extensions
-      const enrichedTransactions = await this.enrichTransactionsWithExtensions(transactions);
-      
-      // Filter transactions that have matching extensions
-      const matchingTransactions = enrichedTransactions.filter(transaction => {
-        // Ensure extensions exists and is an array
-        if (!transaction.extensions || !Array.isArray(transaction.extensions) || transaction.extensions.length === 0) {
-          return false;
-        }
-        
-        return transaction.extensions.some(extension => {
-          return matchesExtensionSearch(extension, extensionSearchTerm);
-        });
+      // Use the dedicated search endpoint for extension searches
+      const result = await authService.apiRequest(`/api/v1/pawn-transaction/search?search_text=${encodeURIComponent(extensionSearchTerm)}`, {
+        method: 'GET',
       });
       
+      // Handle paginated response
+      const processedResult = result && result.transactions && Array.isArray(result.transactions) 
+        ? result 
+        : Array.isArray(result) 
+          ? { transactions: result, total: result.length } 
+          : { transactions: [], total: 0 };
+      
+      // Enrich with extensions for display purposes
+      const enrichedTransactions = await this.enrichTransactionsWithExtensions(processedResult.transactions);
+      
       return {
-        transactions: matchingTransactions,
+        transactions: enrichedTransactions,
+        total_count: processedResult.total_count || processedResult.total || 0,
         searchType: 'extension',
         searchTerm: extensionSearchTerm
       };
     } catch (error) {
-      // Error handled
+      console.error('Error searching transactions by extension:', error);
       throw error;
     }
   }

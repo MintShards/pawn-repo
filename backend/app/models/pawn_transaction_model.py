@@ -44,6 +44,10 @@ class PawnTransaction(Document):
         default_factory=lambda: str(uuid4()),
         description="Unique transaction identifier"
     )
+    formatted_id: Optional[Indexed(str)] = Field(
+        default=None,
+        description="Display-friendly transaction ID (e.g., 'PW000105') for fast lookups"
+    )
     customer_id: Indexed(str) = Field(
         ...,
         description="Reference to Customer document via phone_number"
@@ -502,9 +506,11 @@ class PawnTransaction(Document):
         name = "pawn_transactions"
         indexes = [
             "transaction_id",
+            "formatted_id",  # Index for fast PW000105 lookups
             "customer_id",
             "status",
             "pawn_date",
             "maturity_date",
             [("status", 1), ("maturity_date", 1)],  # Compound index for queries
+            [("pawn_date", 1), ("created_at", 1)],  # Compound index for chronological search ordering
         ]

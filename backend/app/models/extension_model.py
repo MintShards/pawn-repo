@@ -27,6 +27,10 @@ class Extension(Document):
         default_factory=lambda: str(uuid4()),
         description="Unique extension identifier"
     )
+    formatted_id: Optional[Indexed(str)] = Field(
+        default=None,
+        description="Display-friendly extension ID (e.g., 'EX000001') for fast lookups"
+    )
     transaction_id: Indexed(str) = Field(
         ...,
         description="Reference to PawnTransaction document via transaction_id"
@@ -324,6 +328,7 @@ class Extension(Document):
         name = "extensions"
         indexes = [
             "extension_id",
+            "formatted_id",  # Index for fast EX000001 lookups
             "transaction_id",
             "processed_by_user_id",
             "extension_date",

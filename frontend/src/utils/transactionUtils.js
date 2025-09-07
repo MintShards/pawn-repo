@@ -97,7 +97,16 @@ const getExtensionSequenceNumber = (extensionId) => {
  * @param {Array} transactions - List of transaction objects
  */
 export const initializeSequenceNumbers = (transactions) => {
-  if (!transactions || !Array.isArray(transactions)) return;
+  if (!transactions || !Array.isArray(transactions)) {
+    return;
+  }
+  
+  // Check if most transactions have backend formatted_id - if so, skip localStorage entirely
+  const transactionsWithBackendIds = transactions.filter(t => t.formatted_id);
+  if (transactionsWithBackendIds.length > transactions.length * 0.8) { // 80% threshold
+    return;
+  }
+  
   
   // Sort by creation date to maintain consistent numbering
   const sortedTransactions = [...transactions].sort((a, b) => {
@@ -106,14 +115,19 @@ export const initializeSequenceNumbers = (transactions) => {
     return dateA - dateB;
   });
   
+  
   // Track if any new sequence numbers were assigned
   let hasNewSequences = false;
   
   // Assign sequence numbers in chronological order
-  sortedTransactions.forEach(transaction => {
+  let newAssignments = 0;
+  sortedTransactions.forEach((transaction, index) => {
     if (transaction.transaction_id && !transactionSequence.has(transaction.transaction_id)) {
-      transactionSequence.set(transaction.transaction_id, nextSequenceNumber++);
+      const assignedNumber = nextSequenceNumber++;
+      transactionSequence.set(transaction.transaction_id, assignedNumber);
       hasNewSequences = true;
+      newAssignments++;
+      
     }
     
     // Also initialize extension sequence numbers if extensions exist
@@ -132,6 +146,7 @@ export const initializeSequenceNumbers = (transactions) => {
       });
     }
   });
+  
   
   // Save to localStorage if any new sequences were assigned
   if (hasNewSequences) {
@@ -163,27 +178,34 @@ export const clearSequenceData = () => {
 /**
  * Format transaction ID for display
  * @param {Object} transaction - Transaction object
- * @param {string} transaction.transaction_id - Full transaction ID hash
+ * @param {string} transaction.formatted_id - Backend-provided formatted ID (preferred)
+ * @param {string} transaction.transaction_id - Full transaction ID hash (fallback)
  * @returns {string} Formatted transaction ID (e.g., "PW000001")
  */
 export const formatTransactionId = (transaction) => {
+  // Prefer backend-provided formatted_id if available
+  if (transaction?.formatted_id) {
+    // Log more frequently during debugging to identify which transactions use backend vs localStorage
+    return transaction.formatted_id;
+  }
+  
+  // Fallback to localStorage-based sequence for backward compatibility
   if (!transaction?.transaction_id) {
     return 'TXN-PENDING';
   }
   
   const sequenceNumber = getSequenceNumber(transaction.transaction_id);
   const paddedNumber = sequenceNumber.toString().padStart(6, '0');
+  const formattedId = `PW${paddedNumber}`;
   
-  // Main transactions are always PW (Pawn)
-  // Extensions and redemptions would have their own numbering system
-  return `PW${paddedNumber}`;
+  return formattedId;
 };
 
 /**
  * Format extension ID for display
  * @param {Object} extension - Extension object
  * @param {string} extension.extension_id - Full extension ID hash
- * @returns {string} Formatted extension ID (e.g., "EX000001")
+ * @returns {string} Formatted extension ID (e.g., "EX000001") - for internal display only
  */
 export const formatExtensionId = (extension) => {
   if (!extension?.extension_id) {
@@ -219,9 +241,9 @@ export const matchesTransactionSearch = (transaction, searchTerm) => {
   const searchLower = searchTerm.toLowerCase();
   
   // Allow searching by:
-  // - Full formatted ID: "PW000045" or "EX000012"
+  // - Full formatted ID: "PW000045"
   // - Just numbers: "000045" or "45"
-  // - With or without prefix: "PW45" or "EX12"
+  // - With or without prefix: "PW45"
   return (
     formattedId.toLowerCase().includes(searchLower) ||
     extractTransactionNumber(formattedId).includes(searchTerm) ||
@@ -229,24 +251,6 @@ export const matchesTransactionSearch = (transaction, searchTerm) => {
   );
 };
 
-/**
- * Check if a search term matches an extension ID
- * @param {Object} extension - Extension object
- * @param {string} searchTerm - User's search input
- * @returns {boolean} Whether the extension matches the search
- */
-export const matchesExtensionSearch = (extension, searchTerm) => {
-  if (!searchTerm) return true;
-  
-  const formattedId = formatExtensionId(extension);
-  const searchLower = searchTerm.toLowerCase();
-  
-  return (
-    formattedId.toLowerCase().includes(searchLower) ||
-    extractTransactionNumber(formattedId).includes(searchTerm) ||
-    extractTransactionNumber(formattedId).replace(/^0+/, '').includes(searchTerm)
-  );
-};
 
 /**
  * Format storage location for display with proper capitalization
@@ -298,7 +302,6 @@ const transactionUtils = {
   initializeSequenceNumbers,
   extractTransactionNumber,
   matchesTransactionSearch,
-  matchesExtensionSearch,
   formatStorageLocation,
   formatCurrency
 };

@@ -109,6 +109,7 @@ class PawnTransactionCreate(PawnTransactionBase):
 class PawnTransactionResponse(PawnTransactionBase):
     """Schema for pawn transaction response"""
     transaction_id: str = Field(..., description="Unique transaction identifier")
+    formatted_id: Optional[str] = Field(None, description="Display-friendly transaction ID (e.g., 'PW000105')")
     customer_id: str = Field(..., description="Customer phone number")
     created_by_user_id: str = Field(..., description="Staff member who created transaction")
     
@@ -233,6 +234,7 @@ class TransactionSearchFilters(BaseModel):
     """Schema for transaction search filters"""
     status: Optional[TransactionStatus] = Field(None, description="Filter by transaction status")
     customer_id: Optional[str] = Field(None, description="Filter by customer phone number")
+    search_text: Optional[str] = Field(None, description="Search by transaction ID (PW000123) or customer phone number")
     min_amount: Optional[int] = Field(None, ge=0, description="Minimum loan amount filter")
     max_amount: Optional[int] = Field(None, ge=0, description="Maximum loan amount filter")
     start_date: Optional[datetime] = Field(None, description="Start date filter")

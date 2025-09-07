@@ -42,7 +42,7 @@ import TransactionCard from './TransactionCard';
 import StatusBadge from './components/StatusBadge';
 import transactionService from '../../services/transactionService';
 import customerService from '../../services/customerService';
-import { matchesTransactionSearch, initializeSequenceNumbers, formatTransactionId, formatStorageLocation, formatCurrency } from '../../utils/transactionUtils';
+import { initializeSequenceNumbers, formatTransactionId, formatExtensionId, formatStorageLocation, formatCurrency } from '../../utils/transactionUtils';
 import { formatBusinessDate } from '../../utils/timezoneUtils';
 
 const TransactionList = ({ 
@@ -58,6 +58,7 @@ const TransactionList = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [activeSearchTerm, setActiveSearchTerm] = useState(''); // Term to actually search with
   const [currentPage, setCurrentPage] = useState(1);
   const [totalTransactions, setTotalTransactions] = useState(0);
   const transactionsPerPage = 10;
@@ -67,7 +68,6 @@ const TransactionList = ({
     sortBy: 'updated_at',
     sortOrder: 'desc'
   });
-  const [isExtensionSearch, setIsExtensionSearch] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [selectedTransactionIds, setSelectedTransactionIds] = useState([]);
   const [sortField, setSortField] = useState('updated_at');  // Sort by most recently modified
@@ -106,26 +106,16 @@ const TransactionList = ({
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Filter and sort transactions
+  // Filter and sort transactions (backend now handles basic search)
   const filteredAndSortedTransactions = transactions
     .filter(transaction => {
-      // Basic search filter
-      if (searchTerm) {
-        if (isExtensionSearch) return true;
-        const isTransactionSearch = /^(PW)?\d+$/i.test(searchTerm);
-        if (isTransactionSearch) {
-          return matchesTransactionSearch(transaction, searchTerm);
-        }
-        return transaction.customer_id?.includes(searchTerm);
-      }
-      
-      // Advanced search filters
+      // Advanced search filters (basic search now handled by backend)
       if (searchFields.transactionId && !formatTransactionId(transaction).toLowerCase().includes(searchFields.transactionId.toLowerCase())) return false;
       if (searchFields.customerId && !transaction.customer_id?.includes(searchFields.customerId)) return false;
       if (searchFields.loanAmount && transaction.loan_amount < parseFloat(searchFields.loanAmount)) return false;
       if (searchFields.storageLocation && !transaction.storage_location?.toLowerCase().includes(searchFields.storageLocation.toLowerCase())) return false;
       
-      // Status filter
+      // Status filter (local filter for immediate UI response)
       if (filters.status && transaction.status !== filters.status) return false;
       
       return true;
@@ -194,42 +184,63 @@ const TransactionList = ({
       setError(null);
       
       // Check if searching by extension ID
-      const isExtensionSearch = searchTerm && /^EX\d*$/i.test(searchTerm);
-      const isTransactionSearch = searchTerm && /^(PW)?\d+$/i.test(searchTerm);
+      const isExtensionSearch = activeSearchTerm && /^#?EX\d*$/i.test(activeSearchTerm);
+      const isTransactionIdSearch = activeSearchTerm && /^#?(PW)?\d{1,6}$/i.test(activeSearchTerm); // Limit to 6 digits max for PW IDs
+      
       
       let response;
       
       if (isExtensionSearch) {
-        // Search for transactions by extension ID
+        // Search for transactions by extension ID (client-side filtering)
         response = await transactionService.searchTransactionsByExtension(searchTerm);
-        setIsExtensionSearch(true);
       } else {
-        setIsExtensionSearch(false);
-        // Regular transaction search or customer search
+        
+        // Send all searches to backend now - it handles transaction ID lookup properly
         const searchParams = {
           ...filters,
           page: currentPage,
           page_size: transactionsPerPage,
           sortBy: sortField,
           sortOrder: sortDirection,
-          ...(searchTerm && !isTransactionSearch && { customer_id: searchTerm })
+          ...(activeSearchTerm && { search_text: activeSearchTerm }) // Send all searches to backend
         };
         
         response = await transactionService.getAllTransactions(searchParams);
-        
-        // Set total count for pagination
-        setTotalTransactions(response.total_count || response.total || 0);
         
         // Enrich all transactions with extension data for better user experience
         const transactionList = response.transactions || [];
         const enrichedTransactions = await transactionService.enrichTransactionsWithExtensions(transactionList, false);
         response.transactions = enrichedTransactions;
+        
+        // Set total count for pagination
+        setTotalTransactions(response.total_count || response.total || 0);
       }
       
-      const transactionList = response.transactions || [];
+      let transactionList = response.transactions || [];
       
-      // Initialize sequence numbers for consistent PW numbering
-      initializeSequenceNumbers(transactionList);
+      // Only initialize sequence numbers if transactions don't have backend formatted_id
+      const hasBackendFormattedIds = transactionList.length > 0 && transactionList.some(t => t.formatted_id);
+      if (hasBackendFormattedIds) {
+        // Skip localStorage sequences when using backend IDs
+      } else {
+        initializeSequenceNumbers(transactionList);
+      }
+      
+      // Frontend filtering for transaction ID searches (hybrid approach)
+      // Backend returns a window of candidates, frontend does precise filtering
+      // For transaction ID searches, backend now handles exact lookups with indexed search
+      // No frontend filtering needed - backend returns exact match or nothing
+      if (isTransactionIdSearch && searchTerm) {
+        
+        // Reset to first page for search results
+        setCurrentPage(1);
+        
+        // Log search result for debugging
+        if (transactionList.length === 1) {
+        } else if (transactionList.length === 0) {
+          console.warn(`❌ FRONTEND: No transaction found for search: ${searchTerm}`);
+        }
+      }
       
       setTransactions(transactionList);
 
@@ -250,7 +261,7 @@ const TransactionList = ({
     } finally {
       setLoading(false);
     }
-  }, [filters, searchTerm, currentPage, transactionsPerPage, sortField, sortDirection]);
+  }, [filters, activeSearchTerm, currentPage, transactionsPerPage, sortField, sortDirection]);
 
   const fetchAllTransactionsCounts = useCallback(async (immediate = false) => {
     try {
@@ -347,7 +358,7 @@ const TransactionList = ({
   // Reset to page 1 when search or filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, filters.status]);
+  }, [activeSearchTerm, filters.status]);
 
   // Refresh when refreshTrigger changes
   useEffect(() => {
@@ -375,25 +386,103 @@ const TransactionList = ({
             _t: Date.now()
           };
           
-          if (searchTerm) {
-            const isTransactionSearch = /^(PW)?\d+$/i.test(searchTerm);
-            if (isTransactionSearch) {
-              searchParams.transaction_id = searchTerm;
-            } else {
-              searchParams.customer_id = searchTerm;
-            }
+          if (activeSearchTerm) {
+            // Use unified search_text parameter - backend handles all search logic
+            searchParams.search_text = activeSearchTerm;
           }
           
           const response = await transactionService.getAllTransactions(searchParams);
-          const transactionList = response.transactions || [];
+          let transactionList = response.transactions || [];
           
           // Enrich transactions with extension data for immediate display
           const enrichedTransactions = await transactionService.enrichTransactionsWithExtensions(transactionList, true);
           
-          // Initialize sequence numbers for display
-          initializeSequenceNumbers(enrichedTransactions);
-          setTransactions(enrichedTransactions);
-          setTotalTransactions(response.total || 0);
+          // Only initialize sequence numbers if transactions don't have backend formatted_id
+          const hasBackendFormattedIds = enrichedTransactions.length > 0 && enrichedTransactions.some(t => t.formatted_id);
+          if (hasBackendFormattedIds) {
+            console.log('🔢 FRONTEND REFRESH: Using backend formatted IDs, skipping localStorage sequences');
+          } else {
+            console.log('🔢 FRONTEND REFRESH: Initializing localStorage sequences for', enrichedTransactions.length, 'transactions');
+            initializeSequenceNumbers(enrichedTransactions);
+          }
+          
+          // Handle different search patterns
+          let filteredTransactions = enrichedTransactions;
+          
+          // Extension search - filter on frontend
+          if (activeSearchTerm && /^#?(EX)\d+$/i.test(activeSearchTerm)) {
+            console.log('📋 FRONTEND: Filtering for extension ID:', activeSearchTerm);
+            const searchNum = activeSearchTerm.replace(/^#?EX/i, '').padStart(6, '0');
+            const targetExtId = `EX${searchNum}`;
+            
+            filteredTransactions = enrichedTransactions.filter(transaction => {
+              if (!transaction.extensions || transaction.extensions.length === 0) {
+                console.log(`📋 Transaction ${formatTransactionId(transaction)} has no extensions`);
+                return false;
+              }
+              const hasMatch = transaction.extensions.some(ext => {
+                const extId = formatExtensionId(ext);
+                console.log(`📋 Checking extension ${extId} against target ${targetExtId}`);
+                return extId === targetExtId;
+              });
+              console.log(`📋 Transaction ${formatTransactionId(transaction)} extensions match: ${hasMatch}`);
+              return hasMatch;
+            });
+            console.log(`📋 FRONTEND: Extension search for ${targetExtId} found ${filteredTransactions.length} matching transactions`);
+          }
+          
+          // Item search - would need item formatting function
+          else if (activeSearchTerm && /^#?(IT)\d+$/i.test(activeSearchTerm)) {
+            console.log('📦 FRONTEND: Item search not yet implemented');
+            // TODO: Implement item search when item IDs are added to the system
+          }
+          
+          // Phone number search - let backend handle it but add debugging
+          else if (activeSearchTerm && /^\d{7,}$/.test(activeSearchTerm)) {
+            console.log('📞 FRONTEND: Phone number search handled by backend, results:', filteredTransactions.length);
+            if (filteredTransactions.length === 0) {
+              console.log(`📞 No transactions found for phone number: ${activeSearchTerm}`);
+            }
+          }
+          
+          // Customer name search - filter on frontend using cached customer data  
+          else if (activeSearchTerm && isNaN(activeSearchTerm) && !activeSearchTerm.match(/^#?(PW|EX|IT)/i)) {
+            console.log('👤 FRONTEND: Filtering for customer name:', activeSearchTerm);
+            console.log('👤 Available customer data:', Object.values(customerData).slice(0, 3).map(c => ({ phone: c.phone_number, name: `${c.first_name} ${c.last_name}` })));
+            
+            filteredTransactions = enrichedTransactions.filter(transaction => {
+              const customer = customerData[transaction.customer_id];
+              if (!customer) {
+                console.log(`👤 No customer data for transaction ${formatTransactionId(transaction)} with customer_id: ${transaction.customer_id}`);
+                return false;
+              }
+              
+              const fullName = `${customer.first_name || ''} ${customer.last_name || ''}`.toLowerCase();
+              const searchLower = activeSearchTerm.toLowerCase();
+              const matches = fullName.includes(searchLower) || 
+                             (customer.first_name || '').toLowerCase().includes(searchLower) ||
+                             (customer.last_name || '').toLowerCase().includes(searchLower);
+              
+              console.log(`👤 Customer ${customer.first_name} ${customer.last_name} (${customer.phone_number}): ${matches ? 'MATCH' : 'no match'}`);
+              return matches;
+            });
+            console.log(`👤 FRONTEND: Customer name search for "${activeSearchTerm}" found ${filteredTransactions.length} matching transactions`);
+          }
+          
+          // Transaction ID search - backend handles this
+          else if (activeSearchTerm && /^#?(PW)?\d{1,6}$/i.test(activeSearchTerm)) {
+            console.log('🎯 FRONTEND: Transaction ID search handled by backend, results:', filteredTransactions.length);
+            
+            // Log search result for debugging
+            if (filteredTransactions.length === 1) {
+              console.log(`✅ FRONTEND SUCCESS: Found transaction ${formatTransactionId(filteredTransactions[0])} for search: ${activeSearchTerm}`);
+            } else if (filteredTransactions.length === 0) {
+              console.warn(`❌ FRONTEND: No transaction found for search: ${activeSearchTerm}`);
+            }
+          }
+          
+          setTransactions(filteredTransactions);
+          setTotalTransactions(response.total_count || response.total || filteredTransactions.length);
           
           // Immediately refresh balances for active transactions after any operation
           const activeTransactions = enrichedTransactions.filter(t => 
@@ -431,7 +520,6 @@ const TransactionList = ({
   };
 
   const handleRefresh = () => {
-    setIsExtensionSearch(false);
     setCurrentPage(1); // Reset to first page
     loadTransactions();
     fetchAllTransactionsCounts(); // Refresh counts as well
@@ -533,20 +621,37 @@ const TransactionList = ({
                 <Search className="h-6 w-6 text-blue-400" />
               </div>
               <Input
-                placeholder="Search by transaction ID (PW000123), customer phone, or item description..."
+                placeholder="Search by ID (PW/EX/IT), phone, name or amount - Press Enter to search"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    console.log('🔍 ENTER PRESSED: Setting activeSearchTerm to:', searchTerm);
+                    setActiveSearchTerm(searchTerm);
+                  }
+                }}
                 className="pl-16 pr-14 h-16 text-lg font-medium bg-slate-800/50 border-slate-700/50 text-slate-100 placeholder:text-slate-400 focus:bg-slate-800/70 focus:border-blue-500/50 focus:ring-blue-500/20 transition-all shadow-lg backdrop-blur-sm"
               />
               {searchTerm && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSearchTerm('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 h-10 w-10 p-0 rounded-lg hover:bg-slate-700/50 text-slate-400 hover:text-slate-200 transition-all"
-                >
-                  <X className="h-5 w-5" />
-                </Button>
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                  {searchTerm !== activeSearchTerm && (
+                    <span className="text-sm text-blue-400 font-medium animate-pulse mr-2">
+                      Press Enter
+                    </span>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setSearchTerm('');
+                      setActiveSearchTerm('');
+                    }}
+                    className="h-10 w-10 p-0 rounded-lg hover:bg-slate-700/50 text-slate-400 hover:text-slate-200 transition-all"
+                  >
+                    <X className="h-5 w-5" />
+                  </Button>
+                </div>
               )}
             </div>
           </div>
@@ -623,7 +728,7 @@ const TransactionList = ({
                     <SheetHeader>
                       <SheetTitle>Advanced Search</SheetTitle>
                       <SheetDescription>
-                        Use multiple criteria to find specific transactions
+                        Use these filters for detailed transaction searches. For quick searches, use the main search bar for transaction IDs, extension IDs, or customer phone numbers.
                       </SheetDescription>
                     </SheetHeader>
                     <div className="space-y-6 mt-6">
@@ -1066,7 +1171,7 @@ const TransactionList = ({
               <div className="w-24 h-24 bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-900/30 dark:to-indigo-900/30 rounded-3xl flex items-center justify-center mx-auto shadow-lg border border-blue-200/50 dark:border-blue-800/50">
                 <CreditCard className="w-12 h-12 text-blue-600 dark:text-blue-400" />
               </div>
-              {searchTerm || filters.status ? (
+              {activeSearchTerm || filters.status ? (
                 <div className="absolute -top-2 -right-2 w-8 h-8 bg-amber-500 rounded-full flex items-center justify-center shadow-lg border-2 border-white dark:border-slate-900">
                   <Search className="w-4 h-4 text-white" />
                 </div>
@@ -1078,21 +1183,35 @@ const TransactionList = ({
             </div>
             
             <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100 mb-3">
-              {searchTerm || filters.status ? 'No Matching Transactions' : 'Ready to Start'}
+              {activeSearchTerm || filters.status ? 'No Matching Transactions' : 'Ready to Start'}
             </h3>
             <p className="text-slate-600 dark:text-slate-400 mb-8 max-w-md mx-auto leading-relaxed">
-              {searchTerm || filters.status ? 
-                'No transactions match your search criteria. Try adjusting your filters or search terms.' : 
+              {activeSearchTerm || filters.status ? 
+                (activeSearchTerm && /^#?(PW)?\d+$/i.test(activeSearchTerm) ?
+                  `Transaction ${activeSearchTerm.replace('#', '').toUpperCase().startsWith('PW') ? activeSearchTerm.replace('#', '').toUpperCase() : 'PW' + activeSearchTerm.replace('#', '').padStart(6, '0')} not found.` :
+                  activeSearchTerm && /^#?(EX)\d+$/i.test(activeSearchTerm) ?
+                  `No transactions found with extension ${activeSearchTerm.replace('#', '').toUpperCase()}` :
+                  activeSearchTerm && /^#?(IT)\d+$/i.test(activeSearchTerm) ?
+                  `Item search is not yet implemented` :
+                  activeSearchTerm && activeSearchTerm.match(/^\d+$/) && activeSearchTerm.length < 7 ?
+                  `No transactions found with loan amount $${activeSearchTerm}` :
+                  activeSearchTerm && activeSearchTerm.match(/^\d{7,}$/) ?
+                  `No transactions found for customer phone ${activeSearchTerm}` :
+                  activeSearchTerm ?
+                  `No transactions found for "${activeSearchTerm}"` :
+                  'No transactions match your filters.'
+                ) : 
                 'Create your first pawn transaction to begin managing loans and tracking customer activity.'
               }
             </p>
             
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-              {(searchTerm || filters.status) && (
+              {(activeSearchTerm || filters.status) && (
                 <Button 
                   variant="outline"
                   onClick={() => {
                     setSearchTerm('');
+                    setActiveSearchTerm('');
                     setFilters({ status: '', page_size: 10, sortBy: 'updated_at', sortOrder: 'desc' });
                     setSearchFields({ transactionId: '', customerId: '', loanAmount: '', storageLocation: '' });
                     setCurrentPage(1);

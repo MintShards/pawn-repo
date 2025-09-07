@@ -1473,7 +1473,7 @@ const TransactionHub = () => {
                                         <div className="w-2 h-2 bg-amber-500 rounded-full mt-2 flex-shrink-0"></div>
                                         <div>
                                           <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                                            Extension #{extensions.length - index} ({extension.extension_months}mo)
+                                            {extension.formatted_id ? `${extension.formatted_id} - ` : ''}Extension #{extensions.length - index} ({extension.extension_months}mo)
                                           </div>
                                           <div className="text-xs text-slate-600 dark:text-slate-400">
                                             {(() => {

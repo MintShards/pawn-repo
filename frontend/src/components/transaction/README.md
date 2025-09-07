@@ -38,8 +38,8 @@ transaction/
 ## Key Features ✅
 
 - **Sequential Transaction IDs**: PW000001, PW000002...
-- **Extension Support**: EX000001, EX000002... with parent transaction linking
-- **Advanced Search**: Search by PW/EX numbers or customer phone
+- **Extension Support**: Extension display and management with parent transaction linking  
+- **Advanced Search**: Search by PW numbers or customer phone
 - **Real-time Extensions**: Live extension processing with fee calculation
 - **Visual Indicators**: Extension badges and detailed extension history
 

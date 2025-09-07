@@ -17,6 +17,7 @@ from app.models.audit_entry_model import AuditActionType
 from app.core.timezone_utils import utc_to_user_timezone, get_user_now, user_timezone_to_utc
 from app.core.transaction_notes import safe_append_transaction_notes, format_system_note  # Legacy compatibility
 from app.services.notes_service import notes_service
+from app.services.formatted_id_service import FormattedIdService
 
 
 class ExtensionError(Exception):
@@ -152,9 +153,13 @@ class ExtensionService:
             else:
                 extension_date_utc = datetime.now(UTC)
             
+            # Generate formatted ID for the extension
+            extension_formatted_id = await FormattedIdService.get_next_extension_formatted_id()
+            
             # Create extension record with atomic session
             extension = Extension(
                 transaction_id=transaction_id,
+                formatted_id=extension_formatted_id,
                 processed_by_user_id=processed_by_user_id,
                 extension_months=extension_months,
                 extension_fee_per_month=extension_fee_per_month,
@@ -186,7 +191,17 @@ class ExtensionService:
         # Execute extension operations without transaction wrapper
         # Note: Transaction support disabled due to Beanie/Motor compatibility
         try:
-            return await extension_operations(session=None)
+            extension = await extension_operations(session=None)
+            
+            # PERFORMANCE: Invalidate search cache after extension is processed
+            try:
+                from app.core.redis_cache import BusinessCache
+                await BusinessCache.invalidate_by_pattern("transactions_list_*")
+                # Log successful cache invalidation but don't fail if cache unavailable
+            except Exception as cache_e:
+                pass  # Continue even if cache invalidation fails
+            
+            return extension
         except Exception as e:
             raise ExtensionValidationError(f"Extension processing failed: {str(e)}")
     

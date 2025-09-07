@@ -51,8 +51,10 @@ class DatabaseIndexes:
             # Status queries
             IndexModel([("status", ASCENDING)], name="idx_customer_status"),
             
-            # Search operations
+            # Search operations (performance optimization for name search)
             IndexModel([("first_name", TEXT), ("last_name", TEXT), ("email", TEXT)], name="idx_customer_search"),
+            IndexModel([("first_name", ASCENDING)], name="idx_customer_first_name"),
+            IndexModel([("last_name", ASCENDING)], name="idx_customer_last_name"),
             
             # Customer analytics
             IndexModel([("status", ASCENDING), ("active_loans", ASCENDING)], name="idx_customer_status_loans"),
@@ -74,6 +76,9 @@ class DatabaseIndexes:
         return [
             # Primary lookup by transaction_id (unique)
             IndexModel([("transaction_id", ASCENDING)], unique=True, name="idx_transaction_id"),
+            
+            # Formatted ID for fast lookup (NEW - performance improvement)
+            IndexModel([("formatted_id", ASCENDING)], unique=True, sparse=True, name="idx_transaction_formatted_id"),
             
             # Customer queries
             IndexModel([("customer_id", ASCENDING)], name="idx_transaction_customer"),
@@ -152,6 +157,9 @@ class DatabaseIndexes:
         return [
             # Primary lookup by extension_id (unique)
             IndexModel([("extension_id", ASCENDING)], unique=True, name="idx_extension_id"),
+            
+            # Formatted ID for fast lookup (NEW - performance improvement)
+            IndexModel([("formatted_id", ASCENDING)], unique=True, sparse=True, name="idx_extension_formatted_id"),
             
             # Transaction queries
             IndexModel([("transaction_id", ASCENDING)], name="idx_extension_transaction"),

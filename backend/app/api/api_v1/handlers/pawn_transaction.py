@@ -222,6 +222,7 @@ async def create_pawn_transaction(
 async def get_pawn_transactions_list(
     status_filter: Optional[TransactionStatus] = Query(None, alias="status", description="Filter by transaction status"),
     customer_id: Optional[str] = Query(None, description="Filter by customer phone number"),
+    search_text: Optional[str] = Query(None, description="Search by transaction ID (PW000123) or customer phone number"),
     min_amount: Optional[int] = Query(None, description="Minimum loan amount filter"),
     max_amount: Optional[int] = Query(None, description="Maximum loan amount filter"),
     start_date: Optional[datetime] = Query(None, description="Start date filter"),
@@ -240,6 +241,7 @@ async def get_pawn_transactions_list(
         filters = TransactionSearchFilters(
             status=status_filter,
             customer_id=customer_id,
+            search_text=search_text,
             min_amount=min_amount,
             max_amount=max_amount,
             start_date=start_date,
@@ -276,6 +278,63 @@ async def get_pawn_transactions_list(
 
 
 @pawn_transaction_router.get(
+    "/search",
+    response_model=PawnTransactionListResponse,
+    summary="Search pawn transactions",
+    description="Search pawn transactions by ID, extension ID, or customer phone (Staff and Admin access)",
+    responses={
+        200: {"description": "Search results retrieved successfully"},
+        400: {"description": "Invalid search parameters"},
+        401: {"description": "Authentication required"},
+        403: {"description": "Staff or Admin access required"},
+        500: {"description": "Internal server error"}
+    }
+)
+async def search_pawn_transactions(
+    search_text: str = Query(..., description="Search by transaction ID (PW000123), extension ID (EX000015), or customer phone number"),
+    page: int = Query(1, description="Page number", ge=1),
+    page_size: int = Query(20, description="Items per page", ge=1, le=100),
+    sort_by: str = Query("updated_at", description="Sort field"),
+    sort_order: str = Query("desc", description="Sort order", pattern="^(asc|desc)$"),
+    current_user: User = Depends(get_staff_or_admin_user),
+    client_timezone: Optional[str] = Depends(get_client_timezone)
+) -> PawnTransactionListResponse:
+    """Search pawn transactions by ID, extension ID, or customer phone number"""
+    try:
+        # Create filter object with search text
+        filters = TransactionSearchFilters(
+            search_text=search_text,
+            page=page,
+            page_size=page_size,
+            sort_by=sort_by,
+            sort_order=sort_order
+        )
+        
+        return await PawnTransactionService.get_transactions_list(filters, client_timezone)
+    
+    except PawnTransactionError as e:
+        # Service-specific transaction errors
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        # Log unexpected errors for debugging
+        import traceback
+        print(f"Unexpected error in search_pawn_transactions: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to search transactions: {str(e)}"
+        )
+
+
+@pawn_transaction_router.get(
     "/{transaction_id}",
     response_model=PawnTransactionResponse,
     summary="Get transaction by ID",
@@ -301,7 +360,19 @@ async def get_pawn_transaction_by_id(
                 detail="Transaction not found"
             )
         
-        return PawnTransactionResponse.model_validate(transaction.model_dump())
+        # Get transaction items
+        from app.models.pawn_item_model import PawnItem
+        from app.schemas.pawn_transaction_schema import PawnItemResponse
+        
+        items = await PawnItem.find(
+            PawnItem.transaction_id == transaction_id
+        ).sort(PawnItem.item_number).to_list()
+        
+        # Convert to response format
+        transaction_dict = transaction.model_dump()
+        transaction_dict['items'] = [PawnItemResponse.model_validate(item.model_dump()) for item in items]
+        
+        return PawnTransactionResponse.model_validate(transaction_dict)
         
     except HTTPException:
         raise

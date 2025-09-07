@@ -196,7 +196,17 @@ class PaymentService:
         # Execute payment operations without transaction wrapper
         # Note: Transaction support disabled due to Beanie/Motor compatibility
         try:
-            return await payment_operations(session=None)
+            payment = await payment_operations(session=None)
+            
+            # PERFORMANCE: Invalidate search cache after payment is processed
+            try:
+                from app.core.redis_cache import BusinessCache
+                await BusinessCache.invalidate_by_pattern("transactions_list_*")
+                # Log successful cache invalidation but don't fail if cache unavailable
+            except Exception as cache_e:
+                pass  # Continue even if cache invalidation fails
+            
+            return payment
         except Exception as e:
             raise PaymentValidationError(f"Payment processing failed: {str(e)}")
     
