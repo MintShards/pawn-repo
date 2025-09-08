@@ -272,38 +272,25 @@ const TransactionHub = () => {
 
   const findTransactionByDisplayId = async (displayId) => {
     try {
-      let page = 1;
-      const pageSize = 50;
+      // Use unified search for efficient transaction lookup
+      const searchResult = await transactionService.unifiedSearch({
+        search_text: displayId.trim(),
+        search_type: 'auto_detect',
+        include_extensions: true,
+        include_items: true,
+        include_customer: true,
+        page: 1,
+        page_size: 5 // Should only need 1, but use small buffer
+      });
       
-      // Search through all pages until found
-      while (true) {
-        const response = await transactionService.getAllTransactions({ 
-          page: page,
-          page_size: pageSize,
-          sortBy: 'updated_at',
-          sortOrder: 'desc'
-        });
-        
-        const transactions = response.transactions || [];
-        
-        const transaction = transactions.find(t => formatTransactionId(t) === displayId.toUpperCase());
-        
-        if (transaction) {
-          return transaction;
-        }
-        
-        // Check if we've reached the end
-        if (transactions.length < pageSize || !response.has_next) {
-          break;
-        }
-        
-        page++;
-        
-        // Add small delay to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 100));
+      const transactions = searchResult.transactions || [];
+      
+      if (transactions.length === 0) {
+        throw new Error(`Transaction ${displayId} not found`);
       }
       
-      throw new Error(`Transaction ${displayId} not found`);
+      // Return the first matching transaction (should be exact match)
+      return transactions[0];
     } catch (error) {
       throw error;
     }
@@ -1913,16 +1900,16 @@ const TransactionHub = () => {
           <DialogHeader>
             <DialogTitle>Quick Payment</DialogTitle>
             <DialogDescription>
-              Enter the transaction ID to process a payment. Only active, overdue, or extended transactions can accept payments.
+              Enter the transaction number to process a payment. Only active, overdue, or extended transactions can accept payments.
             </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-4">
             <div>
-              <Label htmlFor="paymentTransactionId">Transaction ID</Label>
+              <Label htmlFor="paymentTransactionId">Transaction Number</Label>
               <Input
                 id="paymentTransactionId"
-                placeholder="Enter transaction ID (e.g., PW000001)"
+                placeholder="Enter transaction number (e.g., PW000001 or 1) - Press Enter"
 onKeyPress={async (e) => {
                   if (e.key === 'Enter') {
                     const displayId = e.target.value.trim();
@@ -1957,16 +1944,16 @@ onKeyPress={async (e) => {
           <DialogHeader>
             <DialogTitle>Quick Extension</DialogTitle>
             <DialogDescription>
-              Enter the transaction ID to extend the loan. Only active, overdue, or extended transactions can be extended.
+              Enter the transaction number to extend the loan. Only active, overdue, or extended transactions can be extended.
             </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-4">
             <div>
-              <Label htmlFor="extensionTransactionId">Transaction ID</Label>
+              <Label htmlFor="extensionTransactionId">Transaction Number</Label>
               <Input
                 id="extensionTransactionId"
-                placeholder="Enter transaction ID (e.g., PW000001)"
+                placeholder="Enter transaction number (e.g., PW000001 or 1) - Press Enter"
 onKeyPress={async (e) => {
                   if (e.key === 'Enter') {
                     const displayId = e.target.value.trim();

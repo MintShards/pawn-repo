@@ -28,6 +28,27 @@ from app.core.redis_cache import BusinessCache, cached_result, CacheConfig
 # Configure logger
 logger = structlog.get_logger("pawn_transaction")
 
+# Import cache invalidation utility (avoid circular import by importing at module level)
+def _invalidate_search_caches():
+    """Helper function to invalidate search-related caches when transaction data changes"""
+    try:
+        # Import here to avoid circular imports
+        import asyncio
+        from app.services.unified_search_service import UnifiedSearchService
+        
+        # Create async context for cache invalidation
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # Schedule as a task in the running loop
+            asyncio.create_task(UnifiedSearchService.invalidate_search_caches())
+        else:
+            # Run directly if no loop is running
+            asyncio.run(UnifiedSearchService.invalidate_search_caches())
+            
+        logger.info("🗑️ CACHE: Search caches invalidated after transaction change")
+    except Exception as e:
+        logger.error("❌ CACHE: Failed to invalidate search caches", error=str(e))
+
 
 def ensure_timezone_aware(dt: datetime) -> datetime:
     """
@@ -198,6 +219,9 @@ class PawnTransactionService:
             customer.total_loan_value += loan_amount
             customer.last_transaction_date = transaction.pawn_date
             await customer.save()
+            
+            # Invalidate search and status count caches after successful transaction creation
+            _invalidate_search_caches()
             
             return transaction
             
@@ -508,12 +532,8 @@ class PawnTransactionService:
         
         await transaction.save()
         
-        # PERFORMANCE: Invalidate search cache when transaction is updated
-        try:
-            await BusinessCache.invalidate_by_pattern("transactions_list_*")
-            logger.debug("🗑️ CACHE INVALIDATED: Cleared transaction search cache after status update")
-        except Exception as e:
-            logger.debug(f"Cache invalidation failed: {e}")
+        # Invalidate unified search and status count caches after successful status update
+        _invalidate_search_caches()
         
         # Update customer statistics for terminal states
         if new_status in [TransactionStatus.REDEEMED, TransactionStatus.FORFEITED, TransactionStatus.SOLD]:

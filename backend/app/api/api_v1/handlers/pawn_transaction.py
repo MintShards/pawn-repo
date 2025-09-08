@@ -23,7 +23,8 @@ from app.schemas.pawn_transaction_schema import (
     TransactionStatusUpdate, BalanceResponse, InterestBreakdownResponse,
     PayoffAmountResponse, TransactionSummaryResponse, TransactionSearchFilters,
     BulkStatusUpdateRequest, BulkStatusUpdateResponse, TransactionVoidRequest,
-    TransactionCancelRequest, TransactionVoidResponse
+    TransactionCancelRequest, TransactionVoidResponse, UnifiedSearchRequest,
+    UnifiedSearchResponse, BatchStatusCountResponse
 )
 from app.schemas.receipt_schema import (
     InitialPawnReceiptResponse, PaymentReceiptResponse, ExtensionReceiptResponse,
@@ -33,6 +34,8 @@ from app.services.pawn_transaction_service import (
     PawnTransactionService, PawnTransactionError, 
     CustomerValidationError, StaffValidationError, TransactionStateError
 )
+from app.services.unified_search_service import UnifiedSearchService
+from app.schemas.pawn_transaction_schema import UnifiedSearchType
 from app.services.payment_service import PaymentService
 from app.services.interest_calculation_service import (
     InterestCalculationService, TransactionNotFoundError, InterestCalculationError
@@ -269,19 +272,18 @@ async def get_pawn_transactions_list(
     except Exception as e:
         # Log unexpected errors for debugging
         import traceback
-        print(f"Unexpected error in get_pawn_transactions_list: {e}")
-        print(f"Traceback: {traceback.format_exc()}")
+        transaction_logger.error("Unexpected error in get_pawn_transactions_list", error=str(e), traceback=traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve transactions: {str(e)}"
         )
 
 
-@pawn_transaction_router.get(
+@pawn_transaction_router.post(
     "/search",
-    response_model=PawnTransactionListResponse,
-    summary="Search pawn transactions",
-    description="Search pawn transactions by ID, extension ID, or customer phone (Staff and Admin access)",
+    response_model=UnifiedSearchResponse,
+    summary="Unified search for pawn transactions",
+    description="Intelligent search across all transaction data with auto-detection of search type (Staff and Admin access)",
     responses={
         200: {"description": "Search results retrieved successfully"},
         400: {"description": "Invalid search parameters"},
@@ -290,47 +292,181 @@ async def get_pawn_transactions_list(
         500: {"description": "Internal server error"}
     }
 )
-async def search_pawn_transactions(
-    search_text: str = Query(..., description="Search by transaction ID (PW000123), extension ID (EX000015), or customer phone number"),
-    page: int = Query(1, description="Page number", ge=1),
-    page_size: int = Query(20, description="Items per page", ge=1, le=100),
-    sort_by: str = Query("updated_at", description="Sort field"),
-    sort_order: str = Query("desc", description="Sort order", pattern="^(asc|desc)$"),
+async def unified_search_transactions(
+    search_request: UnifiedSearchRequest,
     current_user: User = Depends(get_staff_or_admin_user),
     client_timezone: Optional[str] = Depends(get_client_timezone)
-) -> PawnTransactionListResponse:
-    """Search pawn transactions by ID, extension ID, or customer phone number"""
+) -> UnifiedSearchResponse:
+    """
+    Unified search endpoint with intelligent search type detection and optimization.
+    
+    Supports searching by:
+    - Transaction ID (PW000123)
+    - Extension ID (EX000015)  
+    - Customer phone number (1234567890)
+    - Customer name (John Smith)
+    - Loan amount ($500)
+    - Storage location (shelf)
+    - Full text search
+    """
     try:
-        # Create filter object with search text
-        filters = TransactionSearchFilters(
-            search_text=search_text,
-            page=page,
-            page_size=page_size,
-            sort_by=sort_by,
-            sort_order=sort_order
+        transaction_logger.info("🔍 UNIFIED SEARCH: Processing search request",
+                              search_text=search_request.search_text[:50],
+                              search_type=search_request.search_type,
+                              user_id=current_user.user_id)
+        
+        # Execute unified search
+        search_result = await UnifiedSearchService.search_transactions(
+            search_text=search_request.search_text,
+            search_type=search_request.search_type,  # Already correct type from schema
+            include_extensions=search_request.include_extensions,
+            include_items=search_request.include_items,
+            include_customer=search_request.include_customer,
+            client_timezone=client_timezone,
+            page=search_request.page,
+            page_size=search_request.page_size
         )
         
-        return await PawnTransactionService.get_transactions_list(filters, client_timezone)
-    
-    except PawnTransactionError as e:
-        # Service-specific transaction errors
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+        transaction_logger.info("✅ UNIFIED SEARCH: Search completed successfully",
+                              results_count=len(search_result.transactions),
+                              total_count=search_result.total_count,
+                              execution_time=search_result.search_metadata.get("execution_time_ms", 0),
+                              cache_hit=search_result.search_metadata.get("cache_hit", False))
+        
+        return UnifiedSearchResponse(
+            transactions=search_result.transactions,
+            total_count=search_result.total_count,
+            search_metadata=search_result.search_metadata
         )
+    
     except ValueError as e:
+        transaction_logger.warning("❌ UNIFIED SEARCH: Invalid search parameters",
+                                 search_text=search_request.search_text[:50],
+                                 error=str(e))
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            detail=f"Invalid search parameters: {str(e)}"
         )
     except Exception as e:
-        # Log unexpected errors for debugging
-        import traceback
-        print(f"Unexpected error in search_pawn_transactions: {e}")
-        print(f"Traceback: {traceback.format_exc()}")
+        transaction_logger.error("❌ UNIFIED SEARCH: Search failed unexpectedly",
+                               search_text=search_request.search_text[:50],
+                               error=str(e))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to search transactions: {str(e)}"
+            detail=f"Search failed: {str(e)}"
+        )
+
+
+@pawn_transaction_router.get(
+    "/status-counts",
+    response_model=BatchStatusCountResponse,
+    summary="Get transaction status counts",
+    description="Get counts for all transaction statuses in a single optimized query (Staff and Admin access)",
+    responses={
+        200: {"description": "Status counts retrieved successfully"},
+        401: {"description": "Authentication required"},
+        403: {"description": "Staff or Admin access required"},
+        500: {"description": "Internal server error"}
+    }
+)
+async def get_batch_status_counts(
+    current_user: User = Depends(get_staff_or_admin_user)
+) -> BatchStatusCountResponse:
+    """
+    Get all transaction status counts in a single optimized aggregation query.
+    
+    This endpoint replaces multiple individual status count queries with a single
+    efficient batch operation, reducing API calls and improving performance.
+    """
+    start_time = datetime.now(UTC)
+    
+    try:
+        from app.core.redis_cache import BusinessCache
+        
+        cache_key = "transaction_status_counts"
+        
+        # Check cache first
+        cached_result = await BusinessCache.get(cache_key)
+        if cached_result is not None:
+            execution_time = (datetime.now(UTC) - start_time).total_seconds() * 1000
+            transaction_logger.info("🎯 STATUS COUNTS: Cache hit",
+                                  execution_time_ms=execution_time)
+            return BatchStatusCountResponse(
+                status_counts=cached_result["status_counts"],
+                total_transactions=cached_result["total_transactions"], 
+                cache_hit=True,
+                execution_time_ms=execution_time
+            )
+        
+        # Execute single aggregation query for all status counts
+        from app.models.pawn_transaction_model import PawnTransaction
+        
+        pipeline = [
+            {
+                "$group": {
+                    "_id": "$status",
+                    "count": {"$sum": 1}
+                }
+            },
+            {
+                "$group": {
+                    "_id": None,
+                    "status_counts": {
+                        "$push": {
+                            "k": "$_id",
+                            "v": "$count"
+                        }
+                    },
+                    "total": {"$sum": "$count"}
+                }
+            }
+        ]
+        
+        result = await PawnTransaction.aggregate(pipeline).to_list()
+        
+        if result:
+            # Convert to dictionary format
+            status_counts = {item["k"]: item["v"] for item in result[0]["status_counts"]}
+            total_transactions = result[0]["total"]
+        else:
+            status_counts = {}
+            total_transactions = 0
+        
+        # Ensure all status types are present with 0 counts if missing
+        all_statuses = ["active", "overdue", "extended", "redeemed", "forfeited", "sold", "hold", "voided", "canceled"]
+        for status in all_statuses:
+            if status not in status_counts:
+                status_counts[status] = 0
+        
+        execution_time = (datetime.now(UTC) - start_time).total_seconds() * 1000
+        
+        # Cache the result for 60 seconds
+        cache_data = {
+            "status_counts": status_counts,
+            "total_transactions": total_transactions
+        }
+        await BusinessCache.set(cache_key, cache_data, ttl_seconds=60)
+        
+        transaction_logger.info("✅ STATUS COUNTS: Query completed successfully",
+                              total_transactions=total_transactions,
+                              execution_time_ms=execution_time,
+                              status_breakdown=list(status_counts.keys()))
+        
+        return BatchStatusCountResponse(
+            status_counts=status_counts,
+            total_transactions=total_transactions,
+            cache_hit=False,
+            execution_time_ms=round(execution_time, 2)
+        )
+    
+    except Exception as e:
+        execution_time = (datetime.now(UTC) - start_time).total_seconds() * 1000
+        transaction_logger.error("❌ STATUS COUNTS: Query failed",
+                               execution_time_ms=execution_time,
+                               error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get status counts: {str(e)}"
         )
 
 
@@ -420,8 +556,7 @@ async def get_transaction_summary(
     except Exception as e:
         # Log unexpected errors for debugging
         import traceback
-        print(f"Unexpected error in get_transaction_summary: {e}")
-        print(f"Traceback: {traceback.format_exc()}")
+        transaction_logger.error("Unexpected error in get_transaction_summary", error=str(e), traceback=traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve transaction summary: {str(e)}"
@@ -466,8 +601,7 @@ async def get_transaction_balance(
     except Exception as e:
         # Log unexpected errors for debugging
         import traceback
-        print(f"Unexpected error in get_transaction_balance: {e}")
-        print(f"Traceback: {traceback.format_exc()}")
+        transaction_logger.error("Unexpected error in get_transaction_balance", error=str(e), traceback=traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to calculate balance: {str(e)}"
@@ -512,8 +646,7 @@ async def get_interest_breakdown(
     except Exception as e:
         # Log unexpected errors for debugging
         import traceback
-        print(f"Unexpected error in get_interest_breakdown: {e}")
-        print(f"Traceback: {traceback.format_exc()}")
+        transaction_logger.error("Unexpected error in get_interest_breakdown", error=str(e), traceback=traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to calculate interest breakdown: {str(e)}"
@@ -558,8 +691,7 @@ async def get_payoff_amount(
     except Exception as e:
         # Log unexpected errors for debugging
         import traceback
-        print(f"Unexpected error in get_payoff_amount: {e}")
-        print(f"Traceback: {traceback.format_exc()}")
+        transaction_logger.error("Unexpected error in get_payoff_amount", error=str(e), traceback=traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to calculate payoff amount: {str(e)}"
@@ -629,8 +761,7 @@ async def update_transaction_status(
     except Exception as e:
         # Log unexpected errors for debugging
         import traceback
-        print(f"Unexpected error in update_transaction_status: {e}")
-        print(f"Traceback: {traceback.format_exc()}")
+        transaction_logger.error("Unexpected error in update_transaction_status", error=str(e), traceback=traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update transaction status: {str(e)}"
@@ -692,8 +823,7 @@ async def bulk_update_transaction_status(
     except Exception as e:
         # Log unexpected errors for debugging
         import traceback
-        print(f"Unexpected error in bulk_update_transaction_status: {e}")
-        print(f"Traceback: {traceback.format_exc()}")
+        transaction_logger.error("Unexpected error in bulk_update_transaction_status", error=str(e), traceback=traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to perform bulk status update: {str(e)}"
@@ -724,13 +854,13 @@ async def update_all_transaction_statuses(
         }
         
     except PawnTransactionError as e:
-        print(f"PawnTransactionError in update_all_transaction_statuses: {e}")
+        transaction_logger.error("PawnTransactionError in update_all_transaction_statuses", error=str(e))
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Failed to update transaction statuses: {e}"
         )
     except Exception as e:
-        print(f"Unexpected error in update_all_transaction_statuses: {e}")
+        transaction_logger.error("Unexpected error in update_all_transaction_statuses", error=str(e), traceback=traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update transaction statuses: {str(e)}"
@@ -796,8 +926,7 @@ async def get_customer_transactions(
     except Exception as e:
         # Log unexpected errors for debugging
         import traceback
-        print(f"Unexpected error in get_customer_transactions: {e}")
-        print(f"Traceback: {traceback.format_exc()}")
+        transaction_logger.error("Unexpected error in get_customer_transactions", error=str(e), traceback=traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve customer transactions: {str(e)}"
@@ -863,8 +992,7 @@ async def redeem_transaction(
     except Exception as e:
         # Log unexpected errors for debugging
         import traceback
-        print(f"Unexpected error in redeem_transaction: {e}")
-        print(f"Traceback: {traceback.format_exc()}")
+        transaction_logger.error("Unexpected error in redeem_transaction", error=str(e), traceback=traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to redeem transaction: {str(e)}"
@@ -932,8 +1060,7 @@ async def forfeit_transaction(
     except Exception as e:
         # Log unexpected errors for debugging
         import traceback
-        print(f"Unexpected error in forfeit_transaction: {e}")
-        print(f"Traceback: {traceback.format_exc()}") 
+        transaction_logger.error("Unexpected error in forfeit_transaction", error=str(e), traceback=traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to forfeit transaction: {str(e)}"
@@ -1007,8 +1134,7 @@ async def get_initial_pawn_receipt(
     except Exception as e:
         # Log unexpected errors for debugging
         import traceback
-        print(f"Unexpected error in get_initial_pawn_receipt: {e}")
-        print(f"Traceback: {traceback.format_exc()}")
+        transaction_logger.error("Unexpected error in get_initial_pawn_receipt", error=str(e), traceback=traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate initial pawn receipt: {str(e)}"
@@ -1083,8 +1209,7 @@ async def get_payment_receipt(
     except Exception as e:
         # Log unexpected errors for debugging
         import traceback
-        print(f"Unexpected error in get_payment_receipt: {e}")
-        print(f"Traceback: {traceback.format_exc()}")
+        transaction_logger.error("Unexpected error in get_payment_receipt", error=str(e), traceback=traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate payment receipt: {str(e)}"
@@ -1159,8 +1284,7 @@ async def get_extension_receipt(
     except Exception as e:
         # Log unexpected errors for debugging
         import traceback
-        print(f"Unexpected error in get_extension_receipt: {e}")
-        print(f"Traceback: {traceback.format_exc()}")
+        transaction_logger.error("Unexpected error in get_extension_receipt", error=str(e), traceback=traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate extension receipt: {str(e)}"
@@ -1210,8 +1334,7 @@ async def get_receipt_summary(
     except Exception as e:
         # Log unexpected errors for debugging
         import traceback
-        print(f"Unexpected error in get_receipt_summary: {e}")
-        print(f"Traceback: {traceback.format_exc()}")
+        transaction_logger.error("Unexpected error in get_receipt_summary", error=str(e), traceback=traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get receipt summary: {str(e)}"

@@ -183,26 +183,41 @@ const TransactionList = ({
       setLoading(true);
       setError(null);
       
-      // Check if searching by extension ID
-      const isExtensionSearch = activeSearchTerm && /^#?EX\d*$/i.test(activeSearchTerm);
-      const isTransactionIdSearch = activeSearchTerm && /^#?(PW)?\d{1,6}$/i.test(activeSearchTerm); // Limit to 6 digits max for PW IDs
-      
-      
       let response;
       
-      if (isExtensionSearch) {
-        // Search for transactions by extension ID (client-side filtering)
-        response = await transactionService.searchTransactionsByExtension(searchTerm);
-      } else {
+      // Use unified search for all search operations, or regular getAllTransactions if no search
+      if (activeSearchTerm) {
+        // Use unified search for all search types
+        const searchResult = await transactionService.unifiedSearch({
+          search_text: activeSearchTerm,
+          search_type: 'auto_detect',
+          include_extensions: true,
+          include_items: true,
+          include_customer: true,
+          page: currentPage,
+          page_size: transactionsPerPage,
+          sortBy: sortField,
+          sortOrder: sortDirection,
+          ...(filters.status && { status: filters.status })
+        });
         
-        // Send all searches to backend now - it handles transaction ID lookup properly
+        // Transform unified search response to match expected format
+        response = {
+          transactions: searchResult.transactions || [],
+          total_count: searchResult.total_count || 0,
+          total: searchResult.total_count || 0
+        };
+        
+        // Set total count for pagination in search results
+        setTotalTransactions(searchResult.total_count || 0);
+      } else {
+        // Regular getAllTransactions when no search term
         const searchParams = {
           ...filters,
           page: currentPage,
           page_size: transactionsPerPage,
           sortBy: sortField,
-          sortOrder: sortDirection,
-          ...(activeSearchTerm && { search_text: activeSearchTerm }) // Send all searches to backend
+          sortOrder: sortDirection
         };
         
         response = await transactionService.getAllTransactions(searchParams);
@@ -226,21 +241,7 @@ const TransactionList = ({
         initializeSequenceNumbers(transactionList);
       }
       
-      // Frontend filtering for transaction ID searches (hybrid approach)
-      // Backend returns a window of candidates, frontend does precise filtering
-      // For transaction ID searches, backend now handles exact lookups with indexed search
-      // No frontend filtering needed - backend returns exact match or nothing
-      if (isTransactionIdSearch && searchTerm) {
-        
-        // Reset to first page for search results
-        setCurrentPage(1);
-        
-        // Log search result for debugging
-        if (transactionList.length === 1) {
-        } else if (transactionList.length === 0) {
-          console.warn(`❌ FRONTEND: No transaction found for search: ${searchTerm}`);
-        }
-      }
+      // All search types now handled by unified search backend
       
       setTransactions(transactionList);
 
@@ -261,7 +262,7 @@ const TransactionList = ({
     } finally {
       setLoading(false);
     }
-  }, [filters, activeSearchTerm, currentPage, transactionsPerPage, sortField, sortDirection]);
+  }, [filters, activeSearchTerm, currentPage, transactionsPerPage, sortField, sortDirection, fetchCustomerNames]);
 
   const fetchAllTransactionsCounts = useCallback(async (immediate = false) => {
     try {
@@ -400,9 +401,8 @@ const TransactionList = ({
           // Only initialize sequence numbers if transactions don't have backend formatted_id
           const hasBackendFormattedIds = enrichedTransactions.length > 0 && enrichedTransactions.some(t => t.formatted_id);
           if (hasBackendFormattedIds) {
-            console.log('🔢 FRONTEND REFRESH: Using backend formatted IDs, skipping localStorage sequences');
+            // Using backend formatted IDs, skipping localStorage sequences
           } else {
-            console.log('🔢 FRONTEND REFRESH: Initializing localStorage sequences for', enrichedTransactions.length, 'transactions');
             initializeSequenceNumbers(enrichedTransactions);
           }
           
@@ -411,74 +411,49 @@ const TransactionList = ({
           
           // Extension search - filter on frontend
           if (activeSearchTerm && /^#?(EX)\d+$/i.test(activeSearchTerm)) {
-            console.log('📋 FRONTEND: Filtering for extension ID:', activeSearchTerm);
             const searchNum = activeSearchTerm.replace(/^#?EX/i, '').padStart(6, '0');
             const targetExtId = `EX${searchNum}`;
             
             filteredTransactions = enrichedTransactions.filter(transaction => {
               if (!transaction.extensions || transaction.extensions.length === 0) {
-                console.log(`📋 Transaction ${formatTransactionId(transaction)} has no extensions`);
                 return false;
               }
-              const hasMatch = transaction.extensions.some(ext => {
+              return transaction.extensions.some(ext => {
                 const extId = formatExtensionId(ext);
-                console.log(`📋 Checking extension ${extId} against target ${targetExtId}`);
                 return extId === targetExtId;
               });
-              console.log(`📋 Transaction ${formatTransactionId(transaction)} extensions match: ${hasMatch}`);
-              return hasMatch;
             });
-            console.log(`📋 FRONTEND: Extension search for ${targetExtId} found ${filteredTransactions.length} matching transactions`);
           }
           
           // Item search - would need item formatting function
           else if (activeSearchTerm && /^#?(IT)\d+$/i.test(activeSearchTerm)) {
-            console.log('📦 FRONTEND: Item search not yet implemented');
             // TODO: Implement item search when item IDs are added to the system
           }
           
-          // Phone number search - let backend handle it but add debugging
+          // Phone number search - handled by backend
           else if (activeSearchTerm && /^\d{7,}$/.test(activeSearchTerm)) {
-            console.log('📞 FRONTEND: Phone number search handled by backend, results:', filteredTransactions.length);
-            if (filteredTransactions.length === 0) {
-              console.log(`📞 No transactions found for phone number: ${activeSearchTerm}`);
-            }
+            // Backend handles phone number search
           }
           
           // Customer name search - filter on frontend using cached customer data  
           else if (activeSearchTerm && isNaN(activeSearchTerm) && !activeSearchTerm.match(/^#?(PW|EX|IT)/i)) {
-            console.log('👤 FRONTEND: Filtering for customer name:', activeSearchTerm);
-            console.log('👤 Available customer data:', Object.values(customerData).slice(0, 3).map(c => ({ phone: c.phone_number, name: `${c.first_name} ${c.last_name}` })));
-            
             filteredTransactions = enrichedTransactions.filter(transaction => {
               const customer = customerData[transaction.customer_id];
               if (!customer) {
-                console.log(`👤 No customer data for transaction ${formatTransactionId(transaction)} with customer_id: ${transaction.customer_id}`);
                 return false;
               }
               
               const fullName = `${customer.first_name || ''} ${customer.last_name || ''}`.toLowerCase();
               const searchLower = activeSearchTerm.toLowerCase();
-              const matches = fullName.includes(searchLower) || 
+              return fullName.includes(searchLower) || 
                              (customer.first_name || '').toLowerCase().includes(searchLower) ||
                              (customer.last_name || '').toLowerCase().includes(searchLower);
-              
-              console.log(`👤 Customer ${customer.first_name} ${customer.last_name} (${customer.phone_number}): ${matches ? 'MATCH' : 'no match'}`);
-              return matches;
             });
-            console.log(`👤 FRONTEND: Customer name search for "${activeSearchTerm}" found ${filteredTransactions.length} matching transactions`);
           }
           
           // Transaction ID search - backend handles this
           else if (activeSearchTerm && /^#?(PW)?\d{1,6}$/i.test(activeSearchTerm)) {
-            console.log('🎯 FRONTEND: Transaction ID search handled by backend, results:', filteredTransactions.length);
-            
-            // Log search result for debugging
-            if (filteredTransactions.length === 1) {
-              console.log(`✅ FRONTEND SUCCESS: Found transaction ${formatTransactionId(filteredTransactions[0])} for search: ${activeSearchTerm}`);
-            } else if (filteredTransactions.length === 0) {
-              console.warn(`❌ FRONTEND: No transaction found for search: ${activeSearchTerm}`);
-            }
+            // Backend handles transaction ID search
           }
           
           setTransactions(filteredTransactions);
@@ -505,10 +480,14 @@ const TransactionList = ({
       
       forceReload();
     }
-  }, [refreshTrigger, filters, transactionsPerPage, sortField, sortDirection, searchTerm, fetchAllTransactionsCounts]);
+  }, [refreshTrigger, filters, transactionsPerPage, sortField, sortDirection, activeSearchTerm, customerData, fetchAllTransactionsCounts]);
 
-  // Calculate total pages for pagination - use the more reliable count from allTransactionsCounts
-  const effectiveTotalTransactions = totalTransactions || allTransactionsCounts.all || 0;
+  // Calculate total pages for pagination
+  // During search/filter operations, use totalTransactions (from search results)
+  // For normal browsing (no active search), use allTransactionsCounts for current filter status
+  const effectiveTotalTransactions = activeSearchTerm 
+    ? totalTransactions // Use search result count when searching
+    : (allTransactionsCounts[filters.status] || allTransactionsCounts.all || 0); // Use filtered count when browsing
   const totalPages = Math.ceil(effectiveTotalTransactions / transactionsPerPage);
 
 
@@ -621,13 +600,12 @@ const TransactionList = ({
                 <Search className="h-6 w-6 text-blue-400" />
               </div>
               <Input
-                placeholder="Search by ID (PW/EX/IT), phone, name or amount - Press Enter to search"
+                placeholder="Search by transaction number, extension ID, customer name, or phone - Press Enter to search"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault();
-                    console.log('🔍 ENTER PRESSED: Setting activeSearchTerm to:', searchTerm);
                     setActiveSearchTerm(searchTerm);
                   }
                 }}
@@ -728,7 +706,7 @@ const TransactionList = ({
                     <SheetHeader>
                       <SheetTitle>Advanced Search</SheetTitle>
                       <SheetDescription>
-                        Use these filters for detailed transaction searches. For quick searches, use the main search bar for transaction IDs, extension IDs, or customer phone numbers.
+                        Use these filters for detailed transaction searches. For quick searches, use the main search bar for transaction numbers, extension IDs, customer names, or phone numbers.
                       </SheetDescription>
                     </SheetHeader>
                     <div className="space-y-6 mt-6">

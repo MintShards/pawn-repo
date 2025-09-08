@@ -31,7 +31,7 @@ const StatusBadge = ({ status }) => {
   };
 
   return (
-    <Badge className={`px-2 py-1 text-xs font-medium rounded ${getStatusColor(status)}`}>
+    <Badge className={`px-1.5 py-0.5 text-xs font-medium rounded whitespace-nowrap ${getStatusColor(status)} sm:px-2 sm:py-1`}>
       {getStatusText(status)}
     </Badge>
   );

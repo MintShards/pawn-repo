@@ -1,6 +1,7 @@
 import authService from './authService';
 import extensionService from './extensionService';
 
+
 class TransactionService {
   constructor() {
     this.cache = new Map();
@@ -239,32 +240,119 @@ class TransactionService {
     }
   }
 
-  // Search for transactions by extension ID using the dedicated search endpoint
-  async searchTransactionsByExtension(extensionSearchTerm) {
+  // Unified search method using the new backend endpoint
+  async unifiedSearch(searchParams) {
     try {
-      // Use the dedicated search endpoint for extension searches
-      const result = await authService.apiRequest(`/api/v1/pawn-transaction/search?search_text=${encodeURIComponent(extensionSearchTerm)}`, {
-        method: 'GET',
-      });
+      const {
+        search_text,
+        search_type = 'auto_detect',
+        include_extensions = true,
+        include_items = true,
+        include_customer = true,
+        page = 1,
+        page_size = 20
+      } = searchParams;
       
-      // Handle paginated response
-      const processedResult = result && result.transactions && Array.isArray(result.transactions) 
-        ? result 
-        : Array.isArray(result) 
-          ? { transactions: result, total: result.length } 
-          : { transactions: [], total: 0 };
+      // Generate cache key for request deduplication
+      const cacheKey = `unified_search:${JSON.stringify(searchParams)}`;
       
-      // Enrich with extensions for display purposes
-      const enrichedTransactions = await this.enrichTransactionsWithExtensions(processedResult.transactions);
+      // Check cache first
+      const cached = this.cache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < this.cacheExpiry) {
+        return cached.data;
+      }
       
-      return {
-        transactions: enrichedTransactions,
-        total_count: processedResult.total_count || processedResult.total || 0,
-        searchType: 'extension',
-        searchTerm: extensionSearchTerm
-      };
+      // Prevent duplicate concurrent requests
+      if (this.pendingRequests.has(cacheKey)) {
+        return await this.pendingRequests.get(cacheKey);
+      }
+      
+      // Create request promise
+      const requestPromise = (async () => {
+        try {
+          const result = await authService.apiRequest('/api/v1/pawn-transaction/search', {
+            method: 'POST',
+            body: JSON.stringify({
+              search_text,
+              search_type,
+              include_extensions,
+              include_items,
+              include_customer,
+              page,
+              page_size
+            }),
+          });
+          
+          // Cache the result
+          this.cache.set(cacheKey, {
+            data: result,
+            timestamp: Date.now()
+          });
+          
+          return result;
+        } finally {
+          // Remove from pending requests
+          this.pendingRequests.delete(cacheKey);
+        }
+      })();
+      
+      // Store pending request
+      this.pendingRequests.set(cacheKey, requestPromise);
+      
+      return await requestPromise;
     } catch (error) {
-      console.error('Error searching transactions by extension:', error);
+      console.error('Error in unified search:', error);
+      throw error;
+    }
+  }
+
+  // Alias for searchTransactions to match expected method name
+  async searchTransactions(searchParams) {
+    return this.unifiedSearch(searchParams);
+  }
+
+  // Get transaction status counts in a single optimized request
+  async getStatusCounts() {
+    try {
+      const cacheKey = 'status_counts';
+      
+      // Check cache first
+      const cached = this.cache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < this.cacheExpiry) {
+        return cached.data;
+      }
+      
+      // Prevent duplicate concurrent requests
+      if (this.pendingRequests.has(cacheKey)) {
+        return await this.pendingRequests.get(cacheKey);
+      }
+      
+      // Create request promise
+      const requestPromise = (async () => {
+        try {
+          const result = await authService.apiRequest('/api/v1/pawn-transaction/status-counts', {
+            method: 'GET',
+          });
+          
+          // Cache the result for 60 seconds
+          this.cache.set(cacheKey, {
+            data: result,
+            timestamp: Date.now()
+          });
+          
+          return result;
+        } finally {
+          // Remove from pending requests
+          this.pendingRequests.delete(cacheKey);
+        }
+      })();
+      
+      // Store pending request
+      this.pendingRequests.set(cacheKey, requestPromise);
+      
+      return await requestPromise;
+    } catch (error) {
+      console.error('Error getting status counts:', error);
       throw error;
     }
   }

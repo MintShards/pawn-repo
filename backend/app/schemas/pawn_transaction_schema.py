@@ -377,3 +377,179 @@ class TransactionVoidResponse(BaseModel):
             }
         }
     )
+
+
+# Unified Search Schemas
+
+class UnifiedSearchType(str, Enum):
+    """Search type classification for intelligent routing"""
+    AUTO_DETECT = "auto_detect"
+    TRANSACTION_ID = "transaction_id"
+    EXTENSION_ID = "extension_id"
+    PHONE_NUMBER = "phone_number"
+    CUSTOMER_NAME = "customer_name"
+    FULL_TEXT = "full_text"
+
+
+class UnifiedSearchRequest(BaseModel):
+    """Schema for unified search requests"""
+    search_text: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="Search text (transaction ID, customer name, phone, etc.)"
+    )
+    search_type: UnifiedSearchType = Field(
+        default=UnifiedSearchType.AUTO_DETECT,
+        description="Search type (auto-detected if not specified)"
+    )
+    include_extensions: bool = Field(
+        default=True,
+        description="Include extension data in results"
+    )
+    include_items: bool = Field(
+        default=True,
+        description="Include item data in results"
+    )
+    include_customer: bool = Field(
+        default=True,
+        description="Include customer data in results"
+    )
+    page: int = Field(
+        default=1,
+        ge=1,
+        description="Page number for pagination"
+    )
+    page_size: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        description="Number of results per page (max 100)"
+    )
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "search_text": "PW000123",
+                    "search_type": "transaction_id"
+                },
+                {
+                    "search_text": "EX000045", 
+                    "search_type": "extension_id"
+                },
+                {
+                    "search_text": "5551234567",
+                    "search_type": "phone_number"
+                },
+                {
+                    "search_text": "John Smith",
+                    "search_type": "customer_name"
+                }
+            ]
+        }
+    )
+
+
+class SearchMetadata(BaseModel):
+    """Search execution metadata"""
+    search_type: str = Field(..., description="Detected or specified search type")
+    search_text: str = Field(..., description="Original search text")
+    total_count: int = Field(..., description="Total number of results")
+    page: int = Field(..., description="Current page number")
+    page_size: int = Field(..., description="Results per page")
+    has_more: bool = Field(..., description="Whether there are more pages")
+    execution_time_ms: float = Field(..., description="Search execution time in milliseconds")
+    cache_hit: bool = Field(..., description="Whether result was served from cache")
+    pipeline_stages: int = Field(..., description="Number of aggregation pipeline stages")
+
+
+class UnifiedSearchResponse(BaseModel):
+    """Schema for unified search response"""
+    transactions: List[Dict[str, Any]] = Field(
+        ...,
+        description="List of transactions with enriched data"
+    )
+    total_count: int = Field(
+        ...,
+        description="Total number of matching transactions"
+    )
+    search_metadata: SearchMetadata = Field(
+        ...,
+        description="Search execution metadata"
+    )
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "transactions": [
+                    {
+                        "transaction_id": "550e8400-e29b-41d4-a716-446655440000",
+                        "formatted_id": "PW000123",
+                        "customer_id": "5551234567",
+                        "customer_name": "John Smith",
+                        "loan_amount": 500,
+                        "status": "active",
+                        "pawn_date": "2025-01-15T10:00:00Z",
+                        "extensions": [],
+                        "items": [
+                            {
+                                "description": "Gold necklace",
+                                "serial_number": "GN123456"
+                            }
+                        ]
+                    }
+                ],
+                "total_count": 1,
+                "search_metadata": {
+                    "search_type": "transaction_id",
+                    "search_text": "PW000123",
+                    "total_count": 1,
+                    "page": 1,
+                    "page_size": 20,
+                    "has_more": False,
+                    "execution_time_ms": 45.2,
+                    "cache_hit": False,
+                    "pipeline_stages": 5
+                }
+            }
+        }
+    )
+
+
+class BatchStatusCountResponse(BaseModel):
+    """Schema for batch status count response"""
+    status_counts: Dict[str, int] = Field(
+        ...,
+        description="Status counts for all transaction statuses"
+    )
+    total_transactions: int = Field(
+        ...,
+        description="Total number of transactions across all statuses"
+    )
+    cache_hit: bool = Field(
+        ...,
+        description="Whether result was served from cache"
+    )
+    execution_time_ms: float = Field(
+        ...,
+        description="Query execution time in milliseconds"
+    )
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "status_counts": {
+                    "active": 1250,
+                    "overdue": 85,
+                    "extended": 42,
+                    "redeemed": 3450,
+                    "forfeited": 125,
+                    "sold": 89
+                },
+                "total_transactions": 5041,
+                "cache_hit": True,
+                "execution_time_ms": 2.1
+            }
+        }
+    )

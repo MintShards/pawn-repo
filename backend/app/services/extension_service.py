@@ -19,6 +19,27 @@ from app.core.transaction_notes import safe_append_transaction_notes, format_sys
 from app.services.notes_service import notes_service
 from app.services.formatted_id_service import FormattedIdService
 
+# Cache invalidation utility
+def _invalidate_search_caches():
+    """Helper function to invalidate search-related caches when transaction data changes"""
+    try:
+        # Import here to avoid circular imports
+        import asyncio
+        from app.services.unified_search_service import UnifiedSearchService
+        
+        # Create async context for cache invalidation
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # Schedule as a task in the running loop
+            asyncio.create_task(UnifiedSearchService.invalidate_search_caches())
+        else:
+            # Run directly if no loop is running
+            asyncio.run(UnifiedSearchService.invalidate_search_caches())
+            
+    except Exception as e:
+        # Don't raise error as cache invalidation is not critical
+        pass
+
 
 class ExtensionError(Exception):
     """Base exception for extension processing operations"""
@@ -194,12 +215,8 @@ class ExtensionService:
             extension = await extension_operations(session=None)
             
             # PERFORMANCE: Invalidate search cache after extension is processed
-            try:
-                from app.core.redis_cache import BusinessCache
-                await BusinessCache.invalidate_by_pattern("transactions_list_*")
-                # Log successful cache invalidation but don't fail if cache unavailable
-            except Exception as cache_e:
-                pass  # Continue even if cache invalidation fails
+            # Invalidate unified search and status count caches after successful extension processing
+            _invalidate_search_caches()
             
             return extension
         except Exception as e:

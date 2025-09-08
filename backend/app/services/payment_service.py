@@ -23,6 +23,27 @@ from app.core.timezone_utils import utc_to_user_timezone, get_user_now, user_tim
 from app.core.transaction_notes import safe_append_transaction_notes, format_system_note  # Legacy compatibility
 from app.services.notes_service import notes_service
 
+# Cache invalidation utility
+def _invalidate_search_caches():
+    """Helper function to invalidate search-related caches when transaction data changes"""
+    try:
+        # Import here to avoid circular imports
+        import asyncio
+        from app.services.unified_search_service import UnifiedSearchService
+        
+        # Create async context for cache invalidation
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # Schedule as a task in the running loop
+            asyncio.create_task(UnifiedSearchService.invalidate_search_caches())
+        else:
+            # Run directly if no loop is running
+            asyncio.run(UnifiedSearchService.invalidate_search_caches())
+            
+    except Exception as e:
+        # Don't raise error as cache invalidation is not critical
+        pass
+
 
 class PaymentError(Exception):
     """Base exception for payment processing operations"""
@@ -198,13 +219,8 @@ class PaymentService:
         try:
             payment = await payment_operations(session=None)
             
-            # PERFORMANCE: Invalidate search cache after payment is processed
-            try:
-                from app.core.redis_cache import BusinessCache
-                await BusinessCache.invalidate_by_pattern("transactions_list_*")
-                # Log successful cache invalidation but don't fail if cache unavailable
-            except Exception as cache_e:
-                pass  # Continue even if cache invalidation fails
+            # Invalidate unified search and status count caches after successful payment processing
+            _invalidate_search_caches()
             
             return payment
         except Exception as e:
@@ -790,6 +806,9 @@ class PaymentService:
                 updated_by_user_id=voided_by_user_id,
                 notes=f"Status reverted due to payment {payment_id} being voided. New balance: ${new_balance}"
             )
+        
+        # Invalidate unified search and status count caches after payment void
+        _invalidate_search_caches()
         
         return payment
     

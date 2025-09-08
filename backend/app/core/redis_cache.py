@@ -101,16 +101,22 @@ class RedisCacheService:
             cache_logger.error("Failed to serialize data", error=str(e))
             raise
     
-    def _deserialize(self, data: bytes) -> Any:
+    def _deserialize(self, data: Union[bytes, str]) -> Any:
         """Deserialize data from Redis storage using secure JSON-only approach"""
         try:
-            return json.loads(data.decode('utf-8'))
+            # Handle both bytes and string data from Redis
+            if isinstance(data, bytes):
+                json_str = data.decode('utf-8')
+            else:
+                json_str = data
+            
+            return json.loads(json_str)
         except (json.JSONDecodeError, UnicodeDecodeError) as e:
-            cache_logger.error("Failed to deserialize JSON data", error=str(e))
+            cache_logger.error("Failed to deserialize JSON data", error=str(e), data_type=type(data).__name__)
             # Return None instead of failing for backwards compatibility
             return None
         except Exception as e:
-            cache_logger.error("Failed to deserialize data", error=str(e))
+            cache_logger.error("Failed to deserialize data", error=str(e), data_type=type(data).__name__)
             raise
     
     async def get(self, key: str) -> Optional[Any]:
@@ -262,6 +268,30 @@ class RedisCacheService:
         except Exception as e:
             cache_logger.error("Cache expire error", key=key, ttl=ttl, error=str(e))
             return False
+    
+    async def delete_by_pattern(self, pattern: str) -> int:
+        """Delete all keys matching pattern"""
+        if not self.is_available:
+            return 0
+        
+        deleted_count = 0
+        try:
+            # Use SCAN to find all matching keys (safer than KEYS for production)
+            cursor = 0
+            while True:
+                cursor, keys = self.redis_client.scan(cursor, match=pattern, count=100)
+                if keys:
+                    deleted_count += self.redis_client.delete(*keys)
+                if cursor == 0:
+                    break
+            
+            self._stats["deletes"] += deleted_count
+            cache_logger.info("Deleted keys by pattern", pattern=pattern, count=deleted_count)
+            return deleted_count
+        except Exception as e:
+            cache_logger.error("Cache delete by pattern error", pattern=pattern, error=str(e))
+            self._stats["errors"] += 1
+            return 0
     
     def get_stats(self) -> Dict[str, Any]:
         """Get cache statistics"""
@@ -440,3 +470,27 @@ class BusinessCache:
         if not cache:
             return False
         return await cache.set(f"{CacheConfig.STATS_PREFIX}users", stats_data, ttl)
+    
+    @staticmethod
+    async def invalidate_by_pattern(pattern: str):
+        """Invalidate all cache entries matching pattern"""
+        cache = get_cache_service()
+        if not cache:
+            return 0
+        return await cache.delete_by_pattern(pattern)
+    
+    @staticmethod
+    async def get(key: str):
+        """Generic get method for any cache key"""
+        cache = get_cache_service()
+        if not cache:
+            return None
+        return await cache.get(key)
+    
+    @staticmethod
+    async def set(key: str, value: Any, ttl_seconds: int = CacheConfig.MEDIUM_TTL):
+        """Generic set method for any cache key"""
+        cache = get_cache_service()
+        if not cache:
+            return False
+        return await cache.set(key, value, ttl_seconds)
