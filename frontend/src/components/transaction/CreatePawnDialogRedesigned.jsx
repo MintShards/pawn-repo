@@ -354,14 +354,26 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel }) => {
         }))
       };
 
-      const result = await transactionService.createTransaction(transactionData);
-      
-      handleSuccess(`Transaction #${result.transaction_id?.slice(-8)} created successfully`);
-      
-      if (onSuccess) {
-        onSuccess(result);
+      // REAL-TIME FIX: Use optimistic transaction creation if available
+      if (window.TransactionListOptimistic?.createTransaction) {
+        const result = await window.TransactionListOptimistic.createTransaction(transactionData);
+        
+        if (onSuccess) {
+          onSuccess(result);
+        }
+      } else {
+        // Fallback to direct API call
+        const result = await transactionService.createTransaction(transactionData);
+        
+        handleSuccess(`Transaction #${result.transaction_id?.slice(-8)} created successfully`);
+        
+        if (onSuccess) {
+          onSuccess(result);
+        }
       }
+      
     } catch (err) {
+      console.error('❌ TRANSACTION CREATION FAILED:', err);
       handleError(err, 'Creating transaction');
     } finally {
       setSubmitting(false);

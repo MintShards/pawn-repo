@@ -17,6 +17,7 @@ from beanie import init_beanie
 
 from app.core.config import settings
 from app.models.user_model import User, UserRole
+from app.models.customer_model import Customer, CustomerStatus
 from app.core.security import get_pin
 
 
@@ -30,7 +31,7 @@ async def seed_database():
     db = client.get_default_database()
     
     # Initialize Beanie
-    await init_beanie(database=db, document_models=[User])
+    await init_beanie(database=db, document_models=[User, Customer])
     
     # Check if users already exist
     existing_users = await User.find().count()
@@ -70,6 +71,47 @@ async def seed_database():
     
     await staff_user.insert()
     
+    # Create sample customers for testing
+    print("👥 Creating sample customers...")
+    
+    # Test customer 1
+    customer1 = Customer(
+        phone_number="1234567890",
+        first_name="John",
+        last_name="Doe", 
+        email="john.doe@email.com",
+        status=CustomerStatus.ACTIVE,
+        notes="Test customer for development",
+        created_by_user_id="69",  # Created by admin
+        credit_limit=5000
+    )
+    await customer1.insert()
+    
+    # Test customer 2
+    customer2 = Customer(
+        phone_number="2345678901",
+        first_name="Jane",
+        last_name="Smith",
+        email="jane.smith@email.com", 
+        status=CustomerStatus.ACTIVE,
+        notes="Another test customer",
+        created_by_user_id="02",  # Created by staff
+        credit_limit=3000
+    )
+    await customer2.insert()
+    
+    # Test customer 3 (no email)
+    customer3 = Customer(
+        phone_number="3456789012", 
+        first_name="Bob",
+        last_name="Wilson",
+        status=CustomerStatus.ACTIVE,
+        notes="Customer without email",
+        created_by_user_id="69",
+        credit_limit=2500
+    )
+    await customer3.insert()
+    
     print("✅ Database seeding completed successfully!")
     print("")
     print("🔑 Admin Login Credentials:")
@@ -81,6 +123,11 @@ async def seed_database():
     print("   User ID: 02") 
     print("   PIN: 1234")
     print("   Role: Staff")
+    print("")
+    print("👥 Test Customers Created:")
+    print("   Customer 1: 1234567890 (John Doe)")
+    print("   Customer 2: 2345678901 (Jane Smith)")
+    print("   Customer 3: 3456789012 (Bob Wilson)")
     print("")
     print("🚀 You can now start the server and test with Swagger UI!")
     print("   Server: uvicorn app.app:app --reload --host 0.0.0.0 --port 8000")
@@ -100,10 +147,11 @@ async def clear_database():
     db = client.get_default_database()
     
     # Initialize Beanie
-    await init_beanie(database=db, document_models=[User])
+    await init_beanie(database=db, document_models=[User, Customer])
     
-    # Delete all users
+    # Delete all data
     await User.delete_all()
+    await Customer.delete_all()
     
     print("✅ Database cleared!")
     client.close()

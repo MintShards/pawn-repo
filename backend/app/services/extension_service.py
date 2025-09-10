@@ -75,6 +75,38 @@ class ExtensionService:
     """
     
     @staticmethod
+    async def _invalidate_all_transaction_caches():
+        """CRITICAL: Comprehensive cache invalidation for real-time updates"""
+        try:
+            from app.core.redis_cache import get_cache_service
+            cache = get_cache_service()
+            
+            if cache and cache.is_available:
+                # Clear all transaction list caches
+                cache_patterns = [
+                    "transactions_list_*",      # All transaction lists
+                    "transaction:*",            # Individual transaction caches
+                    "balance:*",                # Balance calculation caches
+                    "customer_stats_*",         # Customer statistics
+                    "business_stats_*"          # Business statistics
+                ]
+                
+                for pattern in cache_patterns:
+                    await cache.delete_pattern(pattern)
+                
+                import structlog
+                logger = structlog.get_logger("extension_service")
+                logger.info("🚀 CACHE CLEARED: All transaction caches invalidated for extension real-time updates")
+            
+            # Also invalidate search caches
+            _invalidate_search_caches()
+            
+        except Exception as e:
+            import structlog
+            logger = structlog.get_logger("extension_service")
+            logger.error("❌ CACHE ERROR: Failed to invalidate transaction caches during extension", error=str(e))
+    
+    @staticmethod
     def _ensure_timezone_aware(dt: datetime) -> datetime:
         """Helper method to ensure datetime is timezone-aware"""
         if dt.tzinfo is None:
@@ -253,6 +285,14 @@ class ExtensionService:
         
         # Save transaction
         await transaction.save()
+        
+        # CRITICAL: Immediate cache invalidation for real-time updates
+        await ExtensionService._invalidate_all_transaction_caches()
+        
+        # LOG: Extension success for monitoring
+        import structlog
+        logger = structlog.get_logger("extension_service")
+        logger.info(f"✅ EXTENSION PROCESSED: {transaction.transaction_id} status changed from {old_status} to EXTENDED with cache cleared")
     
     @staticmethod
     async def _update_transaction_for_extension_atomic(
@@ -295,6 +335,15 @@ class ExtensionService:
             await transaction.save(session=session)
         else:
             await transaction.save()
+        
+        # CRITICAL: Immediate cache invalidation for real-time updates (outside session)
+        if not session:  # Only invalidate if not in atomic session
+            await ExtensionService._invalidate_all_transaction_caches()
+            
+            # LOG: Extension success for monitoring
+            import structlog
+            logger = structlog.get_logger("extension_service")
+            logger.info(f"✅ EXTENSION PROCESSED (ATOMIC): {transaction.transaction_id} status changed from {old_status} to EXTENDED")
     
     @staticmethod
     async def get_transaction_extensions(

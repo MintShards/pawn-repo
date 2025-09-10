@@ -74,6 +74,38 @@ class PaymentService:
     """
     
     @staticmethod
+    async def _invalidate_all_transaction_caches():
+        """CRITICAL: Comprehensive cache invalidation for real-time updates"""
+        try:
+            from app.core.redis_cache import get_cache_service
+            cache = get_cache_service()
+            
+            if cache and cache.is_available:
+                # Clear all transaction list caches
+                cache_patterns = [
+                    "transactions_list_*",      # All transaction lists
+                    "transaction:*",            # Individual transaction caches
+                    "balance:*",                # Balance calculation caches
+                    "customer_stats_*",         # Customer statistics
+                    "business_stats_*"          # Business statistics
+                ]
+                
+                for pattern in cache_patterns:
+                    await cache.delete_pattern(pattern)
+                
+                import structlog
+                logger = structlog.get_logger("payment_service")
+                logger.info("🚀 CACHE CLEARED: All transaction caches invalidated for payment real-time updates")
+            
+            # Also invalidate search caches
+            _invalidate_search_caches()
+            
+        except Exception as e:
+            import structlog
+            logger = structlog.get_logger("payment_service")
+            logger.error("❌ CACHE ERROR: Failed to invalidate transaction caches during payment", error=str(e))
+    
+    @staticmethod
     async def _get_balance_info(transaction_id: str) -> Dict[str, Any]:
         """Helper method to get balance info without circular import"""
         from app.services.pawn_transaction_service import PawnTransactionService
@@ -219,8 +251,15 @@ class PaymentService:
         try:
             payment = await payment_operations(session=None)
             
-            # Invalidate unified search and status count caches after successful payment processing
+            # CRITICAL: Comprehensive cache invalidation for real-time updates
+            await PaymentService._invalidate_all_transaction_caches()
+            
+            # Also invalidate search caches (legacy compatibility)
             _invalidate_search_caches()
+            
+            import structlog
+            logger = structlog.get_logger("payment_service")
+            logger.info(f"✅ PAYMENT PROCESSED: ${payment.payment_amount} on {payment.transaction_id} with cache cleared for real-time updates")
             
             return payment
         except Exception as e:
@@ -807,8 +846,15 @@ class PaymentService:
                 notes=f"Status reverted due to payment {payment_id} being voided. New balance: ${new_balance}"
             )
         
-        # Invalidate unified search and status count caches after payment void
+        # CRITICAL: Comprehensive cache invalidation for real-time updates
+        await PaymentService._invalidate_all_transaction_caches()
+        
+        # Also invalidate search caches (legacy compatibility)
         _invalidate_search_caches()
+        
+        import structlog
+        logger = structlog.get_logger("payment_service")
+        logger.info(f"✅ PAYMENT VOIDED: {payment_id} on {payment.transaction_id} with cache cleared for real-time updates")
         
         return payment
     

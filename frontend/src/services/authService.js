@@ -331,8 +331,8 @@ class AuthService {
       }
     }
     
-    // If we get a 401/422 (token expired), try to refresh and retry once
-    if ((response.status === 401 || response.status === 422) && this.refreshToken) {
+    // If we get a 401 (token expired), try to refresh and retry once
+    if (response.status === 401 && this.refreshToken) {
       const refreshSuccess = await this.refreshAccessToken();
       
       if (refreshSuccess) {
@@ -341,7 +341,7 @@ class AuthService {
       } else {
         throw new Error('Authentication failed - please login again');
       }
-    } else if ((response.status === 401 || response.status === 422) && !this.refreshToken) {
+    } else if (response.status === 401 && !this.refreshToken) {
       this.logout();
       window.location.reload();
       throw new Error('Authentication failed - please login again');
@@ -349,6 +349,27 @@ class AuthService {
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+      
+      // For 422 validation errors, provide more detailed error information
+      if (response.status === 422) {
+        let errorMessage = 'Validation failed';
+        
+        if (errorData.detail) {
+          if (Array.isArray(errorData.detail)) {
+            // Pydantic validation errors
+            const errors = errorData.detail.map(err => `${err.loc?.join('.')}: ${err.msg}`).join('; ');
+            errorMessage = `Validation errors: ${errors}`;
+          } else if (typeof errorData.detail === 'string') {
+            errorMessage = `Validation error: ${errorData.detail}`;
+          } else {
+            errorMessage = `Validation error: ${JSON.stringify(errorData.detail)}`;
+          }
+        }
+        
+        console.error('❌ 422 VALIDATION ERROR DETAILS:', errorData);
+        throw new Error(errorMessage);
+      }
+      
       throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
     }
 

@@ -77,11 +77,11 @@ class PawnTransactionBase(BaseModel):
         le=1000,
         description="Fixed monthly interest fee in whole dollars (max $1,000)"
     )
-    storage_location: str = Field(
-        ...,
+    storage_location: Optional[str] = Field(
+        None,
         min_length=1,
         max_length=100,
-        description="Physical storage location (e.g., 'Shelf A-5')"
+        description="Physical storage location (e.g., 'Shelf A-5', defaults to 'TBD')"
     )
     internal_notes: Optional[str] = Field(
         None,

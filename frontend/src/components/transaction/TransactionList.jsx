@@ -44,6 +44,7 @@ import transactionService from '../../services/transactionService';
 import customerService from '../../services/customerService';
 import { initializeSequenceNumbers, formatTransactionId, formatExtensionId, formatStorageLocation, formatCurrency } from '../../utils/transactionUtils';
 import { formatBusinessDate } from '../../utils/timezoneUtils';
+import { useOptimisticTransactionUpdate } from '../../hooks/useOptimisticTransactionUpdate';
 
 const TransactionList = ({ 
   onCreateNew, 
@@ -94,6 +95,15 @@ const TransactionList = ({
 
   // Customer data for name display
   const [customerData, setCustomerData] = useState({});
+  
+  // REAL-TIME FIX: Optimistic updates for immediate UI feedback
+  const {
+    operationStatus,
+    optimisticCreate,
+    optimisticStatusUpdate,
+    optimisticExtension,
+    forceRefresh
+  } = useOptimisticTransactionUpdate();
 
   // Responsive detection
   useEffect(() => {
@@ -585,6 +595,68 @@ const TransactionList = ({
     } catch (error) {
       // Failed to fetch transaction balances - continue without them
     }
+  };
+
+  // REAL-TIME FIX: Optimistic update handlers for immediate UI feedback
+  const handleOptimisticTransactionCreate = useCallback((transaction, type) => {
+    if (type === 'optimistic') {
+      // Add optimistic transaction to top of list immediately
+      setTransactions(prev => [transaction, ...prev]);
+    } else if (type === 'confirmed') {
+      // Replace optimistic transaction with confirmed data
+      setTransactions(prev => 
+        prev.map(t => t.isOptimistic && t.transaction_id.startsWith('temp_') ? transaction : t)
+      );
+      
+      // Force refresh to ensure list is completely up to date
+      forceRefresh(() => {
+        loadTransactions();
+        fetchAllTransactionsCounts(true); // immediate=true for cache busting
+      });
+    }
+  }, [forceRefresh, loadTransactions, fetchAllTransactionsCounts]);
+
+  const handleOptimisticTransactionUpdate = useCallback((transaction, type) => {
+    if (type === 'optimistic') {
+      // Update transaction immediately in list
+      setTransactions(prev => 
+        prev.map(t => 
+          t.transaction_id === transaction.transaction_id 
+            ? { ...t, ...transaction }
+            : t
+        )
+      );
+    } else if (type === 'confirmed') {
+      // Force refresh to ensure all data is current
+      forceRefresh(() => {
+        loadTransactions();
+        fetchAllTransactionsCounts(true);
+      });
+    }
+  }, [forceRefresh, loadTransactions, fetchAllTransactionsCounts]);
+
+  const handleOptimisticError = useCallback((transactionIdOrState, error) => {
+    console.error('❌ OPTIMISTIC UPDATE ERROR:', error);
+    
+    if (typeof transactionIdOrState === 'string' && transactionIdOrState.startsWith('temp_')) {
+      // Remove failed optimistic transaction
+      setTransactions(prev => 
+        prev.filter(t => t.transaction_id !== transactionIdOrState)
+      );
+    } else {
+      // Force refresh to restore correct state
+      forceRefresh(() => {
+        loadTransactions();
+        fetchAllTransactionsCounts(true);
+      });
+    }
+  }, [forceRefresh, loadTransactions, fetchAllTransactionsCounts]);
+
+  // Expose optimistic operations to parent components
+  window.TransactionListOptimistic = {
+    createTransaction: (data) => optimisticCreate(data, handleOptimisticTransactionCreate, handleOptimisticError),
+    updateStatus: (id, status, updateFn) => optimisticStatusUpdate(id, status, updateFn, handleOptimisticTransactionUpdate, handleOptimisticError),
+    processExtension: (id, data) => optimisticExtension(id, data, handleOptimisticTransactionUpdate, handleOptimisticError)
   };
 
   return (

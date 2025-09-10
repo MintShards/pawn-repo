@@ -164,16 +164,25 @@ const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
         extension_fee_per_month: Math.round(parseFloat(formData.extension_fee_per_month))
       };
 
-      const result = await extensionService.processExtension(extensionData);
-      
-      handleSuccess(
-        `Loan extended for ${formData.extension_months} month(s). New maturity: ${formatLocalDate(result.new_maturity_date)}`
-      );
-      
-      if (onSuccess) {
-        onSuccess(result, true); // Pass flag to indicate balance should be refreshed
+      // REAL-TIME FIX: Use optimistic extension processing if available
+      if (window.TransactionListOptimistic?.processExtension) {
+        await window.TransactionListOptimistic.processExtension(
+          transaction.transaction_id,
+          extensionData
+        );
+      } else {
+        // Fallback to direct API call
+        const result = await extensionService.processExtension(extensionData);
+        
+        if (onSuccess) {
+          onSuccess(result, true); // Pass flag to indicate balance should be refreshed
+        }
       }
+      
+      // Success handled by optimistic update hook or fallback above
+      
     } catch (err) {
+      console.error('❌ EXTENSION PROCESSING FAILED:', err);
       handleError(err, 'Processing extension');
     } finally {
       setSubmitting(false);

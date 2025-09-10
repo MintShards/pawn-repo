@@ -49,6 +49,33 @@ def _invalidate_search_caches():
     except Exception as e:
         logger.error("❌ CACHE: Failed to invalidate search caches", error=str(e))
 
+async def _invalidate_all_transaction_caches():
+    """CRITICAL: Comprehensive cache invalidation for real-time updates"""
+    try:
+        from app.core.redis_cache import get_cache_service
+        cache = get_cache_service()
+        
+        if cache and cache.is_available:
+            # Clear all transaction list caches
+            cache_patterns = [
+                "transactions_list_*",      # All transaction lists
+                "transaction:*",            # Individual transaction caches
+                "balance:*",                # Balance calculation caches
+                "customer_stats_*",         # Customer statistics
+                "business_stats_*"          # Business statistics
+            ]
+            
+            for pattern in cache_patterns:
+                await cache.delete_pattern(pattern)
+            
+            logger.info("🚀 CACHE CLEARED: All transaction caches invalidated for real-time updates")
+        
+        # Also invalidate search caches
+        _invalidate_search_caches()
+        
+    except Exception as e:
+        logger.error("❌ CACHE ERROR: Failed to invalidate transaction caches", error=str(e))
+
 
 def ensure_timezone_aware(dt: datetime) -> datetime:
     """
@@ -171,12 +198,15 @@ class PawnTransactionService:
             formatted_id = await FormattedIdService.get_next_formatted_id()
             
             # Create the transaction with explicit pawn_date and formatted_id
+            # Apply default for storage_location if not provided
+            final_storage_location = storage_location if storage_location and storage_location.strip() else "TBD"
+            
             transaction = PawnTransaction(
                 customer_id=customer_phone,
                 created_by_user_id=created_by_user_id,
                 loan_amount=loan_amount,
                 monthly_interest_amount=monthly_interest_amount,
-                storage_location=storage_location,
+                storage_location=final_storage_location,
                 internal_notes=internal_notes,
                 pawn_date=pawn_date_utc,
                 formatted_id=formatted_id
@@ -220,8 +250,14 @@ class PawnTransactionService:
             customer.last_transaction_date = transaction.pawn_date
             await customer.save()
             
-            # Invalidate search and status count caches after successful transaction creation
-            _invalidate_search_caches()
+            # CRITICAL: Immediate cache invalidation for real-time updates
+            await _invalidate_all_transaction_caches()
+            
+            # CRITICAL: Load all relationships for complete response
+            await transaction.fetch_all_links()
+            
+            # LOG: Success with timing for monitoring
+            logger.info(f"✅ TRANSACTION CREATED: {transaction.transaction_id} with complete data and cache cleared")
             
             return transaction
             
@@ -532,8 +568,11 @@ class PawnTransactionService:
         
         await transaction.save()
         
-        # Invalidate unified search and status count caches after successful status update
-        _invalidate_search_caches()
+        # CRITICAL: Immediate comprehensive cache invalidation for real-time updates
+        await PawnTransactionService._invalidate_all_transaction_caches()
+        
+        # LOG: Status change success for monitoring
+        logger.info(f"✅ STATUS UPDATED: {transaction_id} changed from {old_status} to {new_status} with cache cleared")
         
         # Update customer statistics for terminal states
         if new_status in [TransactionStatus.REDEEMED, TransactionStatus.FORFEITED, TransactionStatus.SOLD]:
@@ -799,7 +838,7 @@ class PawnTransactionService:
             # Get total count before pagination
             total_count = await query.count()
             
-            # Apply sorting with enum value extraction
+            # Apply sorting with enum value extraction - REAL-TIME FIX: Ensure newest first
             sort_direction = 1 if filters.sort_order.value == "asc" else -1
             sort_field_name = filters.sort_by.value if hasattr(filters.sort_by, 'value') else str(filters.sort_by)
             
@@ -807,8 +846,12 @@ class PawnTransactionService:
                 sort_field = getattr(PawnTransaction, sort_field_name)
                 query = query.sort([(sort_field, sort_direction)])
             else:
-                # Default sort by updated_at if field doesn't exist
-                query = query.sort([(PawnTransaction.updated_at, -1)])
+                # CRITICAL FIX: Default sort by creation date DESC for newest transactions first
+                query = query.sort([
+                    (PawnTransaction.pawn_date, -1),    # Primary: newest pawn date first
+                    (PawnTransaction.created_at, -1),   # Secondary: newest creation time first
+                    (PawnTransaction.transaction_id, -1) # Tertiary: newest transaction ID first
+                ])
             
             # Apply pagination
             skip = (filters.page - 1) * filters.page_size
