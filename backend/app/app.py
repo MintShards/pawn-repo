@@ -13,6 +13,7 @@ from beanie import init_beanie
 from fastapi import FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+import structlog
 
 # Local imports
 from app.api.api_v1.router import router
@@ -34,9 +35,11 @@ from app.models.pawn_transaction_model import PawnTransaction
 from app.models.payment_model import Payment
 from app.models.service_alert_model import ServiceAlert
 from app.models.user_model import User
+from app.models.transaction_metrics import TransactionMetrics
 
-# Database client
+# Database client and logger
 db_client = None
+logger = structlog.get_logger("app")
 
 
 @asynccontextmanager
@@ -53,7 +56,7 @@ async def lifespan(app: FastAPI):
     
     await init_beanie(
         database=db_client,
-        document_models=[User, Customer, PawnTransaction, PawnItem, Payment, Extension, ServiceAlert, LoanConfig]
+        document_models=[User, Customer, PawnTransaction, PawnItem, Payment, Extension, ServiceAlert, LoanConfig, TransactionMetrics]
     )
     
     # Initialize Redis-based services
@@ -69,10 +72,10 @@ async def lifespan(app: FastAPI):
         # Initialize cache service with Redis
         initialize_cache_service(redis_client, settings.REDIS_URL)
         
-        print("Redis services initialized successfully")
+        logger.info("Redis services initialized successfully")
         
     except Exception as e:
-        print(f"Redis unavailable, using fallback services: {e}")
+        logger.warning(f"Redis unavailable, using fallback services: {e}")
         # Fallback to in-memory services
         initialize_csrf_protection(None, settings.JWT_SECRET_KEY)
         initialize_cache_service(None, settings.REDIS_URL)
@@ -82,22 +85,22 @@ async def lifespan(app: FastAPI):
         encryption_key = settings.FIELD_ENCRYPTION_KEY
         if not encryption_key:
             # Generate a warning about missing encryption key
-            print("WARNING: FIELD_ENCRYPTION_KEY not set. Generating temporary key for this session.")
-            print("For production, set FIELD_ENCRYPTION_KEY in environment variables.")
+            logger.warning("FIELD_ENCRYPTION_KEY not set. Generating temporary key for this session.")
+            logger.warning("For production, set FIELD_ENCRYPTION_KEY in environment variables.")
             encryption_key = generate_master_key()
             
         initialize_field_encryption(encryption_key)
-        print("Field encryption initialized")
+        logger.info("Field encryption initialized")
         
     except Exception as e:
-        print(f"Warning: Failed to initialize field encryption: {e}")
+        logger.warning(f"Failed to initialize field encryption: {e}")
     
     # Create database indexes for optimal performance
     try:
         created_count, error_count = await create_database_indexes(db_client)
-        print(f"Database indexes: {created_count} created, {error_count} errors")
+        logger.info(f"Database indexes: {created_count} created, {error_count} errors")
     except Exception as e:
-        print(f"Warning: Failed to create database indexes: {e}")
+        logger.warning(f"Failed to create database indexes: {e}")
     
     yield
     

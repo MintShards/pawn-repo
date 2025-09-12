@@ -38,13 +38,15 @@ import { getRoleTitle, getUserDisplayString } from '../utils/roleUtils';
 import { formatRedemptionDate, formatBusinessDate } from '../utils/timezoneUtils';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '../components/ui/resizable';
 import { ScrollArea } from '../components/ui/scroll-area';
+import StatsPanel from '../components/ui/realtime-stats-panel';
 import transactionService from '../services/transactionService';
 import extensionService from '../services/extensionService';
 import customerService from '../services/customerService';
 import authService from '../services/authService';
+import statsCacheService from '../services/statsCacheService';
 
 const TransactionHub = () => {
-  const { user, logout, loading, fetchUserDataIfNeeded } = useAuth();
+  const { user, logout, loading, fetchUserDataIfNeeded, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const [selectedTransaction, setSelectedTransaction] = useState(null);
   const [selectedTransactionCustomer, setSelectedTransactionCustomer] = useState(null);
@@ -63,96 +65,37 @@ const TransactionHub = () => {
   const [showQuickPayment, setShowQuickPayment] = useState(false);
   const [showQuickExtension, setShowQuickExtension] = useState(false);
   
-  // Transaction stats state
-  const [transactionStats, setTransactionStats] = useState({
-    total_active: 0,
-    total_overdue: 0,
-    new_this_month: 0,
-    maturity_this_week: 0,
-    cash_collected_today: 0
-  });
-  const [statsLoading, setStatsLoading] = useState(true);
 
-  // Fetch user data if not already loaded
+  // Authentication check - redirect to login if not authenticated
   useEffect(() => {
-    if (!user && fetchUserDataIfNeeded) {
+    if (!loading && !isAuthenticated) {
+      navigate('/login');
+      return;
+    }
+    
+    // Fetch user data if not already loaded
+    if (isAuthenticated && !user && fetchUserDataIfNeeded) {
       fetchUserDataIfNeeded();
     }
-  }, [user, fetchUserDataIfNeeded]); // Only run once on mount
+  }, [user, loading, isAuthenticated, fetchUserDataIfNeeded, navigate]);
 
-  // Fetch transaction stats
-  useEffect(() => {
-    const fetchTransactionStats = async () => {
-      try {
-        setStatsLoading(true);
-        const transactions = await transactionService.getAllTransactions();
-        const transactionList = transactions.transactions || [];
-        
-        const currentDate = new Date();
-        const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-        const startOfWeek = new Date(currentDate);
-        startOfWeek.setDate(currentDate.getDate() - currentDate.getDay());
-        const endOfWeek = new Date(startOfWeek);
-        endOfWeek.setDate(startOfWeek.getDate() + 6);
-        const startOfDay = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate());
-        const endOfDay = new Date(startOfDay);
-        endOfDay.setDate(startOfDay.getDate() + 1);
-        
-        const stats = {
-          total_active: transactionList.filter(t => t.status === 'active').length,
-          total_overdue: transactionList.filter(t => t.status === 'overdue').length,
-          new_this_month: transactionList.filter(t => 
-            new Date(t.pawn_date || t.created_at) >= startOfMonth
-          ).length,
-          maturity_this_week: transactionList.filter(t => {
-            if (!t.maturity_date) return false;
-            const maturityDate = new Date(t.maturity_date);
-            return maturityDate >= startOfWeek && maturityDate <= endOfWeek && 
-                   ['active', 'overdue', 'extended'].includes(t.status);
-          }).length,
-          cash_collected_today: 0 // Will be fetched separately from payments API
-        };
-        
-        // Fetch today's cash collections
-        try {
-          const today = new Date().toISOString().split('T')[0];
-          const token = localStorage.getItem('access_token');
-          
-          if (token) {
-            const paymentsResponse = await fetch(`http://localhost:8000/api/v1/payment/?start_date=${today}T00:00:00&end_date=${today}T23:59:59`, {
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-              }
-            });
-            
-            if (paymentsResponse.ok) {
-              const paymentsData = await paymentsResponse.json();
-              const todayCash = paymentsData.payments?.reduce((sum, payment) => sum + payment.payment_amount, 0) || 0;
-              stats.cash_collected_today = todayCash;
-            }
-          }
-        } catch (cashError) {
-          // Failed to fetch cash collections - continue with default value
-        }
-        
-        setTransactionStats(stats);
-      } catch (error) {
-        // Failed to fetch transaction stats - use default values
-        setTransactionStats({
-          total_active: 0,
-          total_overdue: 0,
-          new_this_month: 0,
-          maturity_this_week: 0,
-          cash_collected_today: 0
-        });
-      } finally {
-        setStatsLoading(false);
-      }
-    };
+  // Show loading state while checking authentication
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
-    fetchTransactionStats();
-  }, [refreshKey]); // Refresh stats when transactions are updated
+  // Don't render if not authenticated (will redirect)
+  if (!isAuthenticated) {
+    return null;
+  }
+
 
   const handleLogout = () => {
     logout();
@@ -165,8 +108,14 @@ const TransactionHub = () => {
   };
 
   // Handle successful transaction creation
-  const handleTransactionCreated = (newTransaction) => {
+  const handleTransactionCreated = async (newTransaction) => {
     setShowCreateForm(false);
+    
+    // Invalidate stats cache for immediate updates
+    await statsCacheService.invalidateAfterTransactionCreation(
+      newTransaction.transaction_id || newTransaction.formatted_id
+    );
+    
     setRefreshKey(prev => prev + 1); // Trigger immediate TransactionList refresh
     handleSuccess(`Transaction #${formatTransactionId(newTransaction)} created successfully`);
   };
@@ -306,7 +255,11 @@ const TransactionHub = () => {
   const handlePaymentSuccess = async (paymentResult) => {
     setShowPaymentForm(false);
     
-    // Clear transaction cache to ensure fresh data
+    // Invalidate stats cache and transaction cache
+    await statsCacheService.invalidateAfterPayment(
+      paymentResult.transaction_id,
+      paymentResult.payment_amount
+    );
     transactionService.clearTransactionCache();
     
     // If transaction details dialog is open, refresh the transaction data
@@ -349,7 +302,11 @@ const TransactionHub = () => {
   const handleExtensionSuccess = async (extensionResult) => {
     setShowExtensionForm(false);
     
-    // Clear all caches immediately
+    // Invalidate stats cache and clear transaction/extension caches
+    await statsCacheService.invalidateAfterExtension(
+      extensionResult.transaction_id,
+      extensionResult.extension_months || 3 // Default to 3 months if not provided
+    );
     transactionService.clearTransactionCache();
     extensionService.clearExtensionCache();
     
@@ -391,47 +348,7 @@ const TransactionHub = () => {
     setRefreshKey(prev => prev + 1);
     handleSuccess('Extension processed successfully');
     
-    // Immediately recalculate and update transaction stats
-    const refreshStats = async () => {
-      try {
-        setStatsLoading(true);
-        const transactions = await transactionService.getAllTransactions();
-        const transactionList = transactions.transactions || [];
-        
-        const currentDate = new Date();
-        const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-        const startOfWeek = new Date(currentDate);
-        startOfWeek.setDate(currentDate.getDate() - currentDate.getDay());
-        const endOfWeek = new Date(startOfWeek);
-        endOfWeek.setDate(startOfWeek.getDate() + 6);
-        
-        const stats = {
-          total_active: transactionList.filter(t => t.status === 'active').length,
-          total_overdue: transactionList.filter(t => t.status === 'overdue').length,
-          new_this_month: transactionList.filter(t => 
-            new Date(t.pawn_date || t.created_at) >= startOfMonth
-          ).length,
-          maturity_this_week: transactionList.filter(t => {
-            if (!t.maturity_date) return false;
-            const maturityDate = new Date(t.maturity_date);
-            return maturityDate >= startOfWeek && maturityDate <= endOfWeek && 
-                   ['active', 'overdue', 'extended'].includes(t.status);
-          }).length,
-          cash_collected_today: transactionStats.cash_collected_today // Preserve cash data
-        };
-        
-        setTransactionStats(stats);
-      } catch (error) {
-        // Stats refresh failed - user will see updated stats on next page refresh
-      } finally {
-        setStatsLoading(false);
-      }
-    };
-    
-    // Execute stats refresh with a small delay to ensure backend consistency
-    setTimeout(async () => {
-      await refreshStats();
-    }, 200);
+    // Real-time stats automatically update via WebSocket - no manual refresh needed
   };
 
   // Handle payment form cancellation - refresh transaction data to prevent stale state
@@ -515,8 +432,17 @@ const TransactionHub = () => {
   };
 
   // Handle successful status update
-  const handleStatusUpdateSuccess = async () => {
+  const handleStatusUpdateSuccess = async (statusUpdateResult) => {
     setShowStatusUpdateForm(false);
+    
+    // Invalidate stats cache for status changes
+    if (statusUpdateResult && statusUpdateResult.transaction_id) {
+      await statsCacheService.invalidateAfterStatusChange(
+        statusUpdateResult.transaction_id,
+        statusUpdateResult.old_status || 'unknown',
+        statusUpdateResult.new_status || 'unknown'
+      );
+    }
     
     // If transaction details dialog is open, refresh the transaction data
     if (showTransactionDetails && selectedTransaction) {
@@ -691,98 +617,19 @@ const TransactionHub = () => {
           </div>
         </div>
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
-          {/* Active Transactions */}
-          <Card className="border-0 shadow-lg bg-gradient-to-br from-cyan-50 to-sky-50 dark:from-cyan-950/50 dark:to-sky-950/50 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-20 h-20 bg-cyan-500/10 rounded-full -mr-10 -mt-10"></div>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-cyan-600 dark:text-cyan-400">Active Loans</p>
-                  <p className="text-2xl font-bold text-cyan-900 dark:text-cyan-100">
-                    {statsLoading ? '-' : transactionStats.total_active}
-                  </p>
-                </div>
-                <div className="w-12 h-12 bg-cyan-500/20 rounded-xl flex items-center justify-center">
-                  <CreditCard className="w-6 h-6 text-cyan-600 dark:text-cyan-400" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* New This Month */}
-          <Card className="border-0 shadow-lg bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950/50 dark:to-emerald-950/50 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-20 h-20 bg-green-500/10 rounded-full -mr-10 -mt-10"></div>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-green-600 dark:text-green-400">New This Month</p>
-                  <p className="text-2xl font-bold text-green-900 dark:text-green-100">
-                    {statsLoading ? '-' : transactionStats.new_this_month}
-                  </p>
-                </div>
-                <div className="w-12 h-12 bg-green-500/20 rounded-xl flex items-center justify-center">
-                  <Plus className="w-6 h-6 text-green-600 dark:text-green-400" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Overdue Transactions */}
-          <Card className="border-0 shadow-lg bg-gradient-to-br from-pink-50 to-rose-50 dark:from-pink-950/50 dark:to-rose-950/50 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-20 h-20 bg-pink-500/10 rounded-full -mr-10 -mt-10"></div>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-pink-600 dark:text-pink-400">Overdue Loans</p>
-                  <p className="text-2xl font-bold text-pink-900 dark:text-pink-100">
-                    {statsLoading ? '-' : transactionStats.total_overdue}
-                  </p>
-                </div>
-                <div className="w-12 h-12 bg-pink-500/20 rounded-xl flex items-center justify-center">
-                  <AlertTriangle className="w-6 h-6 text-pink-600 dark:text-pink-400" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Maturity This Week */}
-          <Card className="border-0 shadow-lg bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/50 dark:to-orange-950/50 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-20 h-20 bg-amber-500/10 rounded-full -mr-10 -mt-10"></div>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-amber-600 dark:text-amber-400">Maturity This Week</p>
-                  <p className="text-2xl font-bold text-amber-900 dark:text-amber-100">
-                    {statsLoading ? '-' : transactionStats.maturity_this_week}
-                  </p>
-                </div>
-                <div className="w-12 h-12 bg-amber-500/20 rounded-xl flex items-center justify-center">
-                  <Calendar className="w-6 h-6 text-amber-600 dark:text-amber-400" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Cash Collected Today */}
-          <Card className="border-0 shadow-lg bg-gradient-to-br from-purple-50 to-violet-50 dark:from-purple-950/50 dark:to-violet-950/50 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-20 h-20 bg-purple-500/10 rounded-full -mr-10 -mt-10"></div>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-purple-600 dark:text-purple-400">Today's Collection</p>
-                  <p className="text-2xl font-bold text-purple-900 dark:text-purple-100">
-                    {statsLoading ? '-' : formatCurrency(transactionStats.cash_collected_today)}
-                  </p>
-                </div>
-                <div className="w-12 h-12 bg-purple-500/20 rounded-xl flex items-center justify-center">
-                  <CreditCard className="w-6 h-6 text-purple-600 dark:text-purple-400" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+        {/* Stats Panel - Only render when authenticated and user data loaded */}
+        {isAuthenticated && user && (
+          <div className="mb-8">
+            <StatsPanel 
+              refreshInterval={5000} // Fast 5-second refresh for responsive updates
+              onStatClick={(filterType, filterValue) => {
+                // Handle stat card clicks to filter transactions
+                // This would integrate with the TransactionList filtering
+                // TODO: Implement filtering based on clicked stat
+              }}
+            />
+          </div>
+        )}
 
         {/* Quick Actions & Transaction Content Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
@@ -905,15 +752,15 @@ const TransactionHub = () => {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between py-1">
                     <span className="text-xs text-slate-400 font-medium">New Loans</span>
-                    <span className="text-sm font-bold text-emerald-400">{transactionStats.new_this_month || 0}</span>
+                    <span className="text-sm font-bold text-emerald-400">-</span>
                   </div>
                   <div className="flex items-center justify-between py-1">
                     <span className="text-xs text-slate-400 font-medium">Collections</span>
-                    <span className="text-sm font-bold text-blue-400">${transactionStats.cash_collected_today || 0}</span>
+                    <span className="text-sm font-bold text-blue-400">-</span>
                   </div>
                   <div className="flex items-center justify-between py-1">
                     <span className="text-xs text-slate-400 font-medium">Due Soon</span>
-                    <span className="text-sm font-bold text-indigo-400">{transactionStats.maturity_this_week || 0}</span>
+                    <span className="text-sm font-bold text-indigo-400">-</span>
                   </div>
                 </div>
               </CardContent>
@@ -938,8 +785,8 @@ const TransactionHub = () => {
                   </div>
                   <div className="flex items-center space-x-3">
                     <div className="hidden sm:flex items-center space-x-2 bg-slate-800/50 rounded-lg px-3 py-2 border border-slate-700/50">
-                      <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                      <span className="text-xs text-slate-400">Live Updates</span>
+                      <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                      <span className="text-xs text-slate-400">Auto-refresh</span>
                     </div>
                   </div>
                 </div>
