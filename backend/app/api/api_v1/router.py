@@ -17,6 +17,7 @@ from app.api.api_v1.handlers.service_alert import service_alert_router
 from app.api.api_v1.handlers.notes import notes_router
 from app.api.api_v1.handlers.database_health import router as database_health_router
 from app.api.api_v1.handlers.stats import router as stats_router
+from app.api.api_v1.handlers.reversal import reversal_router
 
 # Main API v1 router
 router = APIRouter()
@@ -95,5 +96,12 @@ router.include_router(
     stats_router,
     tags=["Transaction Statistics"],
     responses={403: {"description": "Staff or Admin access required"}}
+)
+
+router.include_router(
+    reversal_router,
+    prefix="/reversal",
+    tags=["Payment & Extension Reversals"],
+    responses={403: {"description": "Admin access required"}}
 )
 

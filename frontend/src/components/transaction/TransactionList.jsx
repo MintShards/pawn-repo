@@ -435,9 +435,9 @@ const TransactionList = ({
             });
           }
           
-          // Item search - would need item formatting function
+          // Item search - Future enhancement for item ID lookup
           else if (activeSearchTerm && /^#?(IT)\d+$/i.test(activeSearchTerm)) {
-            // TODO: Implement item search when item IDs are added to the system
+            // Reserved for future item search implementation
           }
           
           // Phone number search - handled by backend
@@ -1143,11 +1143,25 @@ const TransactionList = ({
                         <TableCell>
                           <div className="flex items-center space-x-2">
                             <StatusBadge status={transaction.status} />
-                            {transaction.extensions && transaction.extensions.length > 0 && (
-                              <Badge variant="outline" className="text-xs bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-700">
-                                +{transaction.extensions.length} ext
-                              </Badge>
-                            )}
+                            {transaction.extensions && transaction.extensions.length > 0 && (() => {
+                              const activeExtensions = transaction.extensions.filter(ext => !ext.is_cancelled);
+                              const cancelledExtensions = transaction.extensions.filter(ext => ext.is_cancelled);
+                              
+                              if (activeExtensions.length > 0) {
+                                return (
+                                  <Badge variant="outline" className="text-xs bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-700">
+                                    +{activeExtensions.length} ext
+                                  </Badge>
+                                );
+                              } else if (cancelledExtensions.length > 0) {
+                                return (
+                                  <Badge variant="outline" className="text-xs bg-red-50 dark:bg-red-950/50 text-red-700 dark:text-red-300 border-red-200 dark:border-red-700">
+                                    {cancelledExtensions.length} canc
+                                  </Badge>
+                                );
+                              }
+                              return null;
+                            })()}
                           </div>
                         </TableCell>
                         <TableCell onClick={(e) => e.stopPropagation()}>

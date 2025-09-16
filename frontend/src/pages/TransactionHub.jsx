@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { 
@@ -44,6 +44,8 @@ import extensionService from '../services/extensionService';
 import customerService from '../services/customerService';
 import authService from '../services/authService';
 import statsCacheService from '../services/statsCacheService';
+import paymentService from '../services/paymentService';
+import reversalService from '../services/reversalService';
 
 const TransactionHub = () => {
   const { user, logout, loading, fetchUserDataIfNeeded, isAuthenticated } = useAuth();
@@ -56,6 +58,9 @@ const TransactionHub = () => {
   const [showExtensionForm, setShowExtensionForm] = useState(false);
   const [showTransactionDetails, setShowTransactionDetails] = useState(false);
   const [showStatusUpdateForm, setShowStatusUpdateForm] = useState(false);
+  const [paymentHistory, setPaymentHistory] = useState(null);
+  const [showAllPayments, setShowAllPayments] = useState(false);
+  const [processingCancel, setProcessingCancel] = useState(null);
   const [loadingTransactionDetails, setLoadingTransactionDetails] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0); // Add refresh key for TransactionList
   const [showCustomerDetails, setShowCustomerDetails] = useState(false);
@@ -65,6 +70,42 @@ const TransactionHub = () => {
   const [showQuickPayment, setShowQuickPayment] = useState(false);
   const [showQuickExtension, setShowQuickExtension] = useState(false);
   
+  // Memoized timeline calculation for performance
+  const timelineData = useMemo(() => {
+    // Get all payments and extensions
+    const payments = paymentHistory?.payments || [];
+    const extensions = selectedTransaction?.extensions || selectedTransaction?.transaction?.extensions || [];
+    
+    // Create unified timeline events
+    const timelineEvents = [];
+    
+    // Add payment events (optimized)
+    for (let i = 0; i < payments.length; i++) {
+      const payment = payments[i];
+      timelineEvents.push({
+        type: 'payment',
+        date: new Date(payment.payment_date || payment.created_at),
+        data: payment,
+        paymentIndex: payments.length - i,
+        key: `payment-${payment.payment_id || i}`
+      });
+    }
+    
+    // Add extension events (optimized)
+    for (let i = 0; i < extensions.length; i++) {
+      const extension = extensions[i];
+      timelineEvents.push({
+        type: 'extension',
+        date: new Date(extension.extension_date || extension.created_at),
+        data: extension,
+        extensionIndex: extensions.length - i,
+        key: `extension-${extension.extension_id || i}`
+      });
+    }
+    
+    // Sort all events by date (most recent first)
+    return timelineEvents.sort((a, b) => b.date - a.date);
+  }, [paymentHistory?.payments, selectedTransaction?.extensions]);
 
   // Authentication check - redirect to login if not authenticated
   useEffect(() => {
@@ -159,20 +200,26 @@ const TransactionHub = () => {
         }
         
         // Add extensions to the transaction data
-        setSelectedTransaction({
-          ...fullTransaction,
-          extensions: extensionArray,
-          hasExtensions: extensionArray.length > 0
-        });
+        fullTransaction.extensions = extensionArray;
+        fullTransaction.hasExtensions = extensionArray.length > 0;
       } catch (extensionError) {
         // Failed to load extensions - continue without them
-        // Continue with transaction data even if extensions fail
-        setSelectedTransaction({
-          ...fullTransaction,
-          extensions: [],
-          hasExtensions: false
-        });
+        console.warn('Could not fetch extensions:', extensionError);
+        fullTransaction.extensions = [];
+        fullTransaction.hasExtensions = false;
       }
+      
+      // Fetch payment history
+      try {
+        const paymentHistoryData = await paymentService.getPaymentHistory(transaction.transaction_id);
+        setPaymentHistory(paymentHistoryData);
+      } catch (paymentError) {
+        console.warn('Could not fetch payment history:', paymentError);
+        setPaymentHistory(null);
+      }
+      
+      // Set the final transaction data
+      setSelectedTransaction(fullTransaction);
     } catch (error) {
       // Failed to load transaction details - try fallback
       // If summary fails, try to get basic transaction data
@@ -430,6 +477,143 @@ const TransactionHub = () => {
     setSelectedTransaction(transaction);
     setShowStatusUpdateForm(true);
   };
+  
+  // Handle payment reversal/cancellation
+  const handlePaymentReversal = async (paymentId) => {
+    if (!user?.role || user.role !== 'admin') {
+      handleError(new Error('Only administrators can cancel payments'), 'Permission denied');
+      return;
+    }
+    
+    setProcessingCancel(`payment-${paymentId}`);
+    
+    try {
+      // Check eligibility first
+      const eligibility = await reversalService.checkPaymentReversalEligibility(paymentId);
+      
+      if (!eligibility.is_eligible) {
+        handleError(new Error(eligibility.reason || 'Payment cannot be reversed'), 'Reversal not allowed');
+        return;
+      }
+      
+      // Prompt for admin PIN and reason
+      const reason = prompt('Please provide a reason for this reversal:');
+      if (!reason) {
+        return; // User cancelled
+      }
+      
+      const adminPin = prompt('Enter your admin PIN to authorize this reversal:');
+      if (!adminPin) {
+        return; // User cancelled
+      }
+      
+      // Process the reversal
+      const reversalData = {
+        reversal_reason: reason,
+        admin_pin: adminPin
+      };
+      
+      await reversalService.reversePayment(paymentId, reversalData);
+      
+      // Refresh transaction data and payment history
+      if (selectedTransaction?.transaction_id) {
+        // Refresh payment history immediately
+        try {
+          const updatedPaymentHistory = await paymentService.getPaymentHistory(selectedTransaction.transaction_id);
+          setPaymentHistory(updatedPaymentHistory);
+        } catch (error) {
+          console.error('Failed to refresh payment history:', error);
+        }
+        
+        // Then refresh full transaction
+        await handleViewTransaction(selectedTransaction);
+      }
+      
+      handleSuccess('Payment reversed successfully');
+    } catch (error) {
+      handleError(error, 'Payment reversal failed');
+    } finally {
+      setProcessingCancel(null);
+    }
+  };
+  
+  // Handle extension cancellation
+  const handleExtensionCancelAction = async (extensionId) => {
+    if (!user?.role || user.role !== 'admin') {
+      handleError(new Error('Only administrators can cancel extensions'), 'Permission denied');
+      return;
+    }
+    
+    setProcessingCancel(`extension-${extensionId}`);
+    
+    try {
+      // Check eligibility first
+      const eligibility = await reversalService.checkExtensionCancellationEligibility(extensionId);
+      
+      if (!eligibility.is_eligible) {
+        handleError(new Error(eligibility.reason || 'Extension cannot be cancelled'), 'Cancellation not allowed');
+        return;
+      }
+      
+      // Prompt for admin PIN and reason
+      const reason = prompt('Please provide a reason for this cancellation:');
+      if (!reason) {
+        return; // User cancelled
+      }
+      
+      const adminPin = prompt('Enter your admin PIN to authorize this cancellation:');
+      if (!adminPin) {
+        return; // User cancelled
+      }
+      
+      // Process the cancellation
+      const cancellationData = {
+        cancellation_reason: reason,
+        admin_pin: adminPin
+      };
+      
+      await reversalService.cancelExtension(extensionId, cancellationData);
+      
+      // Force complete refresh with cache busting
+      if (selectedTransaction) {
+        // Clear any caches first
+        if (window.extensionService && window.extensionService.clearExtensionCache) {
+          window.extensionService.clearExtensionCache();
+        }
+        
+        // Get the transaction ID
+        const transactionId = selectedTransaction.transaction_id || selectedTransaction.transaction?.transaction_id;
+        
+        // Fetch fresh transaction data with aggressive cache busting
+        try {
+          const bustCacheUrl = `/api/v1/pawn-transaction/${transactionId}/summary?_t=${Date.now()}&refresh=true`;
+          const updatedTransaction = await authService.apiRequest(bustCacheUrl, { method: 'GET' });
+          
+          // Fetch fresh extensions with cache busting
+          const freshExtensions = await extensionService.getExtensionHistory(transactionId, true);
+          let extensionArray = [];
+          if (Array.isArray(freshExtensions)) {
+            extensionArray = freshExtensions;
+          } else if (freshExtensions && freshExtensions.extensions) {
+            extensionArray = freshExtensions.extensions;
+          }
+          
+          updatedTransaction.extensions = extensionArray;
+          setSelectedTransaction(updatedTransaction);
+        } catch (error) {
+          console.error('Error refreshing transaction after cancellation:', error);
+          // Fallback to regular refresh
+          await handleViewTransaction(selectedTransaction);
+        }
+      }
+      
+      handleSuccess('Extension cancelled successfully');
+    } catch (error) {
+      handleError(error, 'Extension cancellation failed');
+    } finally {
+      setProcessingCancel(null);
+    }
+  };
 
   // Handle successful status update
   const handleStatusUpdateSuccess = async (statusUpdateResult) => {
@@ -623,9 +807,8 @@ const TransactionHub = () => {
             <StatsPanel 
               refreshInterval={5000} // Fast 5-second refresh for responsive updates
               onStatClick={(filterType, filterValue) => {
-                // Handle stat card clicks to filter transactions
-                // This would integrate with the TransactionList filtering
-                // TODO: Implement filtering based on clicked stat
+                // Future enhancement: Filter transactions based on stat card clicks
+                console.log('Stat clicked:', filterType, filterValue);
               }}
             />
           </div>
@@ -861,6 +1044,8 @@ const TransactionHub = () => {
         if (!open) {
           setSelectedTransactionCustomer(null); // Reset customer data when closing
           setShowAllExtensions(false); // Reset extension view
+          setPaymentHistory(null); // Reset payment history
+          setShowAllPayments(false); // Reset payment view
         }
       }}>
         <DialogContent className="max-w-7xl max-h-[95vh] p-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
@@ -1236,11 +1421,29 @@ const TransactionHub = () => {
                         <div className="flex-1 min-h-0 overflow-hidden">
                           <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-3 flex items-center justify-between">
                             <span>Timeline</span>
-                            {(selectedTransaction?.extensions || selectedTransaction?.transaction?.extensions)?.length > 0 && (
-                              <span className="text-xs text-slate-500 dark:text-slate-400">
-                                {(selectedTransaction?.extensions || selectedTransaction?.transaction?.extensions)?.length} extensions
-                              </span>
-                            )}
+                            {(() => {
+                              const extensions = selectedTransaction?.extensions || selectedTransaction?.transaction?.extensions || [];
+                              if (extensions.length === 0) return null;
+                              
+                              const activeExtensions = extensions.filter(ext => !ext.is_cancelled);
+                              const cancelledExtensions = extensions.filter(ext => ext.is_cancelled);
+                              
+                              return (
+                                <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center space-x-2">
+                                  {activeExtensions.length > 0 && (
+                                    <span>{activeExtensions.length} active</span>
+                                  )}
+                                  {cancelledExtensions.length > 0 && (
+                                    <span className="text-red-500">
+                                      {cancelledExtensions.length} cancelled
+                                    </span>
+                                  )}
+                                  {activeExtensions.length === 0 && cancelledExtensions.length > 0 && (
+                                    <span className="text-red-500">All extensions cancelled</span>
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </div>
                           <ScrollArea className="h-[calc(100%-2rem)]">
                             <div className="space-y-3 pr-4 pb-4">
@@ -1290,60 +1493,158 @@ const TransactionHub = () => {
                                 </div>
                               )}
                               
-                              {/* Extensions Timeline - Most Recent First */}
+                              {/* Unified Timeline - Most Recent First (Payments + Extensions) - Optimized */}
                               {(() => {
-                                const extensions = selectedTransaction?.extensions || selectedTransaction?.transaction?.extensions || [];
-                                const sortedExtensions = [...extensions].sort((a, b) => 
-                                  new Date(b.extension_date || b.created_at) - new Date(a.extension_date || a.created_at)
-                                );
-                                const displayLimit = 5;
-                                const hasMany = sortedExtensions.length > displayLimit;
-                                const displayExtensions = showAllExtensions ? sortedExtensions : sortedExtensions.slice(0, displayLimit);
+                                const displayLimit = 10;
+                                const hasMany = timelineData.length > displayLimit;
+                                const displayEvents = showAllPayments ? timelineData : timelineData.slice(0, displayLimit);
                                 
                                 return (
                                   <>
-                                    {displayExtensions.map((extension, index) => (
-                                      <div key={index} className="flex space-x-3">
-                                        <div className="w-2 h-2 bg-amber-500 rounded-full mt-2 flex-shrink-0"></div>
-                                        <div>
-                                          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                                            {extension.formatted_id ? `${extension.formatted_id} - ` : ''}Extension #{extensions.length - index} ({extension.extension_months}mo)
+                                    {displayEvents.map((event) => (
+                                      <React.Fragment key={event.key}>
+                                        {event.type === 'payment' ? (
+                                          // Payment Timeline Entry
+                                          <div className="flex space-x-3">
+                                            <div className={`w-2 h-2 ${event.data.is_voided ? 'bg-red-500' : 'bg-green-500'} rounded-full mt-2 flex-shrink-0`}></div>
+                                            <div className="flex-1">
+                                              <div className="flex items-center justify-between">
+                                                <div className={`text-sm font-medium ${event.data.is_voided ? 'text-red-700 dark:text-red-300 line-through' : 'text-slate-900 dark:text-slate-100'}`}>
+                                                  Payment #{event.paymentIndex} 
+                                                  {event.data.type === 'full' && ' (Full Redemption)'}
+                                                  {event.data.type === 'partial' && ' (Partial)'}
+                                                  {event.data.is_voided && (
+                                                    <span className="ml-2 px-2 py-0.5 text-xs bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded-full border border-red-200 dark:border-red-800">
+                                                      REVERSED
+                                                    </span>
+                                                  )}
+                                                </div>
+                                                {user?.role === 'admin' && !event.data.is_voided && (() => {
+                                                  // Check if payment is within 24-hour reversal window
+                                                  const paymentDate = new Date(event.data.payment_date || event.data.created_at);
+                                                  const now = new Date();
+                                                  const hoursSincePayment = (now - paymentDate) / (1000 * 60 * 60);
+                                                  const canReverse = hoursSincePayment <= 24;
+                                                  
+                                                  if (!canReverse) return null;
+                                                  
+                                                  return (
+                                                    <button
+                                                      onClick={() => handlePaymentReversal(event.data.payment_id)}
+                                                      disabled={processingCancel === `payment-${event.data.payment_id}`}
+                                                      className="ml-2 px-2 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-700 rounded transition-colors disabled:opacity-50"
+                                                      title="Cancel payment (admin only, same-day)"
+                                                    >
+                                                      {processingCancel === `payment-${event.data.payment_id}` ? '...' : 'Cancel'}
+                                                    </button>
+                                                  );
+                                                })()}
+                                              </div>
+                                              <div className="flex items-center justify-between mt-1">
+                                                <div className={`text-xs ${event.data.is_voided ? 'text-red-600 dark:text-red-400' : 'text-slate-600 dark:text-slate-400'}`}>
+                                                  {formatBusinessDate(event.data.payment_date || event.data.created_at)}
+                                                </div>
+                                                <div className={`text-xs ${event.data.is_voided ? 'text-red-600 dark:text-red-400 line-through' : 'text-green-600 dark:text-green-400'} font-medium`}>
+                                                  {formatCurrency(event.data.payment_amount || event.data.amount)}
+                                                </div>
+                                              </div>
+                                              {event.data.is_voided && event.data.void_reason && (
+                                                <div className="text-xs text-red-600 dark:text-red-400 italic mt-1">
+                                                  {event.data.void_reason.replace('REVERSAL: ', '')}
+                                                </div>
+                                              )}
+                                            </div>
                                           </div>
-                                          <div className="text-xs text-slate-600 dark:text-slate-400">
-                                            {(() => {
-                                              const extRawDate = extension.extension_date || extension.created_at;
-                                              // Use the centralized business timezone utility for consistency
-                                              return formatBusinessDate(extRawDate);
-                                            })()}
+                                        ) : (
+                                          // Extension Timeline Entry
+                                          <div className="flex space-x-3">
+                                            <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${
+                                              event.data.is_cancelled ? 'bg-red-500' : 'bg-amber-500'
+                                            }`}></div>
+                                            <div className="flex-1">
+                                              <div className="flex items-center justify-between">
+                                                <div className={`text-sm font-medium ${
+                                                  event.data.is_cancelled 
+                                                    ? 'text-red-600 dark:text-red-400 line-through' 
+                                                    : 'text-slate-900 dark:text-slate-100'
+                                                }`}>
+                                                  {event.data.formatted_id ? `${event.data.formatted_id} - ` : ''}Extension #{event.extensionIndex} ({event.data.extension_months}mo)
+                                                  {event.data.is_cancelled && (
+                                                    <span className="ml-2 px-2 py-0.5 text-xs bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded-full border border-red-200 dark:border-red-800">
+                                                      CANCELLED
+                                                    </span>
+                                                  )}
+                                                </div>
+                                                {user?.role === 'admin' && !event.data.is_cancelled && (() => {
+                                                  // Check if extension is within 24-hour cancellation window
+                                                  const extensionDate = new Date(event.data.extension_date || event.data.created_at);
+                                                  const now = new Date();
+                                                  const hoursSinceExtension = (now - extensionDate) / (1000 * 60 * 60);
+                                                  const canCancel = hoursSinceExtension <= 24;
+                                                  
+                                                  if (!canCancel) return null;
+                                                  
+                                                  return (
+                                                    <button
+                                                      onClick={() => handleExtensionCancelAction(event.data.extension_id)}
+                                                      disabled={processingCancel === `extension-${event.data.extension_id}`}
+                                                      className="ml-2 px-2 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-700 rounded transition-colors disabled:opacity-50"
+                                                      title="Cancel extension (admin only, same-day)"
+                                                    >
+                                                      {processingCancel === `extension-${event.data.extension_id}` ? '...' : 'Cancel'}
+                                                    </button>
+                                                  );
+                                                })()}
+                                              </div>
+                                              <div className="flex items-center justify-between mt-1">
+                                                <div className="text-xs text-slate-600 dark:text-slate-400">
+                                                  {formatBusinessDate(event.data.extension_date || event.data.created_at)}
+                                                </div>
+                                                <div className={`text-xs font-medium ${
+                                                  event.data.is_cancelled 
+                                                    ? 'text-red-500 dark:text-red-400 line-through' 
+                                                    : 'text-amber-600 dark:text-amber-400'
+                                                }`}>
+                                                  Fee: {formatCurrency(
+                                                    event.data.total_extension_fee || 
+                                                    event.data.extension_fee || 
+                                                    event.data.fee || 
+                                                    (event.data.extension_months * (event.data.extension_fee_per_month || 0))
+                                                  )}
+                                                  {event.data.is_cancelled && (
+                                                    <span className="ml-2 text-red-600 dark:text-red-400 font-normal">
+                                                      (Refunded)
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              </div>
+                                              {event.data.is_cancelled && event.data.cancellation_reason && (
+                                                <div className="text-xs text-red-600 dark:text-red-400 mt-1 italic">
+                                                  Reason: {event.data.cancellation_reason}
+                                                </div>
+                                              )}
+                                            </div>
                                           </div>
-                                          <div className="text-xs text-amber-600 dark:text-amber-400 font-medium">
-                                            Fee: {formatCurrency(
-                                              extension.total_extension_fee || 
-                                              extension.extension_fee || 
-                                              extension.fee || 
-                                              (extension.extension_months * (extension.extension_fee_per_month || 0))
-                                            )}
-                                          </div>
-                                        </div>
-                                      </div>
+                                        )}
+                                      </React.Fragment>
                                     ))}
                                     
-                                    {hasMany && !showAllExtensions && (
+                                    {hasMany && !showAllPayments && (
                                       <Button 
                                         variant="ghost" 
                                         size="sm" 
-                                        onClick={() => setShowAllExtensions(true)}
+                                        onClick={() => setShowAllPayments(true)}
                                         className="w-full text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-xs"
                                       >
-                                        Show {extensions.length - displayLimit} more extensions
+                                        Show {timelineData.length - displayLimit} more timeline events
                                       </Button>
                                     )}
                                     
-                                    {hasMany && showAllExtensions && (
+                                    {hasMany && showAllPayments && (
                                       <Button 
                                         variant="ghost" 
                                         size="sm" 
-                                        onClick={() => setShowAllExtensions(false)}
+                                        onClick={() => setShowAllPayments(false)}
                                         className="w-full text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-xs"
                                       >
                                         Show less

@@ -419,9 +419,13 @@ class PawnTransactionService:
         # Calculate total due with interest accrual
         total_due = transaction.calculate_total_due(as_of_date)
         
-        # Calculate total payments made (defensive programming)
+        # Calculate total payments made (defensive programming) - exclude voided payments
         try:
-            total_paid = sum(payment.payment_amount for payment in payments) if payments else 0
+            total_paid = sum(
+                payment.payment_amount 
+                for payment in payments 
+                if not getattr(payment, 'is_voided', False)
+            ) if payments else 0
         except (AttributeError, TypeError) as e:
             logger.warning(
                 "Error calculating total payments for transaction",

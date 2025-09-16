@@ -56,6 +56,12 @@ class ExtensionResponse(ExtensionBase):
     total_extension_fee: int = Field(..., description="Total extension fee charged")
     fee_paid: bool = Field(..., description="Whether extension fee has been paid")
     
+    # Cancellation functionality
+    is_cancelled: bool = Field(default=False, description="Whether this extension has been cancelled")
+    cancelled_date: Optional[datetime] = Field(None, description="Date/time when extension was cancelled")
+    cancelled_by_user_id: Optional[str] = Field(None, description="User ID who cancelled the extension")
+    cancellation_reason: Optional[str] = Field(None, description="Reason for cancellation")
+    
     # Metadata
     created_at: datetime = Field(..., description="Extension creation timestamp")
     updated_at: datetime = Field(..., description="Extension last update timestamp")

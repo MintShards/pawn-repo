@@ -144,7 +144,12 @@ class InterestCalculationService:
             Payment.transaction_id == transaction_id
         ).sort(Payment.payment_date).to_list()
         
-        total_payments = sum(payment.payment_amount for payment in payments)
+        # Only count non-voided payments
+        total_payments = sum(
+            payment.payment_amount 
+            for payment in payments 
+            if not getattr(payment, 'is_voided', False)
+        )
         
         # Get all extensions
         extensions = await Extension.find(
@@ -229,9 +234,12 @@ class InterestCalculationService:
         # Cap at 3 months for interest calculation
         months_for_calculation = max(1, min(months_elapsed, 3))
         
-        # Group payments by month from pawn date
+        # Group payments by month from pawn date (exclude voided payments)
         payments_by_month = {}
         for payment in payments:
+            # Skip voided payments
+            if getattr(payment, 'is_voided', False):
+                continue
             payment_months = ((payment.payment_date.year - transaction.pawn_date.year) * 12 + 
                              (payment.payment_date.month - transaction.pawn_date.month))
             if payment.payment_date.day > transaction.pawn_date.day:
@@ -641,9 +649,14 @@ class InterestCalculationService:
         # Calculate total due EXCLUDING extension fees (only principal + interest)
         total_due = loan_amount + total_interest_due
         
-        # Calculate total payments (defensive programming)
+        # Calculate total payments (defensive programming) - exclude voided payments
         try:
-            total_paid = sum(payment.payment_amount for payment in payments) if payments else 0
+            # Only count non-voided payments
+            total_paid = sum(
+                payment.payment_amount 
+                for payment in payments 
+                if not getattr(payment, 'is_voided', False)
+            ) if payments else 0
         except (AttributeError, TypeError) as e:
             logger.warning(
                 "Error calculating total payments for transaction",

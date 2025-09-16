@@ -286,10 +286,9 @@ class PaymentService:
         if not transaction:
             raise TransactionNotFoundError(f"Transaction {transaction_id} not found")
         
-        # Get all non-voided payments
+        # Get all payments (including voided ones for timeline display)
         payments = await Payment.find(
-            Payment.transaction_id == transaction_id,
-            Payment.is_voided != True  # Exclude voided payments
+            Payment.transaction_id == transaction_id
         ).sort(-Payment.payment_date).to_list()
         
         # Convert to response format with timezone-aware dates
@@ -307,27 +306,56 @@ class PaymentService:
                     payment.created_at, client_timezone
                 ).isoformat()
             
+            # Convert voided_date to user timezone if present
+            if client_timezone and payment_dict.get('voided_date'):
+                payment_dict['voided_date'] = utc_to_user_timezone(
+                    payment.voided_date, client_timezone
+                ).isoformat()
+            
             # Ensure payment_type is included
             if 'payment_type' not in payment_dict:
                 payment_dict['payment_type'] = payment.payment_type
+            
+            # Ensure void fields have default values if missing (for backward compatibility)
+            if 'is_voided' not in payment_dict:
+                payment_dict['is_voided'] = getattr(payment, 'is_voided', False)
+            if 'voided_date' not in payment_dict:
+                payment_dict['voided_date'] = getattr(payment, 'voided_date', None)
+            if 'voided_by_user_id' not in payment_dict:
+                payment_dict['voided_by_user_id'] = getattr(payment, 'voided_by_user_id', None)
+            if 'void_reason' not in payment_dict:
+                payment_dict['void_reason'] = getattr(payment, 'void_reason', None)
+            
             payment_responses.append(PaymentResponse.model_validate(payment_dict))
         
-        # Calculate totals
-        total_paid = sum(payment.payment_amount for payment in payments)
+        # Calculate totals - exclude voided payments
+        total_paid = sum(
+            payment.payment_amount 
+            for payment in payments 
+            if not getattr(payment, 'is_voided', False)
+        )
+        
+        # Count only non-voided payments for summary
+        active_payment_count = len([
+            payment for payment in payments 
+            if not getattr(payment, 'is_voided', False)
+        ])
         
         # Get current balance
         balance_info = await PaymentService._get_balance_info(transaction_id)
         
-        # Create payment summary
-        
-        # Calculate last payment date
-        last_payment_date = payments[0].payment_date if payments else None
+        # Calculate last payment date (only from non-voided payments)
+        last_payment_date = None
+        for payment in payments:
+            if not getattr(payment, 'is_voided', False):
+                last_payment_date = payment.payment_date
+                break
         
         # Create payment summary
         payment_summary = PaymentSummaryResponse(
             transaction_id=transaction_id,
             total_payments=total_paid,
-            payment_count=len(payments),
+            payment_count=active_payment_count,
             last_payment_date=last_payment_date,
             total_principal_paid=balance_info.get("principal_paid", 0),
             total_interest_paid=balance_info.get("interest_paid", 0),
@@ -464,7 +492,12 @@ class PaymentService:
             Total payment amount in whole dollars
         """
         payments = await PaymentService.get_transaction_payments(transaction_id)
-        return sum(payment.payment_amount for payment in payments)
+        # Only count non-voided payments
+        return sum(
+            payment.payment_amount 
+            for payment in payments 
+            if not getattr(payment, 'is_voided', False)
+        )
     
     @staticmethod
     async def get_payment_by_id(payment_id: str) -> Optional[Payment]:
@@ -558,7 +591,12 @@ class PaymentService:
                 "created_at": payment.created_at.isoformat()
             })
         
-        total_payments = sum(p.payment_amount for p in payments)
+        # Only count non-voided payments
+        total_payments = sum(
+            p.payment_amount 
+            for p in payments 
+            if not getattr(p, 'is_voided', False)
+        )
         
         return {
             "transaction_id": transaction_id,
@@ -703,13 +741,16 @@ class PaymentService:
                 "payments": []
             }
         
+        # Filter out voided payments
+        valid_payments = [p for p in payments if not getattr(p, 'is_voided', False)]
+        
         # Calculate totals
-        total_cash = sum(p.payment_amount for p in payments)
-        payment_count = len(payments)
+        total_cash = sum(p.payment_amount for p in valid_payments)
+        payment_count = len(valid_payments)
         
         # Staff breakdown
         staff_breakdown = {}
-        for payment in payments:
+        for payment in valid_payments:
             staff_id = payment.processed_by_user_id
             if staff_id not in staff_breakdown:
                 staff_breakdown[staff_id] = {

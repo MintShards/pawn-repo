@@ -185,14 +185,14 @@ class MetricCalculationService:
             yesterday_end_utc = yesterday_start_utc + timedelta(days=1)
             
             # Simple count: transactions that existed yesterday and weren't forfeited or redeemed by then
-            count = await PawnTransaction.count({
+            count = await PawnTransaction.find({
                 "pawn_date": {"$lt": yesterday_end_utc},  # Created before end of yesterday
                 "$or": [
                     {"maturity_date": {"$gt": yesterday_start_utc}},  # Not yet matured yesterday
                     {"status": "active"}  # Or still active (covers edge cases)
                 ],
                 "status": {"$in": ["active", "overdue", "extended"]}  # Only active-type statuses
-            })
+            }).count()
             
             return float(count)
         except Exception as e:
