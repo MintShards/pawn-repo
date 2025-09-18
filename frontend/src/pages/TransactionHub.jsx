@@ -35,7 +35,7 @@ import StatusUpdateForm from '../components/transaction/components/StatusUpdateF
 import TransactionNotesDisplay from '../components/transaction/TransactionNotesDisplay';
 import { formatTransactionId, formatStorageLocation, formatCurrency } from '../utils/transactionUtils';
 import { getRoleTitle, getUserDisplayString } from '../utils/roleUtils';
-import { formatRedemptionDate, formatBusinessDate } from '../utils/timezoneUtils';
+import { formatRedemptionDate, formatBusinessDate, canReversePayment, canCancelExtension } from '../utils/timezoneUtils';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '../components/ui/resizable';
 import { ScrollArea } from '../components/ui/scroll-area';
 import StatsPanel from '../components/ui/realtime-stats-panel';
@@ -46,6 +46,7 @@ import authService from '../services/authService';
 import statsCacheService from '../services/statsCacheService';
 import paymentService from '../services/paymentService';
 import reversalService from '../services/reversalService';
+import AdminApprovalDialog from '../components/common/AdminApprovalDialog';
 
 const TransactionHub = () => {
   const { user, logout, loading, fetchUserDataIfNeeded, isAuthenticated } = useAuth();
@@ -70,7 +71,14 @@ const TransactionHub = () => {
   const [showQuickPayment, setShowQuickPayment] = useState(false);
   const [showQuickExtension, setShowQuickExtension] = useState(false);
   
-  // Memoized timeline calculation for performance
+  // Admin approval dialog states
+  const [showPaymentReversalDialog, setShowPaymentReversalDialog] = useState(false);
+  const [showExtensionCancelDialog, setShowExtensionCancelDialog] = useState(false);
+  const [pendingReversalPaymentId, setPendingReversalPaymentId] = useState(null);
+  const [pendingCancelExtensionId, setPendingCancelExtensionId] = useState(null);
+  const [reversalEligibility, setReversalEligibility] = useState(null);
+  
+  // Memoized timeline calculation for performance with forced refresh key
   const timelineData = useMemo(() => {
     // Get all payments and extensions
     const payments = paymentHistory?.payments || [];
@@ -87,7 +95,7 @@ const TransactionHub = () => {
         date: new Date(payment.payment_date || payment.created_at),
         data: payment,
         paymentIndex: payments.length - i,
-        key: `payment-${payment.payment_id || i}`
+        key: `payment-${payment.payment_id || i}-${payment.is_voided ? 'voided' : 'active'}`
       });
     }
     
@@ -99,13 +107,31 @@ const TransactionHub = () => {
         date: new Date(extension.extension_date || extension.created_at),
         data: extension,
         extensionIndex: extensions.length - i,
-        key: `extension-${extension.extension_id || i}`
+        key: `extension-${extension.extension_id || i}-${extension.is_cancelled ? 'cancelled' : 'active'}`
       });
     }
     
     // Sort all events by date (most recent first)
-    return timelineEvents.sort((a, b) => b.date - a.date);
-  }, [paymentHistory?.payments, selectedTransaction?.extensions]);
+    const sortedEvents = timelineEvents.sort((a, b) => b.date - a.date);
+    
+    // Debug log for timeline updates (remove in production)
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Timeline updated:', {
+        paymentCount: payments.length,
+        extensionCount: extensions.length,
+        totalEvents: sortedEvents.length,
+        lastUpdate: new Date().toISOString()
+      });
+    }
+    
+    return sortedEvents;
+  }, [
+    paymentHistory?.payments, 
+    selectedTransaction?.extensions,
+    // Force recalculation when payments are voided or extensions cancelled
+    paymentHistory?.payments?.map(p => `${p.payment_id}-${p.is_voided}`).join(','),
+    selectedTransaction?.extensions?.map(e => `${e.extension_id}-${e.is_cancelled}`).join(',')
+  ]);
 
   // Authentication check - redirect to login if not authenticated
   useEffect(() => {
@@ -159,6 +185,88 @@ const TransactionHub = () => {
     
     setRefreshKey(prev => prev + 1); // Trigger immediate TransactionList refresh
     handleSuccess(`Transaction #${formatTransactionId(newTransaction)} created successfully`);
+  };
+
+  // Optimized timeline refresh function for real-time updates
+  const refreshTimelineData = async (transactionId, skipTransaction = false) => {
+    try {
+      // Clear any browser caches for immediate data fetch
+      if (window.caches) {
+        window.caches.keys().then(names => {
+          names.forEach(name => {
+            if (name.includes('api') || name.includes('transaction')) {
+              window.caches.delete(name);
+            }
+          });
+        }).catch(() => {}); // Ignore cache clearing errors
+      }
+
+      // Smart parallel fetch - skip transaction data if we just optimistically updated it
+      const timestamp = Date.now();
+      const fetchPromises = [
+        paymentService.getPaymentHistory(transactionId).catch(error => {
+          console.warn('Failed to refresh payment history:', error);
+          return paymentHistory; // Keep existing data if fetch fails
+        }),
+        extensionService.getExtensionHistory(transactionId, true).catch(error => {
+          console.warn('Failed to refresh extensions:', error);
+          return selectedTransaction?.extensions || []; // Keep existing data if fetch fails
+        })
+      ];
+
+      // Only fetch transaction data if not skipped (for performance)
+      if (!skipTransaction) {
+        fetchPromises.push(
+          authService.apiRequest(`/api/v1/pawn-transaction/${transactionId}/summary?_t=${timestamp}&refresh=true`, { 
+            method: 'GET',
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              'Pragma': 'no-cache',
+              'Expires': '0'
+            }
+          }).catch(error => {
+            console.warn('Failed to refresh transaction:', error);
+            return selectedTransaction; // Keep existing data if fetch fails
+          })
+        );
+      }
+
+      const results = await Promise.all(fetchPromises);
+      const [paymentHistoryData, extensionsData, transactionData] = results;
+
+      // Update payment history immediately for timeline recalculation
+      if (paymentHistoryData && paymentHistoryData !== paymentHistory) {
+        setPaymentHistory(paymentHistoryData);
+      }
+
+      // Update extensions on transaction
+      if (extensionsData) {
+        let extensionArray = [];
+        if (Array.isArray(extensionsData)) {
+          extensionArray = extensionsData;
+        } else if (extensionsData && Array.isArray(extensionsData.extensions)) {
+          extensionArray = extensionsData.extensions;
+        }
+        
+        // Update transaction with fresh extension data
+        const updatedTransaction = transactionData || selectedTransaction;
+        if (updatedTransaction) {
+          updatedTransaction.extensions = extensionArray;
+          updatedTransaction.hasExtensions = extensionArray.length > 0;
+          setSelectedTransaction({...updatedTransaction});
+        }
+      }
+
+      // Immediate list refresh for responsive UI
+      setRefreshKey(prev => prev + 1);
+      
+    } catch (error) {
+      console.error('Error in refreshTimelineData:', error);
+      // Fallback to full refresh if optimized refresh fails
+      if (selectedTransaction) {
+        await handleViewTransaction(selectedTransaction);
+      }
+    }
   };
 
   // Handle viewing transaction details
@@ -302,6 +410,28 @@ const TransactionHub = () => {
   const handlePaymentSuccess = async (paymentResult) => {
     setShowPaymentForm(false);
     
+    // Optimistic UI update - immediately add the payment to the timeline
+    if (paymentResult && selectedTransaction?.transaction_id) {
+      const newPayment = {
+        payment_id: paymentResult.payment_id || `temp-${Date.now()}`,
+        payment_amount: paymentResult.payment_amount || paymentResult.amount,
+        payment_date: paymentResult.payment_date || new Date().toISOString(),
+        payment_method: paymentResult.payment_method || 'cash',
+        created_at: new Date().toISOString(),
+        created_by: user?.user_id,
+        is_voided: false
+      };
+
+      // Add new payment to existing payment history for immediate timeline update
+      const optimisticPaymentHistory = { ...paymentHistory };
+      if (optimisticPaymentHistory?.payments) {
+        optimisticPaymentHistory.payments = [newPayment, ...optimisticPaymentHistory.payments];
+      } else {
+        optimisticPaymentHistory.payments = [newPayment];
+      }
+      setPaymentHistory(optimisticPaymentHistory);
+    }
+    
     // Invalidate stats cache and transaction cache
     await statsCacheService.invalidateAfterPayment(
       paymentResult.transaction_id,
@@ -311,33 +441,12 @@ const TransactionHub = () => {
     
     // If transaction details dialog is open, refresh the transaction data
     if (showTransactionDetails && selectedTransaction) {
-      try {
-        const transactionId = selectedTransaction.transaction_id || selectedTransaction.transaction?.transaction_id;
-        
-        // Add cache busting to force fresh data
-        const bustCacheUrl = `/api/v1/pawn-transaction/${transactionId}/summary?_t=${Date.now()}`;
-        const updatedTransaction = await authService.apiRequest(bustCacheUrl, { method: 'GET' });
-        
-        // Always fetch extensions separately after payment to ensure they're preserved
-        try {
-          const extensions = await extensionService.getExtensionHistory(transactionId, true);
-          let extensionArray = [];
-          if (Array.isArray(extensions)) {
-            extensionArray = extensions;
-          } else if (extensions && extensions.extensions) {
-            extensionArray = extensions.extensions;
-          }
-          updatedTransaction.extensions = extensionArray;
-        } catch (extError) {
-          console.warn('Could not fetch extensions after payment:', extError);
-        }
-        
-        setSelectedTransaction(updatedTransaction);
-      } catch (error) {
-        console.error('Failed to refresh transaction after payment:', error);
-      }
-    } else {
-      setSelectedTransaction(null);
+      // Use the optimized refresh function for faster updates (skip transaction since we have optimistic update)
+      refreshTimelineData(selectedTransaction.transaction_id, true).catch(error => {
+        console.error('Failed to refresh timeline after payment:', error);
+        // Fallback to full refresh
+        handleViewTransaction(selectedTransaction).catch(console.error);
+      });
     }
     
     // Always refresh the transaction list to show updated balance/status
@@ -349,6 +458,29 @@ const TransactionHub = () => {
   const handleExtensionSuccess = async (extensionResult) => {
     setShowExtensionForm(false);
     
+    // Optimistic UI update - immediately add the extension to the timeline
+    if (extensionResult && selectedTransaction?.transaction_id) {
+      const newExtension = {
+        extension_id: extensionResult.extension_id || `temp-${Date.now()}`,
+        extension_months: extensionResult.extension_months || 1,
+        extension_fee: extensionResult.extension_fee || extensionResult.total_extension_fee,
+        extension_date: extensionResult.extension_date || new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        created_by: user?.user_id,
+        is_cancelled: false
+      };
+
+      // Add new extension to existing extensions for immediate timeline update
+      const optimisticTransaction = { ...selectedTransaction };
+      if (optimisticTransaction?.extensions) {
+        optimisticTransaction.extensions = [newExtension, ...optimisticTransaction.extensions];
+      } else {
+        optimisticTransaction.extensions = [newExtension];
+      }
+      optimisticTransaction.hasExtensions = true;
+      setSelectedTransaction(optimisticTransaction);
+    }
+    
     // Invalidate stats cache and clear transaction/extension caches
     await statsCacheService.invalidateAfterExtension(
       extensionResult.transaction_id,
@@ -359,43 +491,17 @@ const TransactionHub = () => {
     
     // If transaction details dialog is open, refresh the transaction data
     if (showTransactionDetails && selectedTransaction) {
-      try {
-        // Fetch updated transaction with new extensions
-        const transactionId = selectedTransaction.transaction_id || selectedTransaction.transaction?.transaction_id;
-        
-        // Add cache busting to force fresh data
-        const bustCacheUrl = `/api/v1/pawn-transaction/${transactionId}/summary?_t=${Date.now()}`;
-        const updatedTransaction = await authService.apiRequest(bustCacheUrl, { method: 'GET' });
-        
-        // Also fetch updated extensions
-        try {
-          const extensions = await extensionService.getExtensionHistory(transactionId, true); // bustCache = true
-          
-          let extensionArray = [];
-          if (Array.isArray(extensions)) {
-            extensionArray = extensions;
-          } else if (extensions && extensions.extensions) {
-            extensionArray = extensions.extensions;
-          }
-          
-          updatedTransaction.extensions = extensionArray;
-        } catch (extError) {
-          console.warn('Could not fetch extensions:', extError);
-        }
-        
-        setSelectedTransaction(updatedTransaction);
-      } catch (error) {
-        console.error('Failed to refresh transaction after extension:', error);
-      }
-    } else {
-      setSelectedTransaction(null);
+      // Use the optimized refresh function for faster updates (skip transaction since we have optimistic update)
+      refreshTimelineData(selectedTransaction.transaction_id, true).catch(error => {
+        console.error('Failed to refresh timeline after extension:', error);
+        // Fallback to full refresh
+        handleViewTransaction(selectedTransaction).catch(console.error);
+      });
     }
     
     // Always refresh the transaction list to show updated maturity date
     setRefreshKey(prev => prev + 1);
     handleSuccess('Extension processed successfully');
-    
-    // Real-time stats automatically update via WebSocket - no manual refresh needed
   };
 
   // Handle payment form cancellation - refresh transaction data to prevent stale state
@@ -478,14 +584,12 @@ const TransactionHub = () => {
     setShowStatusUpdateForm(true);
   };
   
-  // Handle payment reversal/cancellation
+  // Handle payment reversal initiation
   const handlePaymentReversal = async (paymentId) => {
     if (!user?.role || user.role !== 'admin') {
       handleError(new Error('Only administrators can cancel payments'), 'Permission denied');
       return;
     }
-    
-    setProcessingCancel(`payment-${paymentId}`);
     
     try {
       // Check eligibility first
@@ -496,55 +600,86 @@ const TransactionHub = () => {
         return;
       }
       
-      // Prompt for admin PIN and reason
-      const reason = prompt('Please provide a reason for this reversal:');
-      if (!reason) {
-        return; // User cancelled
+      // Store eligibility and payment ID, then show dialog
+      setReversalEligibility(eligibility);
+      setPendingReversalPaymentId(paymentId);
+      setShowPaymentReversalDialog(true);
+    } catch (error) {
+      handleError(error, 'Failed to check reversal eligibility');
+    }
+  };
+
+  // Handle approved payment reversal
+  const handlePaymentReversalApproval = async (approvalData) => {
+    if (!pendingReversalPaymentId) return;
+    
+    setProcessingCancel(`payment-${pendingReversalPaymentId}`);
+    
+    try {
+      // Optimistic UI update - immediately mark payment as voided in local state
+      const optimisticPaymentHistory = { ...paymentHistory };
+      if (optimisticPaymentHistory?.payments) {
+        optimisticPaymentHistory.payments = optimisticPaymentHistory.payments.map(payment => {
+          if (payment.payment_id === pendingReversalPaymentId) {
+            return {
+              ...payment,
+              is_voided: true,
+              void_reason: `REVERSAL: ${approvalData.reason}`,
+              voided_at: new Date().toISOString(),
+              voided_by: user?.user_id
+            };
+          }
+          return payment;
+        });
+        setPaymentHistory(optimisticPaymentHistory);
       }
       
-      const adminPin = prompt('Enter your admin PIN to authorize this reversal:');
-      if (!adminPin) {
-        return; // User cancelled
-      }
+      // Close dialog immediately for better UX
+      setShowPaymentReversalDialog(false);
+      setPendingReversalPaymentId(null);
+      setReversalEligibility(null);
       
       // Process the reversal
       const reversalData = {
-        reversal_reason: reason,
-        admin_pin: adminPin
+        reversal_reason: approvalData.reason,
+        admin_pin: approvalData.admin_pin
       };
       
-      await reversalService.reversePayment(paymentId, reversalData);
+      await reversalService.reversePayment(pendingReversalPaymentId, reversalData);
       
-      // Refresh transaction data and payment history
+      // Background refresh to sync with server
       if (selectedTransaction?.transaction_id) {
-        // Refresh payment history immediately
-        try {
-          const updatedPaymentHistory = await paymentService.getPaymentHistory(selectedTransaction.transaction_id);
-          setPaymentHistory(updatedPaymentHistory);
-        } catch (error) {
-          console.error('Failed to refresh payment history:', error);
-        }
-        
-        // Then refresh full transaction
-        await handleViewTransaction(selectedTransaction);
+        refreshTimelineData(selectedTransaction.transaction_id).catch(console.error);
       }
+      
+      // Trigger a refresh of the transaction list
+      setRefreshKey(prev => prev + 1);
       
       handleSuccess('Payment reversed successfully');
     } catch (error) {
       handleError(error, 'Payment reversal failed');
+      // Revert optimistic update on failure
+      if (selectedTransaction?.transaction_id) {
+        refreshTimelineData(selectedTransaction.transaction_id).catch(console.error);
+      }
     } finally {
       setProcessingCancel(null);
     }
   };
+
+  // Handle payment reversal cancellation
+  const handlePaymentReversalCancel = () => {
+    setShowPaymentReversalDialog(false);
+    setPendingReversalPaymentId(null);
+    setReversalEligibility(null);
+  };
   
-  // Handle extension cancellation
+  // Handle extension cancellation initiation
   const handleExtensionCancelAction = async (extensionId) => {
     if (!user?.role || user.role !== 'admin') {
       handleError(new Error('Only administrators can cancel extensions'), 'Permission denied');
       return;
     }
-    
-    setProcessingCancel(`extension-${extensionId}`);
     
     try {
       // Check eligibility first
@@ -555,64 +690,78 @@ const TransactionHub = () => {
         return;
       }
       
-      // Prompt for admin PIN and reason
-      const reason = prompt('Please provide a reason for this cancellation:');
-      if (!reason) {
-        return; // User cancelled
+      // Store eligibility and extension ID, then show dialog
+      setReversalEligibility(eligibility);
+      setPendingCancelExtensionId(extensionId);
+      setShowExtensionCancelDialog(true);
+    } catch (error) {
+      handleError(error, 'Failed to check cancellation eligibility');
+    }
+  };
+
+  // Handle approved extension cancellation
+  const handleExtensionCancelApproval = async (approvalData) => {
+    if (!pendingCancelExtensionId) return;
+    
+    setProcessingCancel(`extension-${pendingCancelExtensionId}`);
+    
+    try {
+      // Optimistic UI update - immediately mark extension as cancelled in local state
+      const optimisticTransaction = { ...selectedTransaction };
+      if (optimisticTransaction?.extensions) {
+        optimisticTransaction.extensions = optimisticTransaction.extensions.map(extension => {
+          if (extension.extension_id === pendingCancelExtensionId) {
+            return {
+              ...extension,
+              is_cancelled: true,
+              cancellation_reason: approvalData.reason,
+              cancelled_at: new Date().toISOString(),
+              cancelled_by: user?.user_id
+            };
+          }
+          return extension;
+        });
+        setSelectedTransaction(optimisticTransaction);
       }
       
-      const adminPin = prompt('Enter your admin PIN to authorize this cancellation:');
-      if (!adminPin) {
-        return; // User cancelled
-      }
+      // Close dialog immediately for better UX
+      setShowExtensionCancelDialog(false);
+      setPendingCancelExtensionId(null);
+      setReversalEligibility(null);
       
       // Process the cancellation
       const cancellationData = {
-        cancellation_reason: reason,
-        admin_pin: adminPin
+        cancellation_reason: approvalData.reason,
+        admin_pin: approvalData.admin_pin
       };
       
-      await reversalService.cancelExtension(extensionId, cancellationData);
+      await reversalService.cancelExtension(pendingCancelExtensionId, cancellationData);
       
-      // Force complete refresh with cache busting
-      if (selectedTransaction) {
-        // Clear any caches first
-        if (window.extensionService && window.extensionService.clearExtensionCache) {
-          window.extensionService.clearExtensionCache();
-        }
-        
-        // Get the transaction ID
-        const transactionId = selectedTransaction.transaction_id || selectedTransaction.transaction?.transaction_id;
-        
-        // Fetch fresh transaction data with aggressive cache busting
-        try {
-          const bustCacheUrl = `/api/v1/pawn-transaction/${transactionId}/summary?_t=${Date.now()}&refresh=true`;
-          const updatedTransaction = await authService.apiRequest(bustCacheUrl, { method: 'GET' });
-          
-          // Fetch fresh extensions with cache busting
-          const freshExtensions = await extensionService.getExtensionHistory(transactionId, true);
-          let extensionArray = [];
-          if (Array.isArray(freshExtensions)) {
-            extensionArray = freshExtensions;
-          } else if (freshExtensions && freshExtensions.extensions) {
-            extensionArray = freshExtensions.extensions;
-          }
-          
-          updatedTransaction.extensions = extensionArray;
-          setSelectedTransaction(updatedTransaction);
-        } catch (error) {
-          console.error('Error refreshing transaction after cancellation:', error);
-          // Fallback to regular refresh
-          await handleViewTransaction(selectedTransaction);
-        }
+      // Background refresh to sync with server
+      if (selectedTransaction?.transaction_id) {
+        refreshTimelineData(selectedTransaction.transaction_id).catch(console.error);
       }
+      
+      // Trigger a refresh of the transaction list
+      setRefreshKey(prev => prev + 1);
       
       handleSuccess('Extension cancelled successfully');
     } catch (error) {
       handleError(error, 'Extension cancellation failed');
+      // Revert optimistic update on failure
+      if (selectedTransaction?.transaction_id) {
+        refreshTimelineData(selectedTransaction.transaction_id).catch(console.error);
+      }
     } finally {
       setProcessingCancel(null);
     }
+  };
+
+  // Handle extension cancellation cancellation
+  const handleExtensionCancelCancel = () => {
+    setShowExtensionCancelDialog(false);
+    setPendingCancelExtensionId(null);
+    setReversalEligibility(null);
   };
 
   // Handle successful status update
@@ -1520,11 +1669,8 @@ const TransactionHub = () => {
                                                   )}
                                                 </div>
                                                 {user?.role === 'admin' && !event.data.is_voided && (() => {
-                                                  // Check if payment is within 24-hour reversal window
-                                                  const paymentDate = new Date(event.data.payment_date || event.data.created_at);
-                                                  const now = new Date();
-                                                  const hoursSincePayment = (now - paymentDate) / (1000 * 60 * 60);
-                                                  const canReverse = hoursSincePayment <= 24;
+                                                  // Check if payment is within same business day (auto-hide at midnight)
+                                                  const canReverse = canReversePayment(event.data.payment_date || event.data.created_at);
                                                   
                                                   if (!canReverse) return null;
                                                   
@@ -1576,11 +1722,8 @@ const TransactionHub = () => {
                                                   )}
                                                 </div>
                                                 {user?.role === 'admin' && !event.data.is_cancelled && (() => {
-                                                  // Check if extension is within 24-hour cancellation window
-                                                  const extensionDate = new Date(event.data.extension_date || event.data.created_at);
-                                                  const now = new Date();
-                                                  const hoursSinceExtension = (now - extensionDate) / (1000 * 60 * 60);
-                                                  const canCancel = hoursSinceExtension <= 24;
+                                                  // Check if extension is within same business day (auto-hide at midnight)
+                                                  const canCancel = canCancelExtension(event.data.extension_date || event.data.created_at);
                                                   
                                                   if (!canCancel) return null;
                                                   
@@ -2129,6 +2272,68 @@ onKeyPress={async (e) => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Admin Approval Dialog for Payment Reversal */}
+      <AdminApprovalDialog
+        open={showPaymentReversalDialog}
+        onOpenChange={setShowPaymentReversalDialog}
+        title="Payment Reversal Authorization"
+        description="This action will reverse the selected payment and update the transaction balance. Please provide your admin credentials and reason for this reversal."
+        onApprove={handlePaymentReversalApproval}
+        onCancel={handlePaymentReversalCancel}
+        loading={processingCancel === `payment-${pendingReversalPaymentId}`}
+        actionType="reversal"
+        requireReason={true}
+        warningMessage={reversalEligibility?.warnings ? reversalEligibility.warnings.join(' ') : undefined}
+      >
+        {reversalEligibility && (
+          <div className="bg-red-50 border border-red-200 rounded-md p-3">
+            <h4 className="text-sm font-medium text-red-800 mb-2">Reversal Details</h4>
+            <div className="text-sm text-red-700 space-y-1">
+              {reversalEligibility.payment_amount && (
+                <p><strong>Payment Amount:</strong> {formatCurrency(reversalEligibility.payment_amount)}</p>
+              )}
+              {reversalEligibility.payment_date && (
+                <p><strong>Payment Date:</strong> {formatBusinessDate(reversalEligibility.payment_date)}</p>
+              )}
+              {reversalEligibility.transaction_id && (
+                <p><strong>Transaction:</strong> {formatTransactionId({transaction_id: reversalEligibility.transaction_id})}</p>
+              )}
+            </div>
+          </div>
+        )}
+      </AdminApprovalDialog>
+
+      {/* Admin Approval Dialog for Extension Cancellation */}
+      <AdminApprovalDialog
+        open={showExtensionCancelDialog}
+        onOpenChange={setShowExtensionCancelDialog}
+        title="Extension Cancellation Authorization"
+        description="This action will cancel the selected extension, refund fees, and revert the maturity date. Please provide your admin credentials and reason for this cancellation."
+        onApprove={handleExtensionCancelApproval}
+        onCancel={handleExtensionCancelCancel}
+        loading={processingCancel === `extension-${pendingCancelExtensionId}`}
+        actionType="cancellation"
+        requireReason={true}
+        warningMessage={reversalEligibility?.warnings ? reversalEligibility.warnings.join(' ') : undefined}
+      >
+        {reversalEligibility && (
+          <div className="bg-orange-50 border border-orange-200 rounded-md p-3">
+            <h4 className="text-sm font-medium text-orange-800 mb-2">Cancellation Details</h4>
+            <div className="text-sm text-orange-700 space-y-1">
+              {reversalEligibility.extension_fee && (
+                <p><strong>Extension Fee:</strong> {formatCurrency(reversalEligibility.extension_fee)}</p>
+              )}
+              {reversalEligibility.extension_date && (
+                <p><strong>Extension Date:</strong> {formatBusinessDate(reversalEligibility.extension_date)}</p>
+              )}
+              {reversalEligibility.extension_months && (
+                <p><strong>Extension Period:</strong> {reversalEligibility.extension_months} month(s)</p>
+              )}
+            </div>
+          </div>
+        )}
+      </AdminApprovalDialog>
     </div>
   );
 };

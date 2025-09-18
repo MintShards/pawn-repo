@@ -353,3 +353,85 @@ export const formatRedemptionDate = (utcDateString) => {
     return 'Error';
   }
 };
+
+// ============================================================================
+// BUSINESS DAY VALIDATION FUNCTIONS
+// ============================================================================
+// These functions handle business day logic for cancel button auto-hide functionality
+
+/**
+ * Check if a given UTC date/time is within the same business day as today.
+ * Uses business timezone (Pacific Time) for consistent day boundary calculation.
+ * 
+ * @param {string} utcDateString - UTC date string from backend
+ * @returns {boolean} True if same business day, false if different day or invalid
+ */
+export const isSameBusinessDay = (utcDateString) => {
+  if (!utcDateString) {
+    return false;
+  }
+
+  try {
+    // Parse the event date
+    const eventDate = parseBusinessDate(utcDateString);
+    if (!eventDate) {
+      return false;
+    }
+
+    // Get current date in business timezone
+    const now = new Date();
+    
+    // Format both dates as business dates (Pacific Time) and compare
+    const eventBusinessDate = formatBusinessDate(utcDateString, {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+    
+    const currentBusinessDate = formatBusinessDate(now.toISOString(), {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+    
+    // Compare date strings (YYYY-MM-DD format)
+    const isSameDay = eventBusinessDate === currentBusinessDate;
+    
+    // Debug logging for development
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Business day check:', {
+        eventDate: utcDateString,
+        eventBusinessDate,
+        currentBusinessDate,
+        isSameDay,
+        timezone: BUSINESS_TIMEZONE
+      });
+    }
+    
+    return isSameDay;
+    
+  } catch (error) {
+    console.error('Error checking business day:', error, 'Input:', utcDateString);
+    return false; // Err on side of caution - hide cancel button
+  }
+};
+
+/**
+ * Check if a payment can be reversed (same business day only).
+ * 
+ * @param {string} paymentDateString - UTC payment date string
+ * @returns {boolean} True if payment can be reversed
+ */
+export const canReversePayment = (paymentDateString) => {
+  return isSameBusinessDay(paymentDateString);
+};
+
+/**
+ * Check if an extension can be cancelled (same business day only).
+ * 
+ * @param {string} extensionDateString - UTC extension date string
+ * @returns {boolean} True if extension can be cancelled
+ */
+export const canCancelExtension = (extensionDateString) => {
+  return isSameBusinessDay(extensionDateString);
+};
