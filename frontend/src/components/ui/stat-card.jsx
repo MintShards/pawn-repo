@@ -10,7 +10,10 @@ import { cn } from '../../lib/utils';
 
 // Trend direction indicators
 const TrendIndicator = ({ direction, percentage, className }) => {
-  if (direction === 'stable' || Math.abs(percentage) < 0.1) {
+  // Convert percentage to number to handle string values from API
+  const numPercentage = parseFloat(percentage) || 0;
+  
+  if (direction === 'stable' || Math.abs(numPercentage) < 0.1) {
     return (
       <div className={cn("flex items-center space-x-1 text-gray-500", className)}>
         <Minus className="w-3 h-3" />
@@ -19,7 +22,7 @@ const TrendIndicator = ({ direction, percentage, className }) => {
     );
   }
 
-  const isUp = direction === 'up' || percentage > 0;
+  const isUp = direction === 'up' || numPercentage > 0;
   const IconComponent = isUp ? TrendingUp : TrendingDown;
   const colorClass = isUp ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400';
 
@@ -27,7 +30,7 @@ const TrendIndicator = ({ direction, percentage, className }) => {
     <div className={cn("flex items-center space-x-1", colorClass, className)}>
       <IconComponent className="w-3 h-3" />
       <span className="text-xs font-medium">
-        {Math.abs(percentage).toFixed(1)}%
+        {Math.abs(numPercentage).toFixed(1)}%
       </span>
     </div>
   );
@@ -176,7 +179,7 @@ export const StatCard = memo(({
               </p>
               
               {/* Trend indicator */}
-              {(trendDirection !== 'stable' || Math.abs(trendPercentage) >= 0.1) && (
+              {(trendDirection !== 'stable' || Math.abs(parseFloat(trendPercentage) || 0) >= 0.1) && (
                 <TrendIndicator 
                   direction={trendDirection} 
                   percentage={trendPercentage}

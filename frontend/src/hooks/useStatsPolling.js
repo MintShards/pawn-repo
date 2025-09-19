@@ -1,6 +1,7 @@
 /**
  * Custom hook for transaction statistics polling
  * Uses REST API with improved polling and error handling
+ * Implements singleton pattern to prevent multiple polling instances
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -33,251 +34,234 @@ const createDefaultMetric = (type) => ({
   calculation_duration_ms: null
 });
 
-/**
- * Hook for managing transaction statistics with improved polling
- */
-export const useStatsPolling = (options = {}) => {
-  const { isAuthenticated } = useAuth();
-  const {
-    refreshInterval = 5000, // Fast 5-second refresh for responsive updates
-    autoStart = true
-  } = options;
+// Singleton polling manager
+class StatsPollingManager {
+  constructor() {
+    this.subscribers = new Set();
+    this.metrics = {};
+    this.isPolling = false;
+    this.intervalId = null;
+    this.refreshInterval = 30000; // Default 30 seconds
+    this.isLoading = true;
+    this.error = null;
+    this.retryCount = 0;
+    this.connectionHealth = 'good';
+    this.consecutiveFailures = 0;
+    this.lastRequestTime = null;
+    this.isPageVisible = true;
+    this.circuitBreaker = { state: 'closed', failureCount: 0, lastFailureTime: null };
+    this.adaptiveInterval = this.refreshInterval;
 
-  // State
-  const [metrics, setMetrics] = useState(() => {
-    const initialMetrics = {};
+    // Initialize default metrics
     Object.values(METRIC_TYPES).forEach(type => {
-      initialMetrics[type] = createDefaultMetric(type);
+      this.metrics[type] = createDefaultMetric(type);
     });
-    return initialMetrics;
-  });
 
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [retryCount, setRetryCount] = useState(0);
+    this.setupPageVisibilityHandling();
+  }
 
-  // Refs
-  const refreshIntervalRef = useRef(null);
-  const isComponentMountedRef = useRef(true);
-  const lastRequestTimeRef = useRef(null);
-  const isPageVisibleRef = useRef(true);
-  
-  // Page visibility handling for efficient polling
-  useEffect(() => {
+  setupPageVisibilityHandling() {
     const handleVisibilityChange = () => {
-      isPageVisibleRef.current = !document.hidden;
-      if (!document.hidden && lastRequestTimeRef.current) {
-        const timeSinceLastUpdate = Date.now() - lastRequestTimeRef.current;
-        // If page was hidden for more than 30 seconds, refresh immediately
-        if (timeSinceLastUpdate > 30000) {
-          fetchAllMetrics();
+      this.isPageVisible = !document.hidden;
+      if (!document.hidden && this.lastRequestTime) {
+        const timeSinceLastUpdate = Date.now() - this.lastRequestTime;
+        // If page was hidden for more than 2 minutes, refresh immediately
+        if (timeSinceLastUpdate > 120000) {
+          this.fetchMetrics();
         }
       }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    isComponentMountedRef.current = true;
+  }
 
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, []);
-
-  // Get default/empty metrics structure
-  const getEmptyMetrics = () => ({
-    [METRIC_TYPES.ACTIVE_LOANS]: {
-      metric_type: METRIC_TYPES.ACTIVE_LOANS,
-      value: 0,
-      previous_value: 0,
-      trend_direction: 'stable',
-      trend_percentage: 0,
-      last_updated: new Date().toISOString(),
-      display_value: '0',
-      description: 'Active loan transactions',
-      triggered_by: 'no_data'
-    },
-    [METRIC_TYPES.NEW_THIS_MONTH]: {
-      metric_type: METRIC_TYPES.NEW_THIS_MONTH,
-      value: 0,
-      previous_value: 0,
-      trend_direction: 'stable',
-      trend_percentage: 0,
-      last_updated: new Date().toISOString(),
-      display_value: '0',
-      description: 'New transactions this month',
-      triggered_by: 'no_data'
-    },
-    [METRIC_TYPES.OVERDUE_LOANS]: {
-      metric_type: METRIC_TYPES.OVERDUE_LOANS,
-      value: 0,
-      previous_value: 0,
-      trend_direction: 'stable',
-      trend_percentage: 0,
-      last_updated: new Date().toISOString(),
-      display_value: '0',
-      description: 'Overdue loan transactions',
-      triggered_by: 'no_data'
-    },
-    [METRIC_TYPES.MATURITY_THIS_WEEK]: {
-      metric_type: METRIC_TYPES.MATURITY_THIS_WEEK,
-      value: 0,
-      previous_value: 0,
-      trend_direction: 'stable',
-      trend_percentage: 0,
-      last_updated: new Date().toISOString(),
-      display_value: '0',
-      description: 'Loans maturing this week',
-      triggered_by: 'no_data'
-    },
-    [METRIC_TYPES.TODAYS_COLLECTION]: {
-      metric_type: METRIC_TYPES.TODAYS_COLLECTION,
-      value: 0,
-      previous_value: 0,
-      trend_direction: 'stable',
-      trend_percentage: 0,
-      last_updated: new Date().toISOString(),
-      display_value: '$0',
-      description: 'Total collected today',
-      triggered_by: 'no_data'
+  subscribe(callback) {
+    this.subscribers.add(callback);
+    
+    // Start polling if this is the first subscriber
+    if (this.subscribers.size === 1) {
+      this.startPolling();
     }
-  });
 
-  // REST API functions with improved error handling and deduplication
-  const fetchAllMetrics = useCallback(async (forceRefresh = false) => {
+    // Immediately notify with current data
+    callback({
+      metrics: this.metrics,
+      isLoading: this.isLoading,
+      error: this.error,
+      retryCount: this.retryCount,
+      connectionHealth: this.connectionHealth
+    });
+
+    // Return unsubscribe function
+    return () => {
+      this.subscribers.delete(callback);
+      
+      // Stop polling if no subscribers
+      if (this.subscribers.size === 0) {
+        this.stopPolling();
+      }
+    };
+  }
+
+  notifySubscribers() {
+    const data = {
+      metrics: this.metrics,
+      isLoading: this.isLoading,
+      error: this.error,
+      retryCount: this.retryCount,
+      connectionHealth: this.connectionHealth
+    };
+
+    this.subscribers.forEach(callback => {
+      try {
+        callback(data);
+      } catch (error) {
+        console.error('Error notifying subscriber:', error);
+      }
+    });
+  }
+
+  checkCircuitBreaker() {
+    const now = Date.now();
+    
+    if (this.circuitBreaker.state === 'open') {
+      // Check if enough time has passed to try again (30 seconds)
+      if (this.circuitBreaker.lastFailureTime && (now - this.circuitBreaker.lastFailureTime) > 30000) {
+        this.circuitBreaker.state = 'half-open';
+        return true; // Allow one request
+      }
+      return false; // Circuit is open, block request
+    }
+    
+    return true; // Circuit is closed or half-open, allow request
+  }
+
+  async fetchMetrics(forceRefresh = false) {
     const token = authService.getToken();
     if (!token) {
       return;
     }
 
-    // Prevent concurrent requests
-    const now = Date.now();
-    if (!forceRefresh && lastRequestTimeRef.current && (now - lastRequestTimeRef.current) < 1000) {
-      return; // Debounce requests within 1 second
-    }
-
-    // Only poll when page is visible unless forced
-    if (!forceRefresh && !isPageVisibleRef.current) {
+    // Circuit breaker check
+    if (!this.checkCircuitBreaker()) {
       return;
     }
 
-    lastRequestTimeRef.current = now;
+    // Prevent concurrent requests with longer debounce
+    const now = Date.now();
+    if (!forceRefresh && this.lastRequestTime && (now - this.lastRequestTime) < 5000) {
+      return; // Debounce requests within 5 seconds for production stability
+    }
+
+    // Only poll when page is visible unless forced
+    if (!forceRefresh && !this.isPageVisible) {
+      return;
+    }
+
+    this.lastRequestTime = now;
     
     try {
       const response = await fetch(`${STATS_API_BASE}/api/v1/stats/metrics`, {
         headers: {
           'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'X-Client-Timezone': Intl.DateTimeFormat().resolvedOptions().timeZone
         }
       });
 
       if (!response.ok) {
+        // Handle rate limiting specifically
+        if (response.status === 429) {
+          const retryAfter = response.headers.get('Retry-After');
+          const backoffTime = retryAfter ? parseInt(retryAfter) * 1000 : 60000; // Default 1 minute
+          
+          // Exponentially increase polling interval when rate limited
+          this.adaptiveInterval = Math.min(backoffTime * 2, 300000); // Max 5 minutes
+          this.connectionHealth = 'poor';
+          
+          throw new Error(`Rate limited. Slowing down requests. Retry after ${Math.floor(backoffTime/1000)}s`);
+        }
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
       const data = await response.json();
       
-      if (isComponentMountedRef.current) {
-        setMetrics(data.metrics || {});
-        setError(null);
-        setRetryCount(0); // Reset retry count on success
-        setIsLoading(false);
-      }
-    } catch (err) {
-      if (isComponentMountedRef.current) {
-        const newRetryCount = retryCount + 1;
-        setRetryCount(newRetryCount);
-        
-        // Exponential backoff for retries (max 3 attempts)
-        if (newRetryCount <= 3) {
-          const retryDelay = Math.min(1000 * Math.pow(2, newRetryCount - 1), 10000);
-          setTimeout(() => {
-            if (isComponentMountedRef.current) {
-              fetchAllMetrics(true);
-            }
-          }, retryDelay);
-        } else {
-          // After max retries, show fallback data
-          setMetrics(getEmptyMetrics());
-          setError(`Connection failed after ${newRetryCount} attempts`);
-        }
-        
-        setIsLoading(false);
-      }
-    }
-  }, [retryCount]);
+      this.metrics = data.metrics || {};
+      this.error = null;
+      this.retryCount = 0;
+      this.consecutiveFailures = 0;
+      this.connectionHealth = 'good';
+      this.adaptiveInterval = this.refreshInterval; // Reset to normal interval
+      
+      // Reset circuit breaker on success
+      this.circuitBreaker.state = 'closed';
+      this.circuitBreaker.failureCount = 0;
+      this.circuitBreaker.lastFailureTime = null;
+      
+      this.isLoading = false;
+      this.notifySubscribers();
 
-  const fetchSpecificMetric = useCallback(async (metricType) => {
-    const token = authService.getToken();
-    if (!token) {
+    } catch (err) {
+      const newRetryCount = this.retryCount + 1;
+      this.consecutiveFailures += 1;
+      this.retryCount = newRetryCount;
+      
+      // Update circuit breaker
+      this.circuitBreaker.failureCount += 1;
+      this.circuitBreaker.lastFailureTime = Date.now();
+      
+      // Open circuit after 5 consecutive failures
+      if (this.circuitBreaker.failureCount >= 5) {
+        this.circuitBreaker.state = 'open';
+        this.connectionHealth = 'offline';
+        this.adaptiveInterval = 300000; // 5 minutes when circuit is open
+      } else if (this.consecutiveFailures >= 3) {
+        this.connectionHealth = 'poor';
+        this.adaptiveInterval = Math.min(this.refreshInterval * 2, 120000); // Max 2 minutes
+      }
+      
+      // Exponential backoff for retries (max 3 attempts)
+      if (newRetryCount <= 3) {
+        const retryDelay = Math.min(1000 * Math.pow(2, newRetryCount - 1), 10000);
+        setTimeout(() => {
+          this.fetchMetrics(true);
+        }, retryDelay);
+      } else {
+        // After max retries, show fallback data
+        this.error = `Connection failed after ${newRetryCount} attempts`;
+      }
+      
+      this.isLoading = false;
+      this.notifySubscribers();
+    }
+  }
+
+  startPolling() {
+    if (this.isPolling) {
       return;
     }
+
+    this.isPolling = true;
     
-    try {
-      const response = await fetch(`${STATS_API_BASE}/api/v1/stats/metrics/${metricType}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      
-      if (isComponentMountedRef.current) {
-        setMetrics(prev => ({
-          ...prev,
-          [metricType]: data
-        }));
-      }
-    } catch (err) {
-      // Silently handle metric fetch errors in production
-    }
-  }, []);
-
-  // Setup polling interval
-  useEffect(() => {
-    if (!isAuthenticated || !authService.getToken()) {
-      // No token, show empty state
-      setMetrics(getEmptyMetrics());
-      setIsLoading(false);
-      setError('Authentication required');
-      return;
-    }
-
-    if (!autoStart) {
-      return;
-    }
-
     // Initial fetch
-    fetchAllMetrics();
-
+    this.fetchMetrics();
+    
     // Set up periodic refresh
-    if (refreshInterval > 0) {
-      refreshIntervalRef.current = setInterval(fetchAllMetrics, refreshInterval);
+    this.intervalId = setInterval(() => {
+      this.fetchMetrics();
+    }, this.adaptiveInterval);
+  }
+
+  stopPolling() {
+    this.isPolling = false;
+    
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+      this.intervalId = null;
     }
+  }
 
-    return () => {
-      if (refreshIntervalRef.current) {
-        clearInterval(refreshIntervalRef.current);
-      }
-    };
-  }, [isAuthenticated, autoStart, refreshInterval, fetchAllMetrics]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      isComponentMountedRef.current = false;
-      if (refreshIntervalRef.current) {
-        clearInterval(refreshIntervalRef.current);
-      }
-    };
-  }, []);
-
-  // Cache invalidation function
-  const invalidateCache = useCallback(async () => {
+  async invalidateCache() {
     try {
       const token = authService.getToken();
       if (!token) return;
@@ -292,8 +276,53 @@ export const useStatsPolling = (options = {}) => {
     } catch (error) {
       console.warn('Cache invalidation failed:', error);
     }
-  }, []);
+  }
 
+  // Trigger immediate refresh after user actions
+  triggerImmediateRefresh() {
+    this.fetchMetrics(true);
+  }
+}
+
+// Global singleton instance
+const pollingManager = new StatsPollingManager();
+
+/**
+ * Hook for managing transaction statistics with singleton polling
+ */
+export const useStatsPolling = (options = {}) => {
+  const { isAuthenticated } = useAuth();
+  const [state, setState] = useState({
+    metrics: pollingManager.metrics,
+    isLoading: true,
+    error: null,
+    retryCount: 0,
+    connectionHealth: 'good'
+  });
+
+  useEffect(() => {
+    if (!isAuthenticated || !authService.getToken()) {
+      setState({
+        metrics: {},
+        isLoading: false,
+        error: 'Authentication required',
+        retryCount: 0,
+        connectionHealth: 'offline'
+      });
+      return;
+    }
+
+    // Subscribe to the singleton manager
+    const unsubscribe = pollingManager.subscribe((data) => {
+      setState(data);
+    });
+
+    return unsubscribe;
+  }, [isAuthenticated]);
+
+  // Individual metrics for convenience
+  const metrics = state.metrics;
+  
   return {
     // Data
     metrics,
@@ -306,13 +335,15 @@ export const useStatsPolling = (options = {}) => {
     todaysCollection: metrics[METRIC_TYPES.TODAYS_COLLECTION],
     
     // State
-    isLoading,
-    error,
-    retryCount,
+    isLoading: state.isLoading,
+    error: state.error,
+    retryCount: state.retryCount,
+    connectionHealth: state.connectionHealth,
     
     // Actions
-    invalidateCache,
-    fetchSpecificMetric
+    invalidateCache: pollingManager.invalidateCache.bind(pollingManager),
+    triggerRefresh: pollingManager.triggerImmediateRefresh.bind(pollingManager),
+    fetchSpecificMetric: () => {} // Placeholder for backward compatibility
   };
 };
 

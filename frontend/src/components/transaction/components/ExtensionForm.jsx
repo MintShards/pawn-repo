@@ -15,8 +15,11 @@ import { handleError, handleSuccess } from '../../../utils/errorHandling';
 import ConfirmationDialog from '../../common/ConfirmationDialog';
 import LoadingDialog from '../../common/LoadingDialog';
 import { formatLocalDate } from '../../../utils/timezoneUtils';
+import { useStatsPolling } from '../../../hooks/useStatsPolling';
 
 const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
+  const { triggerRefresh } = useStatsPolling();
+  
   // Form validation setup
   const formValidators = {
     extension_months: (value) => validateExtension(value, transaction),
@@ -173,6 +176,9 @@ const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
       } else {
         // Fallback to direct API call
         const result = await extensionService.processExtension(extensionData);
+        
+        // Trigger immediate stats refresh after successful extension
+        triggerRefresh();
         
         if (onSuccess) {
           onSuccess(result, true); // Pass flag to indicate balance should be refreshed

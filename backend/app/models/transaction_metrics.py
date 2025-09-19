@@ -151,7 +151,15 @@ class TransactionMetrics(Document):
             else:
                 self.trend_direction = TrendDirection.STABLE
             
-            self.trend_percentage = round(percentage_change, 2)
+            # Cap extreme percentages using the same logic as in service for consistency
+            if abs(percentage_change) > 200:
+                if abs(self.current_value - self.previous_value) <= 2:
+                    percentage_change = min(abs(percentage_change), 100.0) * (1 if percentage_change > 0 else -1)
+                else:
+                    percentage_change = min(abs(percentage_change), 200.0) * (1 if percentage_change > 0 else -1)
+            
+            # Use same rounding precision as service (1 decimal place) for consistency
+            self.trend_percentage = round(percentage_change, 1)
     
     def format_display_value(self) -> str:
         """Format the current value for display"""
@@ -192,14 +200,11 @@ class TransactionMetrics(Document):
     def update_value(self, new_value: float, triggered_by: Optional[str] = None, 
                     trend_data: Optional[dict] = None) -> None:
         """Update metric value and recalculate trends"""
-        self.previous_value = self.current_value
-        self.current_value = new_value
-        self.triggered_by = triggered_by
-        self.last_updated = datetime.now(timezone.utc)
-        self.updated_at = self.last_updated
-        
-        # Update enhanced trend data if provided
+        # Update enhanced trend data if provided (includes correct previous_value)
         if trend_data:
+            # Use the calculated previous value from trend_data for accuracy
+            self.previous_value = trend_data.get("previous_value", self.current_value)
+            self.current_value = new_value
             self.trend_direction = TrendDirection(trend_data.get("trend_direction", "stable"))
             self.trend_percentage = trend_data.get("trend_percentage", 0.0)
             self.context_message = trend_data.get("context_message")
@@ -207,8 +212,14 @@ class TransactionMetrics(Document):
             self.is_typical = trend_data.get("is_typical", True)
             self.count_difference = trend_data.get("count_difference", 0)
         else:
-            # Recalculate basic trend if no enhanced data provided
+            # Default behavior: use current as previous, then recalculate basic trend
+            self.previous_value = self.current_value
+            self.current_value = new_value
             self.calculate_trend()
+        
+        self.triggered_by = triggered_by
+        self.last_updated = datetime.now(timezone.utc)
+        self.updated_at = self.last_updated
         
         # Update derived fields
         self.display_value = self.format_display_value()

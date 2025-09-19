@@ -13,8 +13,11 @@ import { useFormValidation, validateRequired, validateAmount, validatePayment } 
 import { handleError, handleSuccess } from '../../../utils/errorHandling';
 import ConfirmationDialog from '../../common/ConfirmationDialog';
 import LoadingDialog from '../../common/LoadingDialog';
+import { useStatsPolling } from '../../../hooks/useStatsPolling';
 
 const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
+  const { triggerRefresh } = useStatsPolling();
+  
   // Form validation setup
   const formValidators = {
     payment_amount: (value, data) => {
@@ -145,6 +148,9 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
       };
 
       const result = await paymentService.processPayment(paymentData);
+      
+      // Trigger immediate stats refresh after successful payment
+      triggerRefresh();
       
       // Immediately refresh balance after successful payment
       await loadBalance();

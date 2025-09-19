@@ -3,12 +3,16 @@ REST API handlers for transaction statistics
 """
 
 import time
+import json
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 import structlog
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from app.core.auth import get_current_user
 from app.models.user_model import User
@@ -29,11 +33,25 @@ from app.schemas.stats_schema import (
 )
 
 # Configure logger
-logger = structlog.get_logger("stats_api")
+logger = structlog.get_logger(__name__)
+
+# Create limiter for rate limiting with user-based key
+def get_user_id_or_ip(request: Request):
+    """Get user ID for authenticated users, fallback to IP"""
+    try:
+        # Try to get user from request state (set by auth middleware)
+        user = getattr(request.state, 'user', None)
+        if user and hasattr(user, 'user_id'):
+            return f"user:{user.user_id}"
+    except:
+        pass
+    # Fallback to IP-based limiting
+    return f"ip:{get_remote_address(request)}"
+
+limiter = Limiter(key_func=get_user_id_or_ip)
 
 # Create router
 router = APIRouter(prefix="/stats", tags=["statistics"])
-
 
 # Initialize service
 metric_service = MetricCalculationService()
@@ -45,6 +63,7 @@ metric_service = MetricCalculationService()
                206: {"model": PartialMetricsResponse, "description": "Partial Content - Some metrics failed"},
                500: {"model": StatsErrorResponse, "description": "Internal Server Error"}
            })
+@limiter.limit("120/minute")  # Increased limit: 120 requests per minute per user (accounts for multiple tabs)
 async def get_all_metrics(
     request: Request,
     metrics: Optional[str] = Query(None, description="Comma-separated list of metrics to include"),
@@ -65,6 +84,19 @@ async def get_all_metrics(
     start_time = time.time()
     
     try:
+        # Check cache first
+        cache_key = f"stats:all_metrics:{current_user.user_id}"
+        if metric_service.redis_client:
+            try:
+                cached_data = await metric_service.redis_client.get(cache_key)
+                if cached_data:
+                    logger.info("Returned cached metrics", 
+                               user_id=current_user.user_id,
+                               response_time_ms=(time.time() - start_time) * 1000)
+                    return JSONResponse(content=json.loads(cached_data))
+            except Exception as e:
+                logger.warning("Cache read failed", error=str(e))
+        
         # Get timezone header for proper date calculations
         timezone_header = request.headers.get("X-Client-Timezone")
         
@@ -134,11 +166,6 @@ async def get_all_metrics(
             # Calculate fresh metrics with timezone awareness
             calculated_metrics = await metric_service.calculate_all_metrics(timezone_header)
             
-            # Debug what metrics were calculated
-            logger.debug("Calculated metrics", 
-                        keys=list(calculated_metrics.keys()),
-                        overdue_in_results='overdue_loans' in calculated_metrics,
-                        overdue_value=calculated_metrics.get('overdue_loans', 'NOT_FOUND'))
             
             # Update database metrics with calculated values
             results = {}
@@ -162,9 +189,7 @@ async def get_all_metrics(
                         # Handle metrics with enhanced trend calculations
                         if metric_name == "todays_collection":
                             # Calculate daily trend for today's collection
-                            logger.debug("Processing todays_collection metric", calculated_value=calculated_value)
                             trend_data = await metric_service.calculate_todays_collection_trend(timezone_header)
-                            logger.debug("Got todays_collection trend data", trend_data=trend_data)
                             
                             if existing_metric:
                                 # Update with enhanced trend data
@@ -193,7 +218,7 @@ async def get_all_metrics(
                                 await metric.save()
                         elif metric_name == "active_loans":
                                 # Calculate daily trend for active loans
-                                trend_data = await metric_service.calculate_active_loans_trend("daily", timezone_header)
+                                trend_data = await metric_service.calculate_active_loans_trend("daily", timezone_header, existing_metric)
                                 
                                 if existing_metric:
                                     # Update with enhanced trend data
@@ -251,9 +276,7 @@ async def get_all_metrics(
                                     await metric.save()
                         elif metric_name == "overdue_loans":
                                 # Calculate monthly trend for overdue loans
-                                logger.debug("Processing overdue_loans metric", calculated_value=calculated_value)
                                 trend_data = await metric_service.calculate_overdue_loans_trend(timezone_header)
-                                logger.debug("Got overdue trend data", trend_data=trend_data)
                                 
                                 if existing_metric:
                                     # Update with enhanced trend data
@@ -282,9 +305,7 @@ async def get_all_metrics(
                                     await metric.save()
                         elif metric_name == "maturity_this_week":
                                 # Calculate weekly trend for maturity this week
-                                logger.debug("Processing maturity_this_week metric", calculated_value=calculated_value)
                                 trend_data = await metric_service.calculate_maturity_this_week_trend(timezone_header)
-                                logger.debug("Got maturity trend data", trend_data=trend_data)
                                 
                                 if existing_metric:
                                     # Update with enhanced trend data
@@ -312,7 +333,6 @@ async def get_all_metrics(
                                     metric.description = metric.get_description()
                                     await metric.save()
                                 
-                                logger.debug("Final maturity metric", metric_dict=metric.to_dict())
                         else:
                                 # Handle other metrics normally
                                 if existing_metric:
@@ -333,14 +353,7 @@ async def get_all_metrics(
                                 metric.description = metric.get_description()
                                 await metric.save()
                         
-                        metric_dict = metric.to_dict()
-                        if metric_name == "maturity_this_week":
-                            logger.debug("Raw metric dict for maturity_this_week", metric_dict=metric_dict)
-                        
-                        results[metric_name] = MetricDetailResponse(**metric_dict)
-                        
-                        if metric_name == "maturity_this_week":
-                            logger.debug("After MetricDetailResponse conversion", converted_data=results[metric_name].model_dump())
+                        results[metric_name] = MetricDetailResponse(**metric.to_dict())
                     elif metric_name in ["yesterdays_collection", "new_last_month"]:
                         # Skip internal metrics - only used for trend calculations
                         continue
@@ -357,12 +370,27 @@ async def get_all_metrics(
             response_time = (time.time() - start_time) * 1000
             logger.info("Completed all metrics request", 
                        metric_count=len(results),
-                       response_time_ms=response_time)
+                       response_time_ms=response_time,
+                       user_id=current_user.user_id,
+                       cache_hit=False)
             
-            return AllMetricsResponse(
+            response_data = AllMetricsResponse(
                 metrics=results,
                 timestamp=datetime.now(timezone.utc)
             )
+            
+            # Cache the response for 30 seconds
+            if metric_service.redis_client:
+                try:
+                    await metric_service.redis_client.setex(
+                        cache_key, 
+                        30,  # 30 second cache
+                        json.dumps(response_data.model_dump(), default=str)
+                    )
+                except Exception as e:
+                    logger.warning("Cache write failed", error=str(e))
+            
+            return response_data
     
     except HTTPException:
         raise

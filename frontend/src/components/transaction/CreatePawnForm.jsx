@@ -8,8 +8,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import transactionService from '../../services/transactionService';
 import customerService from '../../services/customerService';
+import { useStatsPolling } from '../../hooks/useStatsPolling';
 
 const CreatePawnForm = ({ onSuccess, onCancel }) => {
+  const { triggerRefresh } = useStatsPolling();
   const [formData, setFormData] = useState({
     customer_id: '',
     loan_amount: '',
@@ -205,6 +207,9 @@ const CreatePawnForm = ({ onSuccess, onCancel }) => {
       };
 
       const result = await transactionService.createTransaction(transactionData);
+      
+      // Trigger immediate stats refresh after successful transaction creation
+      triggerRefresh();
       
       if (onSuccess) {
         onSuccess(result);

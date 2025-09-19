@@ -114,15 +114,7 @@ const TransactionHub = () => {
     // Sort all events by date (most recent first)
     const sortedEvents = timelineEvents.sort((a, b) => b.date - a.date);
     
-    // Debug log for timeline updates (remove in production)
-    if (process.env.NODE_ENV === 'development') {
-      console.log('Timeline updated:', {
-        paymentCount: payments.length,
-        extensionCount: extensions.length,
-        totalEvents: sortedEvents.length,
-        lastUpdate: new Date().toISOString()
-      });
-    }
+    // Timeline updated successfully
     
     return sortedEvents;
   }, [
@@ -954,7 +946,7 @@ const TransactionHub = () => {
         {isAuthenticated && user && (
           <div className="mb-8">
             <StatsPanel 
-              refreshInterval={5000} // Fast 5-second refresh for responsive updates
+              refreshInterval={30000} // Optimized 30-second refresh for production stability
               onStatClick={(filterType, filterValue) => {
                 // Future enhancement: Filter transactions based on stat card clicks
                 console.log('Stat clicked:', filterType, filterValue);

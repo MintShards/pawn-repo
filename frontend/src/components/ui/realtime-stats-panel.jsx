@@ -20,7 +20,7 @@ import { cn } from '../../lib/utils';
  */
 export const StatsPanel = memo(({ 
   className,
-  refreshInterval = 5000, // Fast 5-second refresh for responsive updates
+  refreshInterval = 30000, // Optimized 30-second refresh for production stability
   onStatClick,
   ...props 
 }) => {
@@ -115,30 +115,31 @@ export const StatsPanel = memo(({
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6" role="region" aria-label="Transaction statistics">
         {statsConfig.map((stat) => (
-          <StatCard
-            key={stat.id}
-            title={stat.title}
-            value={stat.metric?.value}
-            displayValue={stat.metric?.display_value}
-            previousValue={stat.metric?.previous_value}
-            trendDirection={stat.metric?.trend_direction}
-            trendPercentage={stat.metric?.trend_percentage}
-            icon={stat.icon}
-            theme={stat.theme}
-            isLoading={isLoading}
-            description={stat.metric?.description}
-            className="transition-all duration-300 hover:scale-105 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-            onClick={() => handleStatClick(stat)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                handleStatClick(stat);
-              }
-            }}
-            tabIndex={0}
-            role="button"
-            aria-label={stat.ariaLabel}
-          />
+          
+            <StatCard
+              key={stat.id}
+              title={stat.title}
+              value={stat.metric?.value}
+              displayValue={stat.metric?.display_value}
+              previousValue={stat.metric?.previous_value}
+              trendDirection={stat.metric?.trend_direction}
+              trendPercentage={stat.metric?.trend_percentage}
+              icon={stat.icon}
+              theme={stat.theme}
+              isLoading={isLoading}
+              description={stat.metric?.description}
+              className="transition-all duration-300 hover:scale-105 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              onClick={() => handleStatClick(stat)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  handleStatClick(stat);
+                }
+              }}
+              tabIndex={0}
+              role="button"
+              aria-label={stat.ariaLabel}
+            />
         ))}
       </div>
 

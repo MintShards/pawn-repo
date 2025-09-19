@@ -10,9 +10,13 @@ from contextlib import asynccontextmanager
 
 # Third-party imports
 from beanie import init_beanie
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.gzip import GZipMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 import structlog
 
 # Local imports
@@ -37,8 +41,9 @@ from app.models.service_alert_model import ServiceAlert
 from app.models.user_model import User
 from app.models.transaction_metrics import TransactionMetrics
 
-# Database client and logger
+# Database client, limiter and logger
 db_client = None
+limiter = Limiter(key_func=get_remote_address)
 logger = structlog.get_logger("app")
 
 
@@ -124,6 +129,11 @@ add_timezone_middleware(app)
 
 # Add response compression middleware
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# Add rate limiting middleware
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 # Register exception handlers for comprehensive error handling
 register_exception_handlers(app)

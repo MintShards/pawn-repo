@@ -18,7 +18,7 @@ from app.core.redis_cache import get_cache_service
 import json
 
 # Configure logger
-logger = structlog.get_logger("metric_calculation")
+logger = structlog.get_logger(__name__)
 
 
 class MetricCalculationService:
@@ -27,6 +27,7 @@ class MetricCalculationService:
     def __init__(self):
         self.cache_ttl = 60  # Cache for 1 minute
         self.redis_client = None
+        self._last_warning_logged = {}  # Track when warnings were last logged to prevent spam
         self._initialize_cache()
     
     def _initialize_cache(self):
@@ -69,6 +70,35 @@ class MetricCalculationService:
             logger.warning("Cache retrieval failed", metric_type=metric_type, error=str(e))
             return None
     
+    def _cap_trend_percentage(self, trend_percentage: float, current_count: float, previous_count: float, metric_name: str) -> float:
+        """Cap extreme trend percentages to reasonable values"""
+        if abs(trend_percentage) > 200:
+            # Rate limit warnings to once per hour per metric to prevent log spam
+            warning_key = f"extreme_trend_{metric_name}"
+            current_time = time.time()
+            last_logged = self._last_warning_logged.get(warning_key, 0)
+            
+            if current_time - last_logged > 3600:  # 1 hour = 3600 seconds
+                logger.warning("Capping extreme trend percentage",
+                           metric_name=metric_name,
+                           current_count=current_count,
+                           previous_count=previous_count,
+                           calculated_percentage=trend_percentage)
+                self._last_warning_logged[warning_key] = current_time
+            else:
+                # Use debug level for subsequent occurrences
+                logger.debug("Capping extreme trend percentage (rate limited)",
+                           metric_name=metric_name,
+                           calculated_percentage=trend_percentage)
+            
+            # For small changes, cap at 100%
+            if abs(current_count - previous_count) <= 2:
+                trend_percentage = min(abs(trend_percentage), 100.0) * (1 if trend_percentage > 0 else -1)
+            else:
+                trend_percentage = min(abs(trend_percentage), 200.0) * (1 if trend_percentage > 0 else -1)
+        
+        return trend_percentage
+
     async def _cache_value(self, metric_type: str, value: float) -> None:
         """Cache metric value"""
         if not self.redis_client or not self.redis_client.is_available:
@@ -200,18 +230,16 @@ class MetricCalculationService:
             return 0.0
     
     
-    async def calculate_active_loans_trend(self, period: str = "daily", timezone_header: Optional[str] = None) -> Dict[str, Any]:
+    async def calculate_active_loans_trend(self, period: str = "daily", timezone_header: Optional[str] = None, existing_metric=None) -> Dict[str, Any]:
         """Calculate trend for active loans with meaningful time-based comparisons using business dates"""
         try:
             from app.core.timezone_utils import get_user_business_date
             
-            # Clear cache to ensure fresh calculation
-            if self.redis_client and self.redis_client.is_available:
-                cache_key = await self._get_cache_key("active_loans")
-                await self.redis_client.delete(cache_key)
-            
-            # Get current active loans count (fresh calculation)
-            current_count = await self.calculate_active_loans()
+            # Get current active loans count with a direct database query (bypass cache for accuracy)
+            current_count = await PawnTransaction.find(
+                PawnTransaction.status == "active"
+            ).count()
+            current_count = float(current_count)
             
             # Calculate comparison date based on period using business dates
             current_business_date = get_user_business_date(timezone_header)
@@ -238,40 +266,103 @@ class MetricCalculationService:
             # Get previous count using stored value or simple yesterday calculation
             from app.models.transaction_metrics import MetricType, TransactionMetrics
             
-            # Try to get the last stored metric value from database for comparison
-            existing_metric = await TransactionMetrics.find_one(
-                TransactionMetrics.metric_type == MetricType.ACTIVE_LOANS
-            )
-            
-            if existing_metric and existing_metric.current_value != current_count:
-                # Use the last stored value as previous for comparison
-                previous_count = existing_metric.current_value
-                period_label = "last update"
+            # Use provided existing_metric if available, otherwise query database
+            if existing_metric is None:
+                existing_metric = await TransactionMetrics.find_one(
+                    TransactionMetrics.metric_type == MetricType.ACTIVE_LOANS
+                )
+                logger.debug("Retrieved existing metric from database")
             else:
-                # For first-time calculation or no change, use simple yesterday calculation
+                logger.debug("Using provided existing_metric")
+            
+            if existing_metric:
+                logger.debug("Using existing metric for trend calculation",
+                           stored_current=existing_metric.current_value,
+                           stored_previous=existing_metric.previous_value,
+                           new_current=current_count)
+            
+            if existing_metric:
+                # Check if the stored metric is recent (within last 5 minutes) to avoid stale comparisons
+                # Ensure both datetimes are timezone-aware for comparison
+                now_utc = datetime.now(timezone.utc)
+                last_updated = existing_metric.last_updated
+                if last_updated.tzinfo is None:
+                    last_updated = last_updated.replace(tzinfo=timezone.utc)
+                
+                time_diff = now_utc - last_updated
+                if time_diff.total_seconds() > 300:  # 5 minutes
+                    logger.warning("Stored metric is stale, using yesterday baseline instead",
+                                 stored_age_seconds=time_diff.total_seconds(),
+                                 stored_value=existing_metric.current_value)
+                    previous_count = await self._get_simple_active_loans_yesterday(timezone_header)
+                    period_label = "yesterday"
+                elif existing_metric.current_value != current_count:
+                    # Value has changed - use the stored current value as previous
+                    previous_count = existing_metric.current_value
+                    period_label = "last update"
+                    logger.info("Using stored metric current value as previous",
+                               stored_current=existing_metric.current_value,
+                               new_current=current_count)
+                else:
+                    # Value hasn't changed - but we should still check if the stored previous 
+                    # makes sense. If stored previous is 0 and current is not, we might have
+                    # missed an update cycle.
+                    if existing_metric.previous_value == 0.0 and current_count > 0.0:
+                        # This suggests we went from 0 to current count but missed recording it
+                        previous_count = 0.0
+                        period_label = "baseline"
+                        logger.info("Detected transition from zero (missed update cycle)",
+                                   stored_current=existing_metric.current_value,
+                                   stored_previous=existing_metric.previous_value,
+                                   current_count=current_count)
+                    else:
+                        # Normal case - use the stored previous value
+                        previous_count = existing_metric.previous_value
+                        period_label = "last update"
+                        logger.info("Using stored metric previous value (no change in current)",
+                                   stored_current=existing_metric.current_value,
+                                   stored_previous=existing_metric.previous_value,
+                                   current_count=current_count)
+            else:
+                # For first-time calculation, use yesterday baseline
                 previous_count = await self._get_simple_active_loans_yesterday(timezone_header)
-                if previous_count == current_count:
-                    # If still the same, create a small difference for meaningful trend
-                    previous_count = max(0, current_count - 1) if current_count > 0 else 0
                 period_label = "yesterday"
+                logger.info("Using yesterday baseline for comparison (no existing metric)",
+                           yesterday_count=previous_count,
+                           current_count=current_count)
             
             # Debug the actual values being compared
             logger.info("Active loans trend calculation",
                        current_count=current_count,
                        previous_count=previous_count,
                        source="stored_metric" if existing_metric else "yesterday_baseline",
-                       period_label=period_label)
+                       period_label=period_label,
+                       both_zero=(current_count == 0 and previous_count == 0))
             
-            # Calculate trend metrics
-            if previous_count == 0:
-                if current_count > 0:
+            # Calculate trend metrics with proper type conversion and logging
+            current_count = float(current_count)
+            previous_count = float(previous_count)
+            
+            logger.debug("Active loans trend calculation values",
+                        current_count=current_count,
+                        previous_count=previous_count,
+                        current_type=type(current_count).__name__,
+                        previous_type=type(previous_count).__name__)
+            
+            if previous_count == 0.0:
+                if current_count > 0.0:
                     trend_direction = "up"
                     trend_percentage = 100.0
                     context_message = f"First active loans (was 0 {period_label})"
+                    logger.info("ACTIVE LOANS TREND: 0 to positive - setting UP 100%", 
+                               current=current_count, previous=previous_count)
                 else:
+                    # Both current and previous are 0
                     trend_direction = "stable"  
                     trend_percentage = 0.0
                     context_message = f"No active loans"
+                    logger.info("ACTIVE LOANS TREND: both 0 - setting STABLE", 
+                               current=current_count, previous=previous_count)
             else:
                 percentage_change = ((current_count - previous_count) / previous_count) * 100
                 count_difference = int(current_count - previous_count)
@@ -296,6 +387,39 @@ class MetricCalculationService:
             
             # Determine if this change is typical (could be enhanced with historical analysis)
             is_typical = abs(trend_percentage) < 10  # Changes >10% are considered unusual
+            
+            # Final validation to prevent illogical results and ensure consistency
+            # Note: Going FROM 0 to something is valid "up", only 0 CURRENT with "up" is illogical
+            if current_count == 0.0 and previous_count == 0.0 and trend_direction == "up":
+                logger.warning("Correcting illogical trend: 0 to 0 cannot trend up",
+                             original_direction=trend_direction,
+                             original_percentage=trend_percentage)
+                trend_direction = "stable"
+                trend_percentage = 0.0
+                context_message = "No active loans"
+            
+            # Ensure trend percentage is reasonable (prevent extreme values from calculation errors)
+            if trend_percentage > 200:  # Much lower cap - single loan changes shouldn't exceed 200%
+                logger.error("EXTREME TREND PERCENTAGE DETECTED",
+                           current_count=current_count,
+                           previous_count=previous_count,
+                           calculated_percentage=trend_percentage,
+                           calculation_method=period_label,
+                           count_difference=abs(current_count - previous_count))
+                
+                # For single transaction changes, cap at more reasonable values
+                if abs(current_count - previous_count) <= 2:  # Small changes shouldn't be huge percentages
+                    old_percentage = trend_percentage
+                    trend_percentage = min(trend_percentage, 100.0)
+                    logger.error("CAPPED SMALL CHANGE", 
+                               old_percentage=old_percentage,
+                               new_percentage=trend_percentage)
+                else:
+                    old_percentage = trend_percentage
+                    trend_percentage = min(trend_percentage, 200.0)
+                    logger.error("CAPPED LARGE CHANGE",
+                               old_percentage=old_percentage, 
+                               new_percentage=trend_percentage)
             
             trend_result = {
                 "current_value": current_count,
@@ -478,6 +602,8 @@ class MetricCalculationService:
                 else:
                     trend_direction = "stable"
                 
+                # Cap extreme percentages before rounding
+                percentage_change = self._cap_trend_percentage(percentage_change, current_count, previous_count, "new_this_month")
                 trend_percentage = round(percentage_change, 1)
                 
                 # Generate business-friendly context message
@@ -679,6 +805,8 @@ class MetricCalculationService:
                 else:
                     trend_direction = "stable"
                 
+                # Cap extreme percentages before rounding
+                percentage_change = self._cap_trend_percentage(percentage_change, current_count, previous_count, "trend_calculation")
                 trend_percentage = round(percentage_change, 1)
                 
                 # Generate business-friendly context message
@@ -838,6 +966,8 @@ class MetricCalculationService:
                 else:
                     trend_direction = "stable"
                 
+                # Cap extreme percentages before rounding
+                percentage_change = self._cap_trend_percentage(percentage_change, current_count, previous_count, "trend_calculation")
                 trend_percentage = round(percentage_change, 1)
                 
                 # Generate business-friendly context message
@@ -1077,6 +1207,8 @@ class MetricCalculationService:
                 else:
                     trend_direction = "stable"
                 
+                # Cap extreme percentages before rounding
+                percentage_change = self._cap_trend_percentage(percentage_change, todays_amount, yesterdays_amount, "todays_collection_trend")
                 trend_percentage = round(percentage_change, 1)
                 
                 # Generate business-friendly context message with currency formatting

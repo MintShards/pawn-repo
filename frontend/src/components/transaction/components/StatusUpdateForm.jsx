@@ -7,8 +7,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Alert, AlertDescription } from '../../ui/alert';
 import StatusBadge from './StatusBadge';
 import transactionService from '../../../services/transactionService';
+import { useStatsPolling } from '../../../hooks/useStatsPolling';
 
 const StatusUpdateForm = ({ transaction, onSuccess, onCancel }) => {
+  const { triggerRefresh } = useStatsPolling();
   const [newStatus, setNewStatus] = useState('');
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
@@ -68,6 +70,9 @@ const StatusUpdateForm = ({ transaction, onSuccess, onCancel }) => {
         new_status: newStatus,
         notes: notes.trim() || undefined
       });
+      
+      // Trigger immediate stats refresh after status update
+      triggerRefresh();
       
       onSuccess && onSuccess();
     } catch (error) {
