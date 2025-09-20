@@ -204,7 +204,7 @@ const TransactionHub = () => {
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading...</p>
+          <p className="text-slate-600 dark:text-slate-400">Loading...</p>
         </div>
       </div>
     );
@@ -1130,7 +1130,7 @@ const TransactionHub = () => {
             <h2 className="text-3xl font-bold text-slate-900 dark:text-slate-100 mb-2">
               Transaction Management
             </h2>
-            <p className="text-details-medium dark:text-slate-400 text-lg">
+            <p className="text-slate-600 dark:text-slate-400 text-lg">
               Manage pawn transactions, process payments, and track loan extensions
             </p>
           </div>
@@ -1154,7 +1154,7 @@ const TransactionHub = () => {
           {/* Quick Actions & Reports Sidebar */}
           <div className="lg:col-span-1 space-y-4 max-h-[calc(100vh-300px)] overflow-y-auto">
             {/* Quick Actions Card */}
-            <Card className="border-0 shadow-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 overflow-hidden relative z-10">
+            <Card className="border-0 shadow-md bg-gradient-to-br from-white via-slate-50 to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 overflow-hidden relative z-10">
               <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-indigo-500/5 pointer-events-none"></div>
               <CardHeader className="relative pb-3">
                 <div className="flex items-center space-x-3">
@@ -1162,21 +1162,21 @@ const TransactionHub = () => {
                     <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/30">
                       <Activity className="w-5 h-5 text-white" />
                     </div>
-                    <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-slate-900"></div>
+                    <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-white dark:border-slate-900"></div>
                   </div>
                   <div>
-                    <CardTitle className="text-white text-lg font-bold">Quick Actions</CardTitle>
-                    <p className="text-xs text-slate-400">Frequently used operations</p>
+                    <CardTitle className="text-slate-900 dark:text-white text-lg font-bold">Quick Actions</CardTitle>
+                    <p className="text-xs text-slate-600 dark:text-slate-400">Frequently used operations</p>
                   </div>
                 </div>
               </CardHeader>
               <CardContent className="relative space-y-3 pt-2 z-20">
                 <Button 
                   onClick={handleCreateNew}
-                  className="w-full justify-start h-11 bg-gradient-to-r from-slate-700 to-slate-600 hover:from-slate-600 hover:to-slate-500 text-white border border-slate-600/50 hover:border-slate-500/70 shadow-md hover:shadow-lg transition-all duration-200 group relative z-30" 
+                  className="w-full justify-start h-11 bg-white hover:bg-slate-50 text-slate-800 hover:text-slate-900 border border-slate-200 hover:border-slate-300 shadow-sm hover:shadow-md transition-all duration-200 group relative z-30 dark:bg-slate-700 dark:hover:bg-slate-600 dark:text-white dark:hover:text-white dark:border-slate-600/50 dark:hover:border-slate-500/70" 
                   variant="outline"
                 >
-                  <div className="w-6 h-6 bg-slate-500/30 rounded-md flex items-center justify-center mr-2 group-hover:bg-slate-400/40 transition-colors">
+                  <div className="w-6 h-6 bg-slate-200/60 dark:bg-slate-500/30 rounded-md flex items-center justify-center mr-2 group-hover:bg-slate-300/70 dark:group-hover:bg-slate-400/40 transition-colors">
                     <Plus className="w-4 h-4" />
                   </div>
                   <span className="font-medium text-sm">New Transaction</span>
@@ -1184,10 +1184,10 @@ const TransactionHub = () => {
 
                 <Button 
                   onClick={() => setShowQuickPayment(true)}
-                  className="w-full justify-start h-11 bg-gradient-to-r from-slate-800/50 to-slate-700/50 hover:from-slate-700/60 hover:to-slate-600/60 text-slate-300 border border-slate-600/30 hover:border-slate-500/50 shadow-md hover:shadow-lg transition-all duration-200 group" 
+                  className="w-full justify-start h-11 bg-white hover:bg-slate-50 text-slate-800 hover:text-slate-900 border border-slate-200 hover:border-slate-300 shadow-sm hover:shadow-md transition-all duration-200 group dark:bg-slate-700 dark:hover:bg-slate-600 dark:text-slate-300 dark:hover:text-white dark:border-slate-600/30 dark:hover:border-slate-500/50" 
                   variant="outline"
                 >
-                  <div className="w-6 h-6 bg-slate-600/30 rounded-md flex items-center justify-center mr-2 group-hover:bg-slate-500/40 transition-colors">
+                  <div className="w-6 h-6 bg-slate-200/60 dark:bg-slate-600/30 rounded-md flex items-center justify-center mr-2 group-hover:bg-slate-300/70 dark:group-hover:bg-slate-500/40 transition-colors">
                     <DollarSign className="w-4 h-4" />
                   </div>
                   <span className="font-medium text-sm">Quick Payment</span>
@@ -1195,21 +1195,21 @@ const TransactionHub = () => {
 
                 <Button 
                   onClick={() => setShowQuickExtension(true)}
-                  className="w-full justify-start h-11 bg-gradient-to-r from-slate-800/50 to-slate-700/50 hover:from-slate-700/60 hover:to-slate-600/60 text-slate-300 border border-slate-600/30 hover:border-slate-500/50 shadow-md hover:shadow-lg transition-all duration-200 group" 
+                  className="w-full justify-start h-11 bg-white hover:bg-slate-50 text-slate-800 hover:text-slate-900 border border-slate-200 hover:border-slate-300 shadow-sm hover:shadow-md transition-all duration-200 group dark:bg-slate-700 dark:hover:bg-slate-600 dark:text-slate-300 dark:hover:text-white dark:border-slate-600/30 dark:hover:border-slate-500/50" 
                   variant="outline"
                 >
-                  <div className="w-6 h-6 bg-slate-600/30 rounded-md flex items-center justify-center mr-2 group-hover:bg-slate-500/40 transition-colors">
+                  <div className="w-6 h-6 bg-slate-200/60 dark:bg-slate-600/30 rounded-md flex items-center justify-center mr-2 group-hover:bg-slate-300/70 dark:group-hover:bg-slate-500/40 transition-colors">
                     <Clock className="w-4 h-4" />
                   </div>
                   <span className="font-medium text-sm">Quick Extension</span>
                 </Button>
                 
                 <Button 
-                  className="w-full justify-start h-11 bg-gradient-to-r from-slate-800/50 to-slate-700/50 hover:from-slate-700/60 hover:to-slate-600/60 text-slate-300 border border-slate-600/30 hover:border-slate-500/50 shadow-md hover:shadow-lg transition-all duration-200 group" 
+                  className="w-full justify-start h-11 bg-white hover:bg-slate-50 text-slate-800 hover:text-slate-900 border border-slate-200 hover:border-slate-300 shadow-sm hover:shadow-md transition-all duration-200 group dark:bg-slate-700 dark:hover:bg-slate-600 dark:text-slate-300 dark:hover:text-white dark:border-slate-600/30 dark:hover:border-slate-500/50" 
                   variant="outline"
                   onClick={() => navigate('/customers')}
                 >
-                  <div className="w-6 h-6 bg-slate-600/30 rounded-md flex items-center justify-center mr-2 group-hover:bg-slate-500/40 transition-colors">
+                  <div className="w-6 h-6 bg-slate-200/60 dark:bg-slate-600/30 rounded-md flex items-center justify-center mr-2 group-hover:bg-slate-300/70 dark:group-hover:bg-slate-500/40 transition-colors">
                     <UserCheck className="w-4 h-4" />
                   </div>
                   <span className="font-medium text-sm">Manage Customers</span>
@@ -1218,7 +1218,7 @@ const TransactionHub = () => {
             </Card>
 
             {/* Reports Section */}
-            <Card className="border-0 shadow-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 overflow-hidden relative z-10">
+            <Card className="border-0 shadow-md bg-gradient-to-br from-white via-slate-50 to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 overflow-hidden relative z-10">
               <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 via-transparent to-pink-500/5 pointer-events-none"></div>
               <CardHeader className="relative pb-3">
                 <div className="flex items-center space-x-3">
@@ -1226,30 +1226,30 @@ const TransactionHub = () => {
                     <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl flex items-center justify-center shadow-lg shadow-purple-500/30">
                       <FileText className="w-5 h-5 text-white" />
                     </div>
-                    <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-orange-500 rounded-full border-2 border-slate-900"></div>
+                    <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-orange-500 rounded-full border-2 border-white dark:border-slate-900"></div>
                   </div>
                   <div>
-                    <CardTitle className="text-white text-lg font-bold">Reports</CardTitle>
-                    <p className="text-xs text-slate-400">Analytics and documentation</p>
+                    <CardTitle className="text-slate-900 dark:text-white text-lg font-bold">Reports</CardTitle>
+                    <p className="text-xs text-slate-600 dark:text-slate-400">Analytics and documentation</p>
                   </div>
                 </div>
               </CardHeader>
               <CardContent className="relative space-y-3 pt-2 z-20">
                 <Button 
-                  className="w-full justify-start h-11 bg-gradient-to-r from-slate-700 to-slate-600 hover:from-slate-600 hover:to-slate-500 text-white border border-slate-600/50 hover:border-slate-500/70 shadow-md hover:shadow-lg transition-all duration-200 group" 
+                  className="w-full justify-start h-11 bg-white hover:bg-slate-50 text-slate-800 hover:text-slate-900 border border-slate-200 hover:border-slate-300 shadow-sm hover:shadow-md transition-all duration-200 group dark:bg-slate-700 dark:hover:bg-slate-600 dark:text-white dark:hover:text-white dark:border-slate-600/50 dark:hover:border-slate-500/70" 
                   variant="outline"
                 >
-                  <div className="w-6 h-6 bg-slate-500/30 rounded-md flex items-center justify-center mr-2 group-hover:bg-slate-400/40 transition-colors">
+                  <div className="w-6 h-6 bg-slate-200/60 dark:bg-slate-500/30 rounded-md flex items-center justify-center mr-2 group-hover:bg-slate-300/70 dark:group-hover:bg-slate-400/40 transition-colors">
                     <Calendar className="w-4 h-4" />
                   </div>
                   <span className="font-medium text-sm">Today's Summary</span>
                 </Button>
 
                 <Button 
-                  className="w-full justify-start h-11 bg-gradient-to-r from-slate-800/50 to-slate-700/50 hover:from-slate-700/60 hover:to-slate-600/60 text-slate-300 border border-slate-600/30 hover:border-slate-500/50 shadow-md hover:shadow-lg transition-all duration-200 group" 
+                  className="w-full justify-start h-11 bg-white hover:bg-slate-50 text-slate-800 hover:text-slate-900 border border-slate-200 hover:border-slate-300 shadow-sm hover:shadow-md transition-all duration-200 group dark:bg-slate-700 dark:hover:bg-slate-600 dark:text-slate-300 dark:hover:text-white dark:border-slate-600/30 dark:hover:border-slate-500/50" 
                   variant="outline"
                 >
-                  <div className="w-6 h-6 bg-slate-600/30 rounded-md flex items-center justify-center mr-2 group-hover:bg-slate-500/40 transition-colors">
+                  <div className="w-6 h-6 bg-slate-200/60 dark:bg-slate-600/30 rounded-md flex items-center justify-center mr-2 group-hover:bg-slate-300/70 dark:group-hover:bg-slate-500/40 transition-colors">
                     <FileText className="w-4 h-4" />
                   </div>
                   <span className="font-medium text-sm">Generate Report</span>
@@ -1258,26 +1258,26 @@ const TransactionHub = () => {
             </Card>
             
             {/* Quick Stats Mini Card */}
-            <Card className="border-0 shadow-xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 relative overflow-hidden">
+            <Card className="border-0 shadow-md bg-gradient-to-br from-white via-slate-50 to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 relative overflow-hidden">
               <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-indigo-500/5"></div>
               <CardContent className="relative p-5">
                 <div className="flex items-center space-x-2 mb-4">
                   <div className="w-6 h-6 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center">
                     <BarChart3 className="w-4 h-4 text-white" />
                   </div>
-                  <h4 className="text-sm font-semibold text-white">Today's Overview</h4>
+                  <h4 className="text-sm font-semibold text-slate-900 dark:text-white">Today's Overview</h4>
                 </div>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between py-1">
-                    <span className="text-xs text-slate-400 font-medium">New Loans</span>
+                    <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">New Loans</span>
                     <span className="text-sm font-bold text-emerald-400">-</span>
                   </div>
                   <div className="flex items-center justify-between py-1">
-                    <span className="text-xs text-slate-400 font-medium">Collections</span>
+                    <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">Collections</span>
                     <span className="text-sm font-bold text-blue-400">-</span>
                   </div>
                   <div className="flex items-center justify-between py-1">
-                    <span className="text-xs text-slate-400 font-medium">Due Soon</span>
+                    <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">Due Soon</span>
                     <span className="text-sm font-bold text-indigo-400">-</span>
                   </div>
                 </div>
@@ -1288,28 +1288,28 @@ const TransactionHub = () => {
 
           {/* Main Content Area */}
           <div className="lg:col-span-4 space-y-6">
-            <Card className="border-0 shadow-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 overflow-hidden">
+            <Card className="border-0 shadow-md bg-gradient-to-br from-white via-slate-50 to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 overflow-hidden">
               <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-indigo-500/5"></div>
-              <CardHeader className="relative pb-6 border-b border-slate-700/50">
+              <CardHeader className="relative pb-6 border-b border-slate-200/50 dark:border-slate-700/50">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-4">
-                    <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center shadow-2xl shadow-blue-500/50">
+                    <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/30">
                       <CreditCard className="w-7 h-7 text-white" />
                     </div>
                     <div>
-                      <CardTitle className="text-2xl font-bold text-white">All Transactions</CardTitle>
-                      <p className="text-sm text-slate-400 mt-1">Search, filter, and manage all pawn transactions</p>
+                      <CardTitle className="text-2xl font-bold text-slate-900 dark:text-white">All Transactions</CardTitle>
+                      <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">Search, filter, and manage all pawn transactions</p>
                     </div>
                   </div>
                   <div className="flex items-center space-x-3">
-                    <div className="hidden sm:flex items-center space-x-2 bg-slate-800/50 rounded-lg px-3 py-2 border border-slate-700/50">
+                    <div className="hidden sm:flex items-center space-x-2 bg-slate-100/50 dark:bg-slate-800/50 rounded-lg px-3 py-2 border border-slate-300/50 dark:border-slate-700/50">
                       <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                      <span className="text-xs text-slate-400">Auto-refresh</span>
+                      <span className="text-xs text-slate-600 dark:text-slate-400">Auto-refresh</span>
                     </div>
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="relative bg-slate-950/50 p-0">
+              <CardContent className="relative bg-white/50 dark:bg-slate-950/50 p-0">
                 <TransactionList
                   refreshTrigger={refreshKey}
                   onCreateNew={handleCreateNew}
@@ -1420,7 +1420,7 @@ const TransactionHub = () => {
                 >
                   {/* LEFT PANEL - Customer, Financial & Info */}
                   <ResizablePanel defaultSize={25} minSize={20} maxSize={35}>
-                    <div className="p-6 h-full bg-slate-50 dark:bg-slate-800/30">
+                    <div className="p-6 h-full bg-slate-50/70 dark:bg-slate-800/30">
                       <ScrollArea className="h-full">
                         <div className="space-y-4 pr-4">
                           {/* Status Badge */}
@@ -1734,7 +1734,7 @@ const TransactionHub = () => {
 
                   {/* RIGHT PANEL - Actions & Timeline */}
                   <ResizablePanel defaultSize={25} minSize={20} maxSize={35}>
-                    <div className="p-6 h-full bg-slate-50 dark:bg-slate-800/30">
+                    <div className="p-6 h-full bg-slate-50/70 dark:bg-slate-800/30">
                       <div className="h-full flex flex-col">
                         <div className="mb-4">
                           <div className="text-lg font-bold text-slate-900 dark:text-slate-100 mb-2">Quick Actions</div>
@@ -1757,7 +1757,7 @@ const TransactionHub = () => {
                                 onClick={() => {
                                   handleExtension(selectedTransaction?.transaction || selectedTransaction);
                                 }}
-                                className="w-full border-blue-300 text-blue-700 hover:bg-blue-50 dark:border-blue-700 dark:text-blue-400 dark:hover:bg-blue-950/20"
+                                className="w-full border-blue-300 text-blue-700 hover:bg-blue-100 hover:text-blue-800 dark:border-blue-700 dark:text-blue-400 dark:hover:bg-blue-950/20 dark:hover:text-blue-300 transition-colors duration-300"
                               >
                                 <Calendar className="w-4 h-4 mr-2" />
                                 Extend Loan

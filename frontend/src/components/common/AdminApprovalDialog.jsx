@@ -38,62 +38,62 @@ const AdminApprovalDialog = ({
       case 'cancellation':
         return {
           icon: Calendar,
-          iconColor: 'text-orange-600',
-          warning: 'bg-orange-50 border-orange-200',
-          warningIcon: 'text-orange-700',
-          warningText: 'text-orange-900',
+          iconColor: 'text-orange-600 dark:text-orange-400',
+          warning: 'bg-orange-50 dark:bg-orange-950/30 border-orange-200 dark:border-orange-800',
+          warningIcon: 'text-orange-700 dark:text-orange-300',
+          warningText: 'text-orange-900 dark:text-orange-200',
           button: 'bg-orange-600 hover:bg-orange-700 text-white',
-          details: 'bg-orange-50 border-orange-200',
-          detailsTitle: 'text-orange-900',
-          detailsText: 'text-orange-900'
+          details: 'bg-orange-50 dark:bg-orange-950/30 border-orange-200 dark:border-orange-800',
+          detailsTitle: 'text-orange-900 dark:text-orange-200',
+          detailsText: 'text-orange-900 dark:text-orange-200'
         };
       case 'void':
         return {
           icon: X,
-          iconColor: 'text-red-600',
-          warning: 'bg-red-50 border-red-300',
-          warningIcon: 'text-red-700',
-          warningText: 'text-red-900',
+          iconColor: 'text-red-600 dark:text-red-400',
+          warning: 'bg-red-50 dark:bg-red-950/30 border-red-300 dark:border-red-800',
+          warningIcon: 'text-red-700 dark:text-red-300',
+          warningText: 'text-red-900 dark:text-red-200',
           button: 'bg-red-600 hover:bg-red-700 text-white',
-          details: 'bg-red-50 border-red-300',
-          detailsTitle: 'text-red-900',
-          detailsText: 'text-red-800'
+          details: 'bg-red-50 dark:bg-red-950/30 border-red-300 dark:border-red-800',
+          detailsTitle: 'text-red-900 dark:text-red-200',
+          detailsText: 'text-red-800 dark:text-red-200'
         };
       case 'reversal':
         return {
           icon: RotateCcw,
-          iconColor: 'text-amber-600',
-          warning: 'bg-amber-50 border-amber-300',
-          warningIcon: 'text-amber-700',
-          warningText: 'text-amber-900',
+          iconColor: 'text-amber-600 dark:text-amber-400',
+          warning: 'bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800',
+          warningIcon: 'text-amber-700 dark:text-amber-300',
+          warningText: 'text-amber-900 dark:text-amber-200',
           button: 'bg-amber-600 hover:bg-amber-700 text-white',
-          details: 'bg-amber-50 border-amber-300',
-          detailsTitle: 'text-amber-900',
-          detailsText: 'text-amber-900'
+          details: 'bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800',
+          detailsTitle: 'text-amber-900 dark:text-amber-200',
+          detailsText: 'text-amber-900 dark:text-amber-200'
         };
       case 'correction':
         return {
           icon: Shield,
-          iconColor: 'text-blue-500',
-          warning: 'bg-blue-50 border-blue-200',
-          warningIcon: 'text-blue-600',
-          warningText: 'text-blue-800',
+          iconColor: 'text-blue-500 dark:text-blue-400',
+          warning: 'bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800',
+          warningIcon: 'text-blue-600 dark:text-blue-300',
+          warningText: 'text-blue-800 dark:text-blue-200',
           button: 'bg-blue-600 hover:bg-blue-700 text-white',
-          details: 'bg-blue-50 border-blue-200',
-          detailsTitle: 'text-blue-800',
-          detailsText: 'text-blue-700'
+          details: 'bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800',
+          detailsTitle: 'text-blue-800 dark:text-blue-200',
+          detailsText: 'text-blue-700 dark:text-blue-200'
         };
       default:
         return {
           icon: Shield,
-          iconColor: 'text-amber-500',
-          warning: 'bg-amber-50 border-amber-200',
-          warningIcon: 'text-amber-600',
-          warningText: 'text-amber-800',
+          iconColor: 'text-amber-500 dark:text-amber-400',
+          warning: 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800',
+          warningIcon: 'text-amber-600 dark:text-amber-300',
+          warningText: 'text-amber-800 dark:text-amber-200',
           button: 'bg-amber-600 hover:bg-amber-700 text-white',
-          details: 'bg-amber-50 border-amber-200',
-          detailsTitle: 'text-amber-800',
-          detailsText: 'text-amber-700'
+          details: 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800',
+          detailsTitle: 'text-amber-800 dark:text-amber-200',
+          detailsText: 'text-amber-700 dark:text-amber-200'
         };
     }
   };

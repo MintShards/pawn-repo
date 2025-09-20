@@ -168,7 +168,7 @@ const StatusUpdateForm = ({ transaction, customer, onSuccess, onCancel }) => {
                 <SelectItem key={option.value} value={option.value}>
                   <div className="flex items-center space-x-2">
                     <span className="font-medium">{option.label}</span>
-                    <span className="text-sm text-gray-500">- {option.description}</span>
+                    <span className="text-sm text-slate-500 dark:text-slate-400">- {option.description}</span>
                   </div>
                 </SelectItem>
               ))}
@@ -209,7 +209,7 @@ const StatusUpdateForm = ({ transaction, customer, onSuccess, onCancel }) => {
             maxLength={200}
             rows={3}
           />
-          <p className="text-xs text-gray-500">{notes.length}/200 characters</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">{notes.length}/200 characters</p>
         </div>
 
         {/* Error Display */}

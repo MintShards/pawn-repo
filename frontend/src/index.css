@@ -73,12 +73,70 @@
     --ring: var(--pawn-accent);
   }
 }
+
+/* Prefers-color-scheme support for system preference */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    /* Dark mode using pawn colors */
+    --background: var(--pawn-dark);
+    --foreground: var(--pawn-light);
+ 
+    --card: var(--pawn-dark);
+    --card-foreground: var(--pawn-light);
+ 
+    --popover: var(--pawn-dark);
+    --popover-foreground: var(--pawn-light);
+ 
+    --primary: var(--pawn-accent);
+    --primary-foreground: var(--pawn-light);
+ 
+    --secondary: var(--pawn-medium);
+    --secondary-foreground: var(--pawn-light);
+ 
+    --muted: var(--pawn-medium);
+    --muted-foreground: var(--pawn-light);
+ 
+    --accent: var(--pawn-accent);
+    --accent-foreground: var(--pawn-light);
+ 
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+ 
+    --border: var(--pawn-medium);
+    --input: var(--pawn-medium);
+    --ring: var(--pawn-accent);
+  }
+}
  
 @layer base {
   * {
     @apply border-border;
+    /* Smooth color transitions for theme switching */
+    @apply transition-colors duration-200;
   }
+  
   body {
     @apply bg-background text-foreground;
+  }
+  
+  /* Disable transitions during theme switch to prevent FOUC */
+  html.theme-transitioning * {
+    @apply !transition-none;
+  }
+}
+
+@layer components {
+  /* Focus styles for better accessibility */
+  .focus-visible-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+  }
+  
+  /* High contrast mode support */
+  @media (prefers-contrast: high) {
+    :root {
+      --pawn-dark: 0 0% 0%;        /* Pure black */
+      --pawn-light: 0 0% 100%;     /* Pure white */
+      --pawn-accent: 22 100% 50%;  /* High contrast orange */
+    }
   }
 }

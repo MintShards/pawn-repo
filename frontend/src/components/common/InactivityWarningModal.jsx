@@ -58,23 +58,23 @@ const InactivityWarningModal = ({
     <Dialog open={isOpen} onOpenChange={() => {}}>
       <DialogContent 
         className={`sm:max-w-lg border-2 transition-all duration-300 animate-in zoom-in-95 ${
-          urgencyLevel === 'critical' ? 'border-red-500 bg-red-50 shadow-red-200' :
-          urgencyLevel === 'high' ? 'border-orange-500 bg-orange-50 shadow-orange-200' :
-          'border-yellow-500 bg-yellow-50 shadow-yellow-200'
+          urgencyLevel === 'critical' ? 'border-red-500 bg-red-50 dark:bg-red-950/20 shadow-red-200' :
+          urgencyLevel === 'high' ? 'border-orange-500 bg-orange-50 dark:bg-orange-950/20 shadow-orange-200' :
+          'border-yellow-500 bg-yellow-50 dark:bg-yellow-950/20 shadow-yellow-200'
         } shadow-2xl`}
         onPointerDownOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.preventDefault()}
       >
         <DialogHeader className="text-center space-y-3">
           <DialogTitle className={`flex items-center justify-center gap-3 text-xl font-bold transition-colors duration-300 ${
-            urgencyLevel === 'critical' ? 'text-red-800' :
-            urgencyLevel === 'high' ? 'text-orange-800' :
-            'text-yellow-800'
+            urgencyLevel === 'critical' ? 'text-red-800 dark:text-red-200' :
+            urgencyLevel === 'high' ? 'text-orange-800 dark:text-orange-200' :
+            'text-yellow-800 dark:text-yellow-200'
           }`}>
             <div className={`p-2 rounded-full ${
-              urgencyLevel === 'critical' ? 'bg-red-200 animate-pulse' :
-              urgencyLevel === 'high' ? 'bg-orange-200 animate-bounce' :
-              'bg-yellow-200'
+              urgencyLevel === 'critical' ? 'bg-red-200 dark:bg-red-800 animate-pulse' :
+              urgencyLevel === 'high' ? 'bg-orange-200 dark:bg-orange-800 animate-bounce' :
+              'bg-yellow-200 dark:bg-yellow-800'
             }`}>
               {urgencyLevel === 'critical' ? 
                 <AlertTriangle className="h-6 w-6" /> :
@@ -83,7 +83,7 @@ const InactivityWarningModal = ({
             </div>
             🔒 Security Timeout Warning
           </DialogTitle>
-          <DialogDescription className="text-base text-gray-700">
+          <DialogDescription className="text-base text-slate-700 dark:text-slate-300">
             Your session will automatically end due to inactivity for security purposes.
           </DialogDescription>
         </DialogHeader>
@@ -91,9 +91,9 @@ const InactivityWarningModal = ({
         <div className="space-y-6">
           {/* Enhanced Alert Banner */}
           <Alert className={`border-2 transition-all duration-300 ${
-            urgencyLevel === 'critical' ? 'border-red-500 bg-red-100 animate-pulse' :
-            urgencyLevel === 'high' ? 'border-orange-500 bg-orange-100' :
-            'border-yellow-500 bg-yellow-100'
+            urgencyLevel === 'critical' ? 'border-red-500 bg-red-100 dark:bg-red-900/30 animate-pulse' :
+            urgencyLevel === 'high' ? 'border-orange-500 bg-orange-100 dark:bg-orange-900/30' :
+            'border-yellow-500 bg-yellow-100 dark:bg-yellow-900/30'
           }`}>
             <div className="flex items-center gap-2">
               {urgencyLevel === 'critical' ? 
@@ -101,9 +101,9 @@ const InactivityWarningModal = ({
                 <Clock className="h-5 w-5" />
               }
               <AlertDescription className={`font-bold text-lg ${
-                urgencyLevel === 'critical' ? 'text-red-800' :
-                urgencyLevel === 'high' ? 'text-orange-800' :
-                'text-yellow-800'
+                urgencyLevel === 'critical' ? 'text-red-800 dark:text-red-200' :
+                urgencyLevel === 'high' ? 'text-orange-800 dark:text-orange-200' :
+                'text-yellow-800 dark:text-yellow-200'
               }`}>
                 {urgencyLevel === 'critical' 
                   ? '🚨 CRITICAL: Logging out in seconds!'
@@ -118,15 +118,15 @@ const InactivityWarningModal = ({
           {/* Enhanced Countdown Display */}
           <div className="text-center space-y-4">
             <div className={`relative p-6 rounded-full mx-auto w-32 h-32 flex items-center justify-center border-4 transition-all duration-300 ${
-              urgencyLevel === 'critical' ? 'border-red-500 bg-red-100 animate-pulse' :
-              urgencyLevel === 'high' ? 'border-orange-500 bg-orange-100' :
-              'border-yellow-500 bg-yellow-100'
+              urgencyLevel === 'critical' ? 'border-red-500 bg-red-100 dark:bg-red-900/30 animate-pulse' :
+              urgencyLevel === 'high' ? 'border-orange-500 bg-orange-100 dark:bg-orange-900/30' :
+              'border-yellow-500 bg-yellow-100 dark:bg-yellow-900/30'
             }`}>
               <div className="text-center">
                 <div className={`text-3xl font-bold font-mono transition-colors duration-300 ${
-                  urgencyLevel === 'critical' ? 'text-red-800' :
-                  urgencyLevel === 'high' ? 'text-orange-800' :
-                  'text-yellow-800'
+                  urgencyLevel === 'critical' ? 'text-red-800 dark:text-red-200' :
+                  urgencyLevel === 'high' ? 'text-orange-800 dark:text-orange-200' :
+                  'text-yellow-800 dark:text-yellow-200'
                 }`}>
                   {formatTime(countdown)}
                 </div>
@@ -138,7 +138,7 @@ const InactivityWarningModal = ({
               </div>
             </div>
             
-            <div className="text-base font-medium text-gray-700">
+            <div className="text-base font-medium text-slate-700 dark:text-slate-300">
               Time remaining until automatic logout
             </div>
             
@@ -154,12 +154,12 @@ const InactivityWarningModal = ({
                   }`}
                 />
                 <div className={`absolute inset-0 flex items-center justify-center text-xs font-bold ${
-                  progress > 50 ? 'text-white' : 'text-gray-800'
+                  progress > 50 ? 'text-white' : 'text-slate-800 dark:text-slate-200'
                 }`}>
                   {progress.toFixed(0)}%
                 </div>
               </div>
-              <div className="flex justify-between text-sm text-gray-600">
+              <div className="flex justify-between text-sm text-slate-600 dark:text-slate-400">
                 <span>Warning started</span>
                 <span>Auto-logout</span>
               </div>
@@ -167,12 +167,12 @@ const InactivityWarningModal = ({
           </div>
 
           {/* Enhanced Security Information */}
-          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4 shadow-inner">
-            <h4 className="font-semibold text-blue-900 mb-3 flex items-center gap-2">
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 border border-blue-200 dark:border-blue-800 rounded-xl p-4 shadow-inner">
+            <h4 className="font-semibold text-blue-900 dark:text-blue-100 mb-3 flex items-center gap-2">
               <Shield className="h-5 w-5 text-blue-600" />
               Why am I seeing this?
             </h4>
-            <div className="grid grid-cols-2 gap-3 text-sm text-blue-800">
+            <div className="grid grid-cols-2 gap-3 text-sm text-blue-800 dark:text-blue-200">
               <div className="flex items-start gap-2">
                 <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0"></div>
                 <span>You've been inactive for 2 hours</span>
@@ -220,12 +220,12 @@ const InactivityWarningModal = ({
         </DialogFooter>
 
         {/* Enhanced Security Footer */}
-        <div className="text-center mt-4 pt-3 border-t border-gray-200">
-          <div className="flex items-center justify-center gap-2 text-sm text-gray-600">
+        <div className="text-center mt-4 pt-3 border-t border-gray-200 dark:border-gray-700">
+          <div className="flex items-center justify-center gap-2 text-sm text-slate-600 dark:text-slate-400">
             <Shield className="h-4 w-4 text-blue-500" />
             <span className="font-medium">This security feature protects against unauthorized access</span>
           </div>
-          <div className="text-xs text-gray-500 mt-1">
+          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             Pawnshop Management System • Security Protocol Active
           </div>
         </div>

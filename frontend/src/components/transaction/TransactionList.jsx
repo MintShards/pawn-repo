@@ -13,7 +13,10 @@ import {
   Eye,
   Banknote,
   ArrowRightLeft,
-  Package
+  Package,
+  FileText,
+  User,
+  Wallet
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -674,7 +677,7 @@ const TransactionList = ({
       <div className="space-y-6">
         {/* Primary Search Bar with Dark Gradient Theme */}
         <div className="relative group">
-          <div className="absolute inset-0 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 rounded-xl opacity-95"></div>
+          <div className="absolute inset-0 bg-gradient-to-r from-white via-slate-50 to-slate-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 rounded-xl opacity-95 transition-colors duration-300"></div>
           <div className="relative p-6 space-y-4">
             <div className="relative">
               <div className="absolute inset-y-0 left-0 flex items-center pl-5 pointer-events-none z-10">
@@ -690,7 +693,7 @@ const TransactionList = ({
                     setActiveSearchTerm(searchTerm);
                   }
                 }}
-                className="pl-16 pr-14 h-16 text-lg font-medium bg-slate-800/50 border-slate-700/50 text-slate-100 placeholder:text-slate-400 focus:bg-slate-800/70 focus:border-blue-500/50 focus:ring-blue-500/20 transition-all shadow-lg backdrop-blur-sm"
+                className="pl-16 pr-14 h-16 text-lg font-medium bg-white/50 border-slate-300/50 text-slate-900 placeholder:text-slate-500 focus:bg-white/70 focus:border-blue-500/50 focus:ring-blue-500/20 dark:bg-slate-800/50 dark:border-slate-700/50 dark:text-slate-100 dark:placeholder:text-slate-400 dark:focus:bg-slate-800/70 transition-all shadow-lg backdrop-blur-sm"
               />
               {searchTerm && (
                 <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
@@ -706,7 +709,7 @@ const TransactionList = ({
                       setSearchTerm('');
                       setActiveSearchTerm('');
                     }}
-                    className="h-10 w-10 p-0 rounded-lg hover:bg-slate-700/50 text-slate-400 hover:text-slate-200 transition-all"
+                    className="h-10 w-10 p-0 rounded-lg hover:bg-slate-200/50 text-slate-600 hover:text-slate-800 dark:hover:bg-slate-700/50 dark:text-slate-400 dark:hover:text-slate-200 transition-all"
                   >
                     <X className="h-5 w-5" />
                   </Button>
@@ -718,7 +721,7 @@ const TransactionList = ({
 
         {/* Status Filters with Enhanced Dark Theme */}
         <div className="relative group">
-          <div className="absolute inset-0 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 rounded-xl opacity-95"></div>
+          <div className="absolute inset-0 bg-gradient-to-r from-white via-slate-50 to-slate-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 rounded-xl opacity-95 transition-colors duration-300"></div>
           <div className="relative p-6">
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center space-x-2">
@@ -731,7 +734,7 @@ const TransactionList = ({
                     className={`h-10 px-3 font-medium transition-all duration-200 text-sm ${
                       filters.status === (status === 'all' ? '' : status)
                         ? 'text-white shadow-lg'
-                        : 'bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 hover:text-white border-slate-600/50 hover:border-slate-500/50'
+                        : 'bg-slate-200/50 hover:bg-slate-300/60 hover:shadow-sm text-slate-700 hover:text-slate-900 border-slate-300/50 hover:border-slate-400/60 dark:bg-slate-700/50 dark:hover:bg-slate-600/60 dark:text-slate-300 dark:hover:text-white dark:border-slate-600/50 dark:hover:border-slate-500/60'
                     }`}
                     style={filters.status === (status === 'all' ? '' : status) ? {
                       background: status === 'redeemed' ? '#4CAF50' :
@@ -767,7 +770,7 @@ const TransactionList = ({
                   variant="ghost" 
                   size="sm"
                   disabled={loading}
-                  className="h-10 px-3 bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 hover:text-white border-slate-600/50 hover:border-slate-500/50 transition-all duration-200 text-sm"
+                  className="h-10 px-3 bg-slate-200/50 hover:bg-slate-300/60 hover:shadow-sm text-slate-700 hover:text-slate-900 border-slate-300/50 hover:border-slate-400/60 dark:bg-slate-700/50 dark:hover:bg-slate-600/60 dark:text-slate-300 dark:hover:text-white dark:border-slate-600/50 dark:hover:border-slate-500/60 transition-all duration-200 text-sm"
                 >
                   <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
                   <span className="font-medium">Refresh</span>
@@ -778,7 +781,7 @@ const TransactionList = ({
                     <Button 
                       variant="outline" 
                       size="sm" 
-                      className="h-10 px-3 bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 hover:text-white border-slate-600/50 hover:border-slate-500/50 transition-all duration-200 text-sm"
+                      className="h-10 px-3 bg-slate-200/50 hover:bg-slate-300/60 hover:shadow-sm text-slate-700 hover:text-slate-900 border-slate-300/50 hover:border-slate-400/60 dark:bg-slate-700/50 dark:hover:bg-slate-600/60 dark:text-slate-300 dark:hover:text-white dark:border-slate-600/50 dark:hover:border-slate-500/60 transition-all duration-200 text-sm"
                     >
                       <Filter className="h-4 w-4 mr-2" />
                       <span className="font-medium">Advanced</span>
@@ -872,8 +875,8 @@ const TransactionList = ({
       {/* Loading State */}
       {loading && (
         <div className="flex items-center justify-center p-8">
-          <RefreshCw className="h-6 w-6 animate-spin text-gray-400" />
-          <span className="ml-2 text-gray-600">Loading transactions...</span>
+          <RefreshCw className="h-6 w-6 animate-spin text-slate-400 dark:text-slate-500" />
+          <span className="ml-2 text-slate-600 dark:text-slate-400">Loading transactions...</span>
         </div>
       )}
 
@@ -960,11 +963,11 @@ const TransactionList = ({
           {/* Transaction Display */}
           {!isMobile ? (
             /* Enhanced Table View */
-            <Card className="border-0 shadow-xl bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm">
+            <Card className="border-0 shadow-sm bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm transition-colors duration-300">
               <div className="overflow-hidden">
                 <Table>
                   <TableHeader>
-                    <TableRow className="border-slate-200/50 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50">
+                    <TableRow className="border-slate-200/50 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors duration-300">
                       <TableHead className="w-12 pl-6">
                         <Checkbox
                           checked={selectedTransactionIds.length === filteredAndSortedTransactions.length && filteredAndSortedTransactions.length > 0}
@@ -973,33 +976,29 @@ const TransactionList = ({
                         />
                       </TableHead>
                       <TableHead 
-                        className="cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-700/50 transition-colors font-semibold text-slate-700 dark:text-slate-300"
+                        className="cursor-pointer hover:shadow-sm transition-all duration-200 font-semibold text-slate-700 dark:text-slate-300"
                         onClick={() => handleSort('pawn_date')}
                       >
                         <div className="flex items-center space-x-2 py-2">
-                          <CreditCard className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                          <FileText className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                           <span>Transaction</span>
                           {getSortIcon('pawn_date')}
                         </div>
                       </TableHead>
                       <TableHead className="font-semibold text-slate-700 dark:text-slate-300">
                         <div className="flex items-center space-x-2">
-                          <div className="w-4 h-4 rounded-full bg-slate-300 dark:bg-slate-600 flex items-center justify-center">
-                            <div className="w-2 h-2 rounded-full bg-slate-600 dark:bg-slate-300"></div>
-                          </div>
+                          <User className="w-4 h-4 text-slate-600 dark:text-slate-400" />
                           <span>Customer</span>
                         </div>
                       </TableHead>
                       <TableHead className="font-semibold text-slate-700 dark:text-slate-300">
                         <div className="flex items-center space-x-2">
-                          <div className="w-4 h-4 rounded-lg bg-amber-200 dark:bg-amber-700 flex items-center justify-center">
-                            <div className="w-2 h-2 rounded-sm bg-amber-600 dark:bg-amber-300"></div>
-                          </div>
+                          <Package className="w-4 h-4 text-amber-600 dark:text-amber-400" />
                           <span>Items</span>
                         </div>
                       </TableHead>
                       <TableHead 
-                        className="cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-700/50 transition-colors font-semibold text-slate-700 dark:text-slate-300"
+                        className="cursor-pointer hover:shadow-sm transition-all duration-200 font-semibold text-slate-700 dark:text-slate-300"
                         onClick={() => handleSort('loan_amount')}
                       >
                         <div className="flex items-center space-x-2 py-2">
@@ -1010,12 +1009,12 @@ const TransactionList = ({
                       </TableHead>
                       <TableHead className="font-semibold text-slate-700 dark:text-slate-300">
                         <div className="flex items-center space-x-2">
-                          <CreditCard className="w-4 h-4 text-orange-600 dark:text-orange-400" />
+                          <Wallet className="w-4 h-4 text-orange-600 dark:text-orange-400" />
                           <span>Balance</span>
                         </div>
                       </TableHead>
                       <TableHead 
-                        className="cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-700/50 transition-colors font-semibold text-slate-700 dark:text-slate-300"
+                        className="cursor-pointer hover:shadow-sm transition-all duration-200 font-semibold text-slate-700 dark:text-slate-300"
                         onClick={() => handleSort('status')}
                       >
                         <div className="flex items-center space-x-2 py-2">
@@ -1033,9 +1032,9 @@ const TransactionList = ({
                     {filteredAndSortedTransactions.map((transaction, index) => (
                       <TableRow 
                         key={transaction.transaction_id}
-                        className={`border-slate-200/50 dark:border-slate-700/50 hover:bg-gradient-to-r hover:from-blue-50/30 hover:to-indigo-50/30 dark:hover:from-blue-950/10 dark:hover:to-indigo-950/10 transition-all cursor-pointer group ${
+                        className={`border-0 hover:bg-slate-50/10 dark:hover:bg-slate-800/3 hover:shadow-sm transition-all duration-300 cursor-pointer group ${
                           selectedTransactionIds.includes(transaction.transaction_id) 
-                            ? 'bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 border-blue-200 dark:border-blue-800' 
+                            ? 'bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 shadow-sm' 
                             : index % 2 === 0 ? 'bg-slate-25/50 dark:bg-slate-900/20' : ''
                         }`}
                         onClick={() => onViewTransaction?.(transaction)}
@@ -1049,7 +1048,7 @@ const TransactionList = ({
                         </TableCell>
                         <TableCell>
                           <div className="space-y-1">
-                            <div className="font-bold text-blue-700 dark:text-blue-300 text-base">
+                            <div className="font-bold text-slate-900 dark:text-slate-100 text-base">
                               #{formatTransactionId(transaction)}
                             </div>
                             <div className="text-sm text-slate-500 dark:text-slate-400 flex items-center space-x-1">
@@ -1057,7 +1056,7 @@ const TransactionList = ({
                               <span>{formatDate(transaction.pawn_date)}</span>
                             </div>
                             {transaction.storage_location && (
-                              <div className="text-xs text-slate-400 dark:text-slate-500 flex items-center space-x-1">
+                              <div className="text-xs text-slate-500 dark:text-slate-500 flex items-center space-x-1">
                                 <div className="w-2 h-2 bg-slate-400 rounded-full"></div>
                                 <span>{formatStorageLocation(transaction.storage_location)}</span>
                               </div>
@@ -1072,7 +1071,7 @@ const TransactionList = ({
                                 {customerData[transaction.customer_id] ? (
                                   <Button
                                     variant="link"
-                                    className="h-auto p-0 text-sm font-bold text-slate-900 dark:text-slate-100 hover:text-blue-700 dark:hover:text-blue-300 underline-offset-2"
+                                    className="h-auto p-0 text-sm font-bold text-slate-900 dark:text-slate-100 hover:text-slate-700 dark:hover:text-slate-300 underline-offset-2 transition-colors duration-300"
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       onViewCustomer?.(transaction.customer_id);
@@ -1081,13 +1080,13 @@ const TransactionList = ({
                                     {customerService.getCustomerNameFormatted(customerData[transaction.customer_id])}
                                   </Button>
                                 ) : (
-                                  <div className="text-xs text-slate-400 dark:text-slate-500">Loading...</div>
+                                  <div className="text-xs text-slate-500 dark:text-slate-500">Loading...</div>
                                 )}
                               </div>
                               {/* Customer Phone Number */}
                               <Button
                                 variant="link"
-                                className="h-auto p-0 text-xs font-normal text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 underline-offset-2 opacity-75"
+                                className="h-auto p-0 text-xs font-normal text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 underline-offset-2 transition-colors duration-300"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   onViewCustomer?.(transaction.customer_id);
@@ -1097,14 +1096,14 @@ const TransactionList = ({
                               </Button>
                             </div>
                           ) : (
-                            <div className="font-medium text-slate-400 dark:text-slate-500">N/A</div>
+                            <div className="font-medium text-slate-600 dark:text-slate-500">N/A</div>
                           )}
                         </TableCell>
                         <TableCell>
                           <div className="space-y-1">
                             <Button
                               variant="link"
-                              className="h-auto p-0 font-mono font-bold text-amber-700 dark:text-amber-300 text-sm hover:text-amber-800 dark:hover:text-amber-200 underline-offset-2"
+                              className="h-auto p-0 font-mono font-bold text-slate-700 dark:text-slate-300 text-sm hover:text-slate-800 dark:hover:text-slate-200 underline-offset-2 transition-colors duration-300"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleViewItems(transaction);
@@ -1119,7 +1118,7 @@ const TransactionList = ({
                         </TableCell>
                         <TableCell>
                           <div className="space-y-1">
-                            <div className="font-bold text-lg text-slate-900 dark:text-slate-100">
+                            <div className="font-bold text-lg text-slate-700 dark:text-slate-300">
                               {formatCurrency(transaction.loan_amount || 0)}
                             </div>
                             <div className="text-xs text-slate-500 dark:text-slate-400">
@@ -1131,7 +1130,7 @@ const TransactionList = ({
                           <div className="space-y-1">
                             {['active', 'overdue', 'extended'].includes(transaction.status) ? (
                               <>
-                                <div className="font-bold text-lg text-slate-900 dark:text-slate-100">
+                                <div className="font-bold text-lg text-slate-800 dark:text-slate-200">
                                   {transactionBalances[transaction.transaction_id]?.current_balance !== undefined 
                                     ? formatCurrency(transactionBalances[transaction.transaction_id].current_balance)
                                     : '...'
@@ -1147,7 +1146,7 @@ const TransactionList = ({
                                 )}
                               </>
                             ) : (
-                              <div className="text-slate-400 dark:text-slate-500 text-sm italic">
+                              <div className="text-slate-600 dark:text-slate-500 text-sm italic font-medium">
                                 {transaction.status === 'redeemed' ? 'Paid' : 'N/A'}
                               </div>
                             )}
@@ -1178,12 +1177,12 @@ const TransactionList = ({
                           </div>
                         </TableCell>
                         <TableCell onClick={(e) => e.stopPropagation()}>
-                          <div className="flex items-center justify-center space-x-1">
+                          <div className="flex items-center justify-center space-x-2">
                             <Button
                               variant="ghost"
                               size="sm"
                               onClick={() => onViewTransaction?.(transaction)}
-                              className="h-8 w-8 p-0 hover:bg-blue-100 dark:hover:bg-blue-950/50 text-blue-600 dark:text-blue-400"
+                              className="h-8 w-8 p-0 hover:bg-blue-300 dark:hover:bg-blue-950/50 hover:scale-110 text-blue-600 dark:text-blue-400 transition-all duration-300"
                               title="View Details"
                             >
                               <Eye className="h-4 w-4" />
@@ -1194,7 +1193,7 @@ const TransactionList = ({
                                   variant="ghost"
                                   size="sm"
                                   onClick={() => onPayment?.(transaction)}
-                                  className="h-8 w-8 p-0 hover:bg-emerald-100 dark:hover:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400"
+                                  className="h-8 w-8 p-0 hover:bg-emerald-300 dark:hover:bg-emerald-950/50 hover:scale-110 text-emerald-600 dark:text-emerald-400 transition-all duration-300"
                                   title="Process Payment"
                                 >
                                   <Banknote className="h-4 w-4" />
@@ -1203,7 +1202,7 @@ const TransactionList = ({
                                   variant="ghost"
                                   size="sm"
                                   onClick={() => onExtension?.(transaction)}
-                                  className="h-8 w-8 p-0 hover:bg-amber-100 dark:hover:bg-amber-950/50 text-amber-600 dark:text-amber-400"
+                                  className="h-8 w-8 p-0 hover:bg-amber-300 dark:hover:bg-amber-950/50 hover:scale-110 text-amber-600 dark:text-amber-400 transition-all duration-300"
                                   title="Extend Loan"
                                 >
                                   <ArrowRightLeft className="h-4 w-4" />

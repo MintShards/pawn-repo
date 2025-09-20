@@ -15,7 +15,7 @@ const TrendIndicator = ({ direction, percentage, className }) => {
   
   if (direction === 'stable' || Math.abs(numPercentage) < 0.1) {
     return (
-      <div className={cn("flex items-center space-x-1 text-gray-500", className)}>
+      <div className={cn("flex items-center space-x-1 text-slate-500 dark:text-slate-400", className)}>
         <Minus className="w-3 h-3" />
         <span className="text-xs">Stable</span>
       </div>
@@ -52,15 +52,15 @@ const StatCardSkeleton = ({ theme = 'default' }) => {
       "border-0 shadow-lg bg-gradient-to-br relative overflow-hidden",
       themeClasses[theme] || themeClasses.default
     )}>
-      <div className="absolute top-0 right-0 w-20 h-20 bg-gray-500/10 rounded-full -mr-10 -mt-10" />
+      <div className="absolute top-0 right-0 w-20 h-20 bg-slate-500/10 dark:bg-slate-400/10 rounded-full -mr-10 -mt-10" />
       <CardContent className="p-6">
         <div className="flex items-center justify-between">
           <div className="space-y-2">
-            <div className="h-4 w-24 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
-            <div className="h-8 w-16 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
-            <div className="h-3 w-20 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+            <div className="h-4 w-24 bg-slate-200 dark:bg-slate-700 rounded animate-pulse" />
+            <div className="h-8 w-16 bg-slate-200 dark:bg-slate-700 rounded animate-pulse" />
+            <div className="h-3 w-20 bg-slate-200 dark:bg-slate-700 rounded animate-pulse" />
           </div>
-          <div className="w-12 h-12 bg-gray-200/50 dark:bg-gray-700/50 rounded-xl animate-pulse" />
+          <div className="w-12 h-12 bg-slate-200/50 dark:bg-slate-700/50 rounded-xl animate-pulse" />
         </div>
       </CardContent>
     </Card>
@@ -120,12 +120,12 @@ export const StatCard = memo(({
       iconColor: 'text-pink-600 dark:text-pink-400'
     },
     amber: {
-      gradient: 'from-yellow-50 to-orange-50 dark:from-yellow-950/50 dark:to-orange-950/50',
-      accent: 'bg-yellow-500/10',
-      textPrimary: 'text-yellow-700 dark:text-yellow-300', // Improved contrast
-      textSecondary: 'text-yellow-900 dark:text-yellow-100',
-      iconBg: 'bg-yellow-500/20',
-      iconColor: 'text-yellow-700 dark:text-yellow-300' // Improved contrast
+      gradient: 'from-amber-50 to-orange-50 dark:from-amber-950/50 dark:to-orange-950/50',
+      accent: 'bg-amber-500/10',
+      textPrimary: 'text-amber-800 dark:text-amber-200', // Improved contrast for WCAG AA
+      textSecondary: 'text-amber-900 dark:text-amber-100',
+      iconBg: 'bg-amber-500/20',
+      iconColor: 'text-amber-800 dark:text-amber-200' // Improved contrast for WCAG AA
     },
     orange: {
       gradient: 'from-orange-50 to-red-50 dark:from-orange-950/50 dark:to-red-950/50',

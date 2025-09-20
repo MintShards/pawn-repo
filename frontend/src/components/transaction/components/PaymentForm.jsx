@@ -313,7 +313,7 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
               </div>
             )}
             {balance && formData.payment_amount && (
-              <div className="flex justify-between text-sm text-gray-600">
+              <div className="flex justify-between text-sm text-slate-600 dark:text-slate-400">
                 <span>Remaining balance:</span>
                 <span className="font-medium">
                   {formatCurrency(Math.max(0, balance.current_balance - parseFloat(formData.payment_amount || 0)))}
@@ -321,7 +321,7 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
               </div>
             )}
             {balance && (
-              <div className="flex justify-between text-xs text-gray-500">
+              <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400">
                 <span>Current balance:</span>
                 <span>{formatCurrency(balance.current_balance)}</span>
               </div>

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Button } from './button';
 import { useTheme } from '../../context/ThemeContext';
+import { cn } from '../../lib/utils';
 
 const ThemeToggle = ({ className = "", size = "default", variant = "ghost" }) => {
   const { theme, toggleTheme } = useTheme();
@@ -10,8 +11,13 @@ const ThemeToggle = ({ className = "", size = "default", variant = "ghost" }) =>
       variant={variant}
       size={size}
       onClick={toggleTheme}
-      className={`relative ${className}`}
-      title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+      className={cn(
+        "relative",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        className
+      )}
+      aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode. Currently using ${theme} mode.`}
+      aria-pressed={theme === 'dark'}
     >
       {/* Sun icon for light mode */}
       <svg
@@ -22,6 +28,7 @@ const ThemeToggle = ({ className = "", size = "default", variant = "ghost" }) =>
         stroke="currentColor"
         viewBox="0 0 24 24"
         xmlns="http://www.w3.org/2000/svg"
+        aria-hidden="true"
       >
         <circle cx="12" cy="12" r="5" strokeWidth="2" />
         <path
@@ -41,6 +48,7 @@ const ThemeToggle = ({ className = "", size = "default", variant = "ghost" }) =>
         stroke="currentColor"
         viewBox="0 0 24 24"
         xmlns="http://www.w3.org/2000/svg"
+        aria-hidden="true"
       >
         <path
           strokeLinecap="round"
@@ -49,7 +57,9 @@ const ThemeToggle = ({ className = "", size = "default", variant = "ghost" }) =>
           d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"
         />
       </svg>
-      <span className="sr-only">Toggle theme</span>
+      <span className="sr-only">
+        Toggle theme. Currently using {theme} mode.
+      </span>
     </Button>
   );
 };
