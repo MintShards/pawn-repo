@@ -6,15 +6,14 @@ import { Label } from '../../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '../../ui/card';
 import { Alert, AlertDescription } from '../../ui/alert';
-import { Progress } from '../../ui/progress';
 import { Badge } from '../../ui/badge';
 import extensionService from '../../../services/extensionService';
 import { formatTransactionId, formatCurrency } from '../../../utils/transactionUtils';
 import { useFormValidation, validateAmount, validateExtension } from '../../../utils/formValidation';
-import { handleError, handleSuccess } from '../../../utils/errorHandling';
+import { handleError } from '../../../utils/errorHandling';
 import ConfirmationDialog from '../../common/ConfirmationDialog';
 import LoadingDialog from '../../common/LoadingDialog';
-import { formatLocalDate } from '../../../utils/timezoneUtils';
+import { formatBusinessDate } from '../../../utils/timezoneUtils';
 import { useStatsPolling } from '../../../hooks/useStatsPolling';
 
 const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
@@ -40,7 +39,7 @@ const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
   }, formValidators);
   
   const [eligibility, setEligibility] = useState(null);
-  const [loadingEligibility, setLoadingEligibility] = useState(false);
+  const [loadingEligibility, setLoadingEligibility] = useState(false); // eslint-disable-line no-unused-vars
   const [submitting, setSubmitting] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
 
@@ -194,10 +193,10 @@ const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
       setSubmitting(false);
       setShowConfirmation(false);
     }
-  }, [transaction.transaction_id, formData, onSuccess]);
+  }, [transaction.transaction_id, formData, onSuccess, triggerRefresh]);
 
   const formatDate = (dateString) => {
-    return formatLocalDate(dateString);
+    return formatBusinessDate(dateString);
   };
 
 

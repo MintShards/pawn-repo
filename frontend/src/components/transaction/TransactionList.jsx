@@ -42,6 +42,7 @@ import TransactionCard from './TransactionCard';
 import StatusBadge from './components/StatusBadge';
 import transactionService from '../../services/transactionService';
 import customerService from '../../services/customerService';
+import extensionService from '../../services/extensionService';
 import { initializeSequenceNumbers, formatTransactionId, formatExtensionId, formatStorageLocation, formatCurrency } from '../../utils/transactionUtils';
 import { formatBusinessDate } from '../../utils/timezoneUtils';
 import { useOptimisticTransactionUpdate } from '../../hooks/useOptimisticTransactionUpdate';
@@ -53,6 +54,7 @@ const TransactionList = ({
   onPayment, 
   onExtension,
   onStatusUpdate,
+  onVoidTransaction,
   refreshTrigger
 }) => {
   const [transactions, setTransactions] = useState([]);
@@ -98,7 +100,6 @@ const TransactionList = ({
   
   // REAL-TIME FIX: Optimistic updates for immediate UI feedback
   const {
-    operationStatus,
     optimisticCreate,
     optimisticStatusUpdate,
     optimisticExtension,
@@ -188,7 +189,7 @@ const TransactionList = ({
     }
   }, []);
 
-  const loadTransactions = useCallback(async () => {
+  const loadTransactions = useCallback(async (bustCache = false) => {
     try {
       setLoading(true);
       setError(null);
@@ -234,7 +235,7 @@ const TransactionList = ({
         
         // Enrich all transactions with extension data for better user experience
         const transactionList = response.transactions || [];
-        const enrichedTransactions = await transactionService.enrichTransactionsWithExtensions(transactionList, false);
+        const enrichedTransactions = await transactionService.enrichTransactionsWithExtensions(transactionList, bustCache);
         response.transactions = enrichedTransactions;
         
         // Set total count for pagination
@@ -359,11 +360,15 @@ const TransactionList = ({
     }
   }, []);
 
-  // Load transactions on mount and when filters change
+  // Load transactions when component mounts or dependencies change
   useEffect(() => {
-    loadTransactions();
-    fetchAllTransactionsCounts(); // Fetch counts for filter badges
-  }, [loadTransactions, fetchAllTransactionsCounts]);
+    loadTransactions(false);
+  }, [loadTransactions]);
+
+  // Load transaction counts on mount and when filters change
+  useEffect(() => {
+    fetchAllTransactionsCounts();
+  }, [fetchAllTransactionsCounts]);
 
 
   // Reset to page 1 when search or filters change
@@ -377,12 +382,15 @@ const TransactionList = ({
       // Always reset to page 1 to show updated transaction at top
       setCurrentPage(1);
       
-      
-      // Clear the transaction service cache first to ensure fresh data
-      transactionService.clearTransactionCache();
-      
-      // Force reload by calling the functions directly
-      const forceReload = async () => {
+      // Add a small delay to ensure the backend has processed the update
+      const performRefresh = setTimeout(async () => {
+        // Clear the transaction service cache first to ensure fresh data
+        transactionService.clearTransactionCache();
+        
+        // Clear extension cache to ensure fresh extension counts
+        extensionService.clearExtensionCache();
+        
+        // Force reload by calling the functions directly
         try {
           setLoading(true);
           setError(null);
@@ -486,9 +494,10 @@ const TransactionList = ({
         } finally {
           setLoading(false);
         }
-      };
+      }, 300); // 300ms delay to ensure backend processing is complete
       
-      forceReload();
+      // Cleanup timeout on unmount or when refreshTrigger changes
+      return () => clearTimeout(performRefresh);
     }
   }, [refreshTrigger, filters, transactionsPerPage, sortField, sortDirection, activeSearchTerm, customerData, fetchAllTransactionsCounts]);
 
@@ -510,7 +519,7 @@ const TransactionList = ({
 
   const handleRefresh = () => {
     setCurrentPage(1); // Reset to first page
-    loadTransactions();
+    loadTransactions(true); // Bust cache on manual refresh
     fetchAllTransactionsCounts(); // Refresh counts as well
   };
 
@@ -721,19 +730,23 @@ const TransactionList = ({
                     onClick={() => handleStatusFilter(status === 'all' ? '' : status)}
                     className={`h-10 px-3 font-medium transition-all duration-200 text-sm ${
                       filters.status === (status === 'all' ? '' : status)
-                        ? status === 'active' 
-                          ? 'bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white shadow-lg shadow-emerald-500/25'
-                          : status === 'overdue'
-                          ? 'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white shadow-lg shadow-red-500/25'
-                          : status === 'extended'
-                          ? 'bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white shadow-lg shadow-blue-500/25'
-                          : status === 'redeemed'
-                          ? 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white shadow-lg shadow-green-500/25'
-                          : status === 'sold'
-                          ? 'bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white shadow-lg shadow-purple-500/25'
-                          : 'bg-gradient-to-r from-slate-600 to-slate-700 hover:from-slate-700 hover:to-slate-800 text-white shadow-lg shadow-slate-500/25'
+                        ? 'text-white shadow-lg'
                         : 'bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 hover:text-white border-slate-600/50 hover:border-slate-500/50'
                     }`}
+                    style={filters.status === (status === 'all' ? '' : status) ? {
+                      background: status === 'redeemed' ? '#4CAF50' :
+                                 status === 'active' ? '#2196F3' :
+                                 status === 'extended' ? '#00BCD4' :
+                                 status === 'sold' ? '#9C27B0' :
+                                 status === 'overdue' ? '#F44336' :
+                                 '#64748B',
+                      boxShadow: status === 'redeemed' ? '0 10px 15px -3px rgba(76, 175, 80, 0.25)' :
+                                status === 'active' ? '0 10px 15px -3px rgba(33, 150, 243, 0.25)' :
+                                status === 'extended' ? '0 10px 15px -3px rgba(0, 188, 212, 0.25)' :
+                                status === 'sold' ? '0 10px 15px -3px rgba(156, 39, 176, 0.25)' :
+                                status === 'overdue' ? '0 10px 15px -3px rgba(244, 67, 54, 0.25)' :
+                                '0 10px 15px -3px rgba(100, 116, 139, 0.25)'
+                    } : {}}
                   >
                     {status === 'all' ? 'All' : status.charAt(0).toUpperCase() + status.slice(1)}
                     <Badge 
@@ -1217,9 +1230,12 @@ const TransactionList = ({
                   onPayment={onPayment}
                   onExtension={onExtension}
                   onStatusUpdate={onStatusUpdate}
+                  onVoidTransaction={onVoidTransaction}
                   isSelected={selectedTransactionIds.includes(transaction.transaction_id)}
                   onSelect={() => handleSelectTransaction(transaction.transaction_id)}
+                  refreshTrigger={refreshTrigger}
                   customerData={customerData}
+                  balance={transactionBalances[transaction.transaction_id]}
                 />
               ))}
             </div>
@@ -1305,12 +1321,14 @@ const TransactionList = ({
             Showing {Math.min((currentPage - 1) * transactionsPerPage + 1, effectiveTotalTransactions)}-{Math.min(currentPage * transactionsPerPage, effectiveTotalTransactions)} of {effectiveTotalTransactions} transactions
           </div>
           
-          {(
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+              onClick={(e) => {
+                e.preventDefault();
+                setCurrentPage(prev => Math.max(1, prev - 1));
+              }}
               disabled={currentPage === 1}
             >
               Previous
@@ -1331,7 +1349,10 @@ const TransactionList = ({
                       variant="outline"
                       size="sm"
                       className={`w-8 h-8 p-0 ${currentPage === pageNumber ? 'bg-orange-600 text-white border-orange-600 hover:bg-orange-700' : 'hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-                      onClick={() => setCurrentPage(pageNumber)}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setCurrentPage(pageNumber);
+                      }}
                     >
                       {pageNumber}
                     </Button>
@@ -1349,13 +1370,15 @@ const TransactionList = ({
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+              onClick={(e) => {
+                e.preventDefault();
+                setCurrentPage(prev => Math.min(totalPages, prev + 1));
+              }}
               disabled={currentPage === totalPages}
             >
               Next
             </Button>
             </div>
-          )}
         </div>
       )}
 

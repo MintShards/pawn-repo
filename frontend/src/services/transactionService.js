@@ -5,8 +5,44 @@ import extensionService from './extensionService';
 class TransactionService {
   constructor() {
     this.cache = new Map();
-    this.cacheExpiry = 30000; // 30 second cache to reduce API calls
+    this.cacheExpiry = 15000; // Reduced to 15 seconds for more responsive data
     this.pendingRequests = new Map(); // Track pending requests to prevent duplicates
+    this.requestQueue = []; // Track request timing for monitoring only
+    this.maxRequestsPerMinute = 100; // High limit - monitoring only
+    this.throttleWindow = 60000; // 1 minute window
+    this.lastRefresh = 0; // Track last refresh time
+    this.minRefreshInterval = 100; // Minimal debounce for better responsiveness
+  }
+
+  // Rate limiting check
+  canMakeRequest() {
+    const now = Date.now();
+    // Remove requests older than the throttle window
+    this.requestQueue = this.requestQueue.filter(timestamp => now - timestamp < this.throttleWindow);
+    
+    // Check if we're under the rate limit
+    return this.requestQueue.length < this.maxRequestsPerMinute;
+  }
+
+  // Add request to rate limiting queue
+  trackRequest() {
+    this.requestQueue.push(Date.now());
+  }
+
+  // Wait for rate limit window to clear (unused - kept for compatibility)
+  async waitForRateLimit() {
+    // No longer used - rate limiting disabled for development
+    return;
+  }
+
+  // Debounced refresh to prevent rapid successive calls
+  canRefresh() {
+    const now = Date.now();
+    if (now - this.lastRefresh < this.minRefreshInterval) {
+      return false;
+    }
+    this.lastRefresh = now;
+    return true;
   }
 
   // Get all transactions with optional parameters
@@ -27,14 +63,27 @@ class TransactionService {
         return cached.data;
       }
       
+      // Debounce rapid refresh calls - but allow API calls if no cached data
+      if (!this.canRefresh()) {
+        // Return cached data if available, even if expired
+        if (cached) {
+          return cached.data;
+        }
+        // If no cached data available, allow the request (no warning needed - this is normal behavior)
+        // Don't return early - proceed with the API call
+      }
+      
       // Check if request is already pending to prevent duplicate calls
       if (this.pendingRequests.has(cacheKey)) {
         return await this.pendingRequests.get(cacheKey);
       }
       
+      // Skip aggressive rate limiting - just track requests for monitoring
+      this.trackRequest();
+      
       // Create pending request promise
       const requestPromise = (async () => {
-        try {
+        try {          
           const result = await authService.apiRequest(endpoint, {
             method: 'GET',
           });
@@ -132,6 +181,21 @@ class TransactionService {
       const result = await authService.apiRequest(`/api/v1/pawn-transaction/${transactionId}/status`, {
         method: 'PUT',
         body: JSON.stringify(statusData),
+      });
+      this.clearTransactionCache();
+      return result;
+    } catch (error) {
+      // Error handled
+      throw error;
+    }
+  }
+
+  // Void transaction (Admin only)
+  async voidTransaction(transactionId, voidData) {
+    try {
+      const result = await authService.apiRequest(`/api/v1/pawn-transaction/${transactionId}/void`, {
+        method: 'POST',
+        body: JSON.stringify(voidData),
       });
       this.clearTransactionCache();
       return result;
@@ -354,6 +418,59 @@ class TransactionService {
     } catch (error) {
       console.error('Error getting status counts:', error);
       throw error;
+    }
+  }
+
+  // Get audit entries for timeline display with optimized caching
+  async getAuditEntries(transactionId, limit = 20, bustCache = false) {
+    try {
+      const endpoint = `/api/v1/notes/transaction/${transactionId}/audit-entries?limit=${limit}`;
+      const cacheKey = `audit-${transactionId}-${limit}`;
+      
+      // Check cache first unless busting cache
+      if (!bustCache) {
+        const cached = this.cache.get(cacheKey);
+        if (cached && Date.now() - cached.timestamp < this.cacheExpiry) {
+          return cached.data;
+        }
+        
+        // Check if request is already pending
+        if (this.pendingRequests.has(cacheKey)) {
+          return await this.pendingRequests.get(cacheKey);
+        }
+      }
+      
+      // Create pending request promise
+      const requestPromise = (async () => {
+        try {
+          const cacheBuster = bustCache ? `&_t=${Date.now()}` : '';
+          const response = await authService.apiRequest(`${endpoint}${cacheBuster}`, {
+            method: 'GET',
+          });
+          
+          const result = response || [];
+          
+          // Cache the result
+          this.cache.set(cacheKey, {
+            data: result,
+            timestamp: Date.now()
+          });
+          
+          return result;
+        } finally {
+          // Remove from pending requests
+          this.pendingRequests.delete(cacheKey);
+        }
+      })();
+      
+      // Store pending request
+      this.pendingRequests.set(cacheKey, requestPromise);
+      
+      return await requestPromise;
+    } catch (error) {
+      console.error('Error fetching audit entries:', error);
+      // Return empty array on error (don't throw to avoid breaking timeline)
+      return [];
     }
   }
 

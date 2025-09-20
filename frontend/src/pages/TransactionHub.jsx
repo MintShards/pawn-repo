@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { 
@@ -18,11 +18,15 @@ import {
   Phone,
   BarChart3,
   Mail,
+  Trash2,
+  X,
+  RefreshCw,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
+import { Textarea } from '../components/ui/textarea';
 import { handleError, handleSuccess } from '../utils/errorHandling';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../components/ui/dialog';
 import { Avatar, AvatarImage, AvatarFallback } from '../components/ui/avatar';
@@ -32,6 +36,7 @@ import CreatePawnDialogRedesigned from '../components/transaction/CreatePawnDial
 import PaymentForm from '../components/transaction/components/PaymentForm';
 import ExtensionForm from '../components/transaction/components/ExtensionForm';
 import StatusUpdateForm from '../components/transaction/components/StatusUpdateForm';
+import StatusBadge from '../components/transaction/components/StatusBadge';
 import TransactionNotesDisplay from '../components/transaction/TransactionNotesDisplay';
 import { formatTransactionId, formatStorageLocation, formatCurrency } from '../utils/transactionUtils';
 import { getRoleTitle, getUserDisplayString } from '../utils/roleUtils';
@@ -53,13 +58,13 @@ const TransactionHub = () => {
   const navigate = useNavigate();
   const [selectedTransaction, setSelectedTransaction] = useState(null);
   const [selectedTransactionCustomer, setSelectedTransactionCustomer] = useState(null);
-  const [showAllExtensions, setShowAllExtensions] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
   const [showExtensionForm, setShowExtensionForm] = useState(false);
   const [showTransactionDetails, setShowTransactionDetails] = useState(false);
   const [showStatusUpdateForm, setShowStatusUpdateForm] = useState(false);
   const [paymentHistory, setPaymentHistory] = useState(null);
+  const [auditEntries, setAuditEntries] = useState([]);
   const [showAllPayments, setShowAllPayments] = useState(false);
   const [processingCancel, setProcessingCancel] = useState(null);
   const [loadingTransactionDetails, setLoadingTransactionDetails] = useState(false);
@@ -74,55 +79,110 @@ const TransactionHub = () => {
   // Admin approval dialog states
   const [showPaymentReversalDialog, setShowPaymentReversalDialog] = useState(false);
   const [showExtensionCancelDialog, setShowExtensionCancelDialog] = useState(false);
+  const [showVoidApprovalDialog, setShowVoidApprovalDialog] = useState(false);
   const [pendingReversalPaymentId, setPendingReversalPaymentId] = useState(null);
+  const [pendingReversalTransaction, setPendingReversalTransaction] = useState(null);
   const [pendingCancelExtensionId, setPendingCancelExtensionId] = useState(null);
+  const [pendingCancelTransaction, setPendingCancelTransaction] = useState(null);
+  const [pendingVoidTransaction, setPendingVoidTransaction] = useState(null);
   const [reversalEligibility, setReversalEligibility] = useState(null);
   
-  // Memoized timeline calculation for performance with forced refresh key
+  // Optimized timeline calculation with memoization and performance improvements
   const timelineData = useMemo(() => {
-    // Get all payments and extensions
     const payments = paymentHistory?.payments || [];
     const extensions = selectedTransaction?.extensions || selectedTransaction?.transaction?.extensions || [];
+    const audits = auditEntries || [];
     
-    // Create unified timeline events
+    // Build timeline events array with filtering
     const timelineEvents = [];
     
-    // Add payment events (optimized)
-    for (let i = 0; i < payments.length; i++) {
+    // Add payment events (reverse order for newest first)
+    for (let i = payments.length - 1; i >= 0; i--) {
       const payment = payments[i];
       timelineEvents.push({
         type: 'payment',
         date: new Date(payment.payment_date || payment.created_at),
         data: payment,
-        paymentIndex: payments.length - i,
+        paymentIndex: i + 1,
         key: `payment-${payment.payment_id || i}-${payment.is_voided ? 'voided' : 'active'}`
       });
     }
     
-    // Add extension events (optimized)
-    for (let i = 0; i < extensions.length; i++) {
+    // Add extension events (reverse order for newest first)
+    for (let i = extensions.length - 1; i >= 0; i--) {
       const extension = extensions[i];
       timelineEvents.push({
         type: 'extension',
         date: new Date(extension.extension_date || extension.created_at),
         data: extension,
-        extensionIndex: extensions.length - i,
+        extensionIndex: i + 1,
         key: `extension-${extension.extension_id || i}-${extension.is_cancelled ? 'cancelled' : 'active'}`
       });
     }
     
+    // Check if there are any voided payments to filter redemption-related audit entries
+    const hasVoidedPayments = payments.some(payment => payment.is_voided);
+    
+    // Find redemption-related audit entries to merge
+    const redemptionAudit = audits.find(audit => 
+      audit.action_summary === 'Transaction redeemed' || 
+      audit.action_type === 'redemption_completed'
+    );
+    
+    // Add audit events with conditional filtering and merging
+    for (let i = 0; i < audits.length; i++) {
+      const audit = audits[i];
+      
+      // Skip if there are voided payments
+      if (hasVoidedPayments && (
+        audit.action_summary === 'Transaction redeemed' ||
+        audit.action_summary === 'Payment processed' ||
+        audit.action_type === 'redemption_completed' ||
+        audit.action_type === 'payment_processed'
+      )) {
+        continue;
+      }
+      
+      // Merge redemption and payment processed entries into one
+      if (audit.action_summary === 'Transaction redeemed' || audit.action_type === 'redemption_completed') {
+        // Use only the redemption details since "all amounts paid in full" already implies $0 balance
+        const details = redemptionAudit?.details || 'All amounts paid in full. Items ready for pickup';
+        
+        timelineEvents.push({
+          type: 'audit',
+          date: new Date(audit.timestamp),
+          data: {
+            ...audit,
+            action_summary: 'Transaction Redeemed',
+            details: details
+          },
+          auditIndex: audits.length - i,
+          key: `audit-${audit.related_id || i}-redemption-merged`
+        });
+        continue;
+      }
+      
+      // Skip the separate "Payment processed" entry if we already handled redemption
+      if ((audit.action_summary === 'Payment processed' || audit.action_type === 'payment_processed') && redemptionAudit) {
+        continue;
+      }
+      
+      timelineEvents.push({
+        type: 'audit',
+        date: new Date(audit.timestamp),
+        data: audit,
+        auditIndex: audits.length - i,
+        key: `audit-${audit.related_id || i}-${audit.action_type}`
+      });
+    }
+    
     // Sort all events by date (most recent first)
-    const sortedEvents = timelineEvents.sort((a, b) => b.date - a.date);
-    
-    // Timeline updated successfully
-    
-    return sortedEvents;
+    return timelineEvents.sort((a, b) => b.date - a.date);
   }, [
-    paymentHistory?.payments, 
+    paymentHistory?.payments,
     selectedTransaction?.extensions,
-    // Force recalculation when payments are voided or extensions cancelled
-    paymentHistory?.payments?.map(p => `${p.payment_id}-${p.is_voided}`).join(','),
-    selectedTransaction?.extensions?.map(e => `${e.extension_id}-${e.is_cancelled}`).join(',')
+    selectedTransaction?.transaction?.extensions,
+    auditEntries
   ]);
 
   // Authentication check - redirect to login if not authenticated
@@ -203,6 +263,10 @@ const TransactionHub = () => {
         extensionService.getExtensionHistory(transactionId, true).catch(error => {
           console.warn('Failed to refresh extensions:', error);
           return selectedTransaction?.extensions || []; // Keep existing data if fetch fails
+        }),
+        transactionService.getAuditEntries(transactionId, 50, true).catch(error => {
+          console.warn('Failed to refresh audit entries:', error);
+          return auditEntries; // Keep existing data if fetch fails
         })
       ];
 
@@ -218,31 +282,58 @@ const TransactionHub = () => {
             }
           }).catch(error => {
             console.warn('Failed to refresh transaction:', error);
+            // If 403, user might need to re-authenticate
+            if (error.message && error.message.includes('403')) {
+              console.warn('Permission denied - user may need to re-authenticate');
+              // Could optionally trigger a re-authentication flow here
+              // For now, just gracefully handle the error
+            }
             return selectedTransaction; // Keep existing data if fetch fails
           })
         );
       }
 
       const results = await Promise.all(fetchPromises);
-      const [paymentHistoryData, extensionsData, transactionData] = results;
-
-      // Update payment history immediately for timeline recalculation
-      if (paymentHistoryData && paymentHistoryData !== paymentHistory) {
-        setPaymentHistory(paymentHistoryData);
+      let paymentHistoryData, extensionsData, auditEntriesData, transactionData;
+      
+      if (skipTransaction) {
+        [paymentHistoryData, extensionsData, auditEntriesData] = results;
+      } else {
+        [paymentHistoryData, extensionsData, auditEntriesData, transactionData] = results;
       }
 
-      // Update extensions on transaction
+      // Update payment history with validation
+      if (paymentHistoryData && paymentHistoryData !== paymentHistory) {
+        // Validate payment history structure
+        if (paymentHistoryData.payments && Array.isArray(paymentHistoryData.payments)) {
+          setPaymentHistory(paymentHistoryData);
+        }
+      }
+      
+      // Update audit entries with validation
+      if (auditEntriesData && Array.isArray(auditEntriesData) && auditEntriesData !== auditEntries) {
+        setAuditEntries(auditEntriesData);
+      }
+
+      // Update extensions with improved validation
       if (extensionsData) {
         let extensionArray = [];
-        if (Array.isArray(extensionsData)) {
-          extensionArray = extensionsData;
-        } else if (extensionsData && Array.isArray(extensionsData.extensions)) {
-          extensionArray = extensionsData.extensions;
+        
+        // Robust extension data parsing
+        try {
+          if (Array.isArray(extensionsData)) {
+            extensionArray = extensionsData.filter(ext => ext && typeof ext === 'object');
+          } else if (extensionsData && Array.isArray(extensionsData.extensions)) {
+            extensionArray = extensionsData.extensions.filter(ext => ext && typeof ext === 'object');
+          }
+        } catch (error) {
+          console.warn('Error processing extension data:', error);
+          extensionArray = [];
         }
         
-        // Update transaction with fresh extension data
+        // Update transaction with validated extension data
         const updatedTransaction = transactionData || selectedTransaction;
-        if (updatedTransaction) {
+        if (updatedTransaction && typeof updatedTransaction === 'object') {
           updatedTransaction.extensions = extensionArray;
           updatedTransaction.hasExtensions = extensionArray.length > 0;
           setSelectedTransaction({...updatedTransaction});
@@ -316,6 +407,15 @@ const TransactionHub = () => {
       } catch (paymentError) {
         console.warn('Could not fetch payment history:', paymentError);
         setPaymentHistory(null);
+      }
+      
+      // Fetch audit entries for timeline
+      try {
+        const auditData = await transactionService.getAuditEntries(transaction.transaction_id, 50);
+        setAuditEntries(auditData);
+      } catch (auditError) {
+        console.warn('Could not fetch audit entries:', auditError);
+        setAuditEntries([]);
       }
       
       // Set the final transaction data
@@ -575,6 +675,25 @@ const TransactionHub = () => {
     setSelectedTransaction(transaction);
     setShowStatusUpdateForm(true);
   };
+
+  // Handle transaction void (Admin only)
+  const handleVoidTransaction = (transaction) => {
+    // Check admin permissions
+    if (!user?.role || user.role !== 'admin') {
+      handleError(new Error('Only administrators can void transactions'), 'Permission denied');
+      return;
+    }
+
+    // Check if transaction can be voided
+    const voidableStatuses = ['active', 'overdue', 'extended', 'hold'];
+    if (!voidableStatuses.includes(transaction.status)) {
+      handleError(new Error(`Cannot void transaction with status: ${transaction.status}`), 'Invalid transaction state');
+      return;
+    }
+
+    setPendingVoidTransaction(transaction);
+    setShowVoidApprovalDialog(true);
+  };
   
   // Handle payment reversal initiation
   const handlePaymentReversal = async (paymentId) => {
@@ -592,9 +711,10 @@ const TransactionHub = () => {
         return;
       }
       
-      // Store eligibility and payment ID, then show dialog
+      // Store eligibility, payment ID, and transaction data, then show dialog
       setReversalEligibility(eligibility);
       setPendingReversalPaymentId(paymentId);
+      setPendingReversalTransaction(selectedTransaction);
       setShowPaymentReversalDialog(true);
     } catch (error) {
       handleError(error, 'Failed to check reversal eligibility');
@@ -629,6 +749,7 @@ const TransactionHub = () => {
       // Close dialog immediately for better UX
       setShowPaymentReversalDialog(false);
       setPendingReversalPaymentId(null);
+      setPendingReversalTransaction(null);
       setReversalEligibility(null);
       
       // Process the reversal
@@ -663,6 +784,7 @@ const TransactionHub = () => {
   const handlePaymentReversalCancel = () => {
     setShowPaymentReversalDialog(false);
     setPendingReversalPaymentId(null);
+    setPendingReversalTransaction(null);
     setReversalEligibility(null);
   };
   
@@ -682,9 +804,10 @@ const TransactionHub = () => {
         return;
       }
       
-      // Store eligibility and extension ID, then show dialog
+      // Store eligibility, extension ID, and transaction data, then show dialog
       setReversalEligibility(eligibility);
       setPendingCancelExtensionId(extensionId);
+      setPendingCancelTransaction(selectedTransaction);
       setShowExtensionCancelDialog(true);
     } catch (error) {
       handleError(error, 'Failed to check cancellation eligibility');
@@ -719,6 +842,7 @@ const TransactionHub = () => {
       // Close dialog immediately for better UX
       setShowExtensionCancelDialog(false);
       setPendingCancelExtensionId(null);
+      setPendingCancelTransaction(null);
       setReversalEligibility(null);
       
       // Process the cancellation
@@ -753,12 +877,82 @@ const TransactionHub = () => {
   const handleExtensionCancelCancel = () => {
     setShowExtensionCancelDialog(false);
     setPendingCancelExtensionId(null);
+    setPendingCancelTransaction(null);
     setReversalEligibility(null);
+  };
+
+  // Handle void transaction approval
+  const handleVoidTransactionApproval = async (approvalData) => {
+    if (!pendingVoidTransaction) return;
+
+    try {
+      setProcessingCancel(`void-${pendingVoidTransaction.transaction_id}`);
+
+      const voidData = {
+        void_reason: approvalData.reason,
+        admin_pin: approvalData.adminPin
+      };
+
+      await transactionService.voidTransaction(pendingVoidTransaction.transaction_id, voidData);
+      
+      // Clear transaction cache to ensure fresh data
+      transactionService.clearTransactionCache();
+      
+      // Close dialog and clear state
+      setShowVoidApprovalDialog(false);
+      setPendingVoidTransaction(null);
+
+      // If transaction details dialog is open and it's the same transaction, refresh the timeline immediately
+      if (showTransactionDetails && selectedTransaction?.transaction_id === pendingVoidTransaction.transaction_id) {
+        // Small delay to ensure backend audit entry is created
+        setTimeout(() => {
+          refreshTimelineData(selectedTransaction.transaction_id).catch(error => {
+            console.error('Failed to refresh timeline after void:', error);
+            // Fallback to full refresh
+            handleViewTransaction(selectedTransaction).catch(console.error);
+          });
+        }, 500);
+      }
+      
+      // Trigger a refresh of the transaction list
+      setRefreshKey(prev => prev + 1);
+      
+      handleSuccess('Transaction voided successfully');
+      
+    } catch (error) {
+      // Handle error with detailed messages
+      let errorMessage = 'Failed to void transaction';
+      
+      if (error.message?.includes('401') || error.message?.includes('403')) {
+        errorMessage = 'Invalid admin credentials';
+      } else if (error.message?.includes('400')) {
+        errorMessage = error.message.includes('status') 
+          ? 'Transaction cannot be voided in current status'
+          : 'Invalid void request';
+      } else if (error.message?.includes('404')) {
+        errorMessage = 'Transaction not found';
+      }
+      
+      handleError(error, errorMessage);
+    } finally {
+      setProcessingCancel(null);
+    }
   };
 
   // Handle successful status update
   const handleStatusUpdateSuccess = async (statusUpdateResult) => {
     setShowStatusUpdateForm(false);
+    
+    // Optimistically update the current transaction status immediately
+    if (selectedTransaction && statusUpdateResult) {
+      const updatedTransaction = { ...selectedTransaction };
+      // Update the status at both possible locations
+      if (updatedTransaction.transaction) {
+        updatedTransaction.transaction.status = statusUpdateResult.status || statusUpdateResult.new_status;
+      }
+      updatedTransaction.status = statusUpdateResult.status || statusUpdateResult.new_status;
+      setSelectedTransaction(updatedTransaction);
+    }
     
     // Invalidate stats cache for status changes
     if (statusUpdateResult && statusUpdateResult.transaction_id) {
@@ -769,24 +963,24 @@ const TransactionHub = () => {
       );
     }
     
-    // If transaction details dialog is open, refresh the transaction data
+    // Clear transaction cache to ensure fresh data
+    transactionService.clearTransactionCache();
+    
+    // If transaction details dialog is open, refresh the timeline immediately
     if (showTransactionDetails && selectedTransaction) {
-      try {
-        const updatedTransaction = await transactionService.getTransactionSummary(
-          selectedTransaction.transaction_id || selectedTransaction.transaction?.transaction_id
-        );
-        setSelectedTransaction(updatedTransaction);
-      } catch (error) {
-        console.error('Failed to refresh transaction after status update:', error);
-      }
-    } else {
-      setSelectedTransaction(null);
+      // Skip transaction fetch to avoid 403 errors, just refresh timeline data
+      refreshTimelineData(selectedTransaction.transaction_id, true).catch(error => {
+        console.error('Failed to refresh timeline after status update:', error);
+        // Don't fallback to full refresh if it's a 403 - the optimistic update already worked
+        if (!error.message || !error.message.includes('403')) {
+          handleViewTransaction(selectedTransaction).catch(console.error);
+        }
+      });
     }
     
-    setRefreshKey(prev => prev + 1); // Trigger immediate TransactionList refresh
-    handleSuccess('Transaction status updated successfully');
+    // Refresh transaction list
+    setRefreshKey(prev => prev + 1);
   };
-
 
   // Format date helper
   // ============================================================================
@@ -946,10 +1140,10 @@ const TransactionHub = () => {
         {isAuthenticated && user && (
           <div className="mb-8">
             <StatsPanel 
-              refreshInterval={30000} // Optimized 30-second refresh for production stability
+              refreshInterval={60000} // Reduced to 60-second refresh to prevent rate limiting
+              refreshTrigger={refreshKey} // Pass refresh trigger to update stats after actions
               onStatClick={(filterType, filterValue) => {
                 // Future enhancement: Filter transactions based on stat card clicks
-                console.log('Stat clicked:', filterType, filterValue);
               }}
             />
           </div>
@@ -1124,6 +1318,7 @@ const TransactionHub = () => {
                   onPayment={handlePayment}
                   onExtension={handleExtension}
                   onStatusUpdate={handleStatusUpdate}
+                  onVoidTransaction={handleVoidTransaction}
                 />
               </CardContent>
             </Card>
@@ -1184,7 +1379,6 @@ const TransactionHub = () => {
         setShowTransactionDetails(open);
         if (!open) {
           setSelectedTransactionCustomer(null); // Reset customer data when closing
-          setShowAllExtensions(false); // Reset extension view
           setPaymentHistory(null); // Reset payment history
           setShowAllPayments(false); // Reset payment view
         }
@@ -1230,24 +1424,47 @@ const TransactionHub = () => {
                       <ScrollArea className="h-full">
                         <div className="space-y-4 pr-4">
                           {/* Status Badge */}
-                          <div className={`p-3 rounded-lg border-l-4 ${
-                            getTransactionStatus() === 'active' 
-                              ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-500'
-                              : getTransactionStatus() === 'overdue'
-                              ? 'bg-red-50 dark:bg-red-950/20 border-red-500'
-                              : getTransactionStatus() === 'extended'
-                              ? 'bg-blue-50 dark:bg-blue-950/20 border-blue-500'
-                              : getTransactionStatus() === 'redeemed'
-                              ? 'bg-green-50 dark:bg-green-950/20 border-green-500'
-                              : 'bg-slate-50 dark:bg-slate-800/20 border-slate-500'
-                          }`}>
+                          <div 
+                            className="p-3 rounded-lg border-l-4"
+                            style={{
+                              backgroundColor: 
+                                getTransactionStatus() === 'redeemed' ? '#4CAF5015' :
+                                getTransactionStatus() === 'active' ? '#2196F315' :
+                                getTransactionStatus() === 'extended' ? '#00BCD415' :
+                                getTransactionStatus() === 'sold' ? '#9C27B015' :
+                                getTransactionStatus() === 'hold' ? '#FFC10715' :
+                                getTransactionStatus() === 'forfeited' ? '#FF572215' :
+                                getTransactionStatus() === 'overdue' ? '#F4433615' :
+                                getTransactionStatus() === 'damaged' ? '#79554815' :
+                                getTransactionStatus() === 'voided' ? '#9E9E9E15' : '#E5E7EB15',
+                              borderLeftColor:
+                                getTransactionStatus() === 'redeemed' ? '#4CAF50' :
+                                getTransactionStatus() === 'active' ? '#2196F3' :
+                                getTransactionStatus() === 'extended' ? '#00BCD4' :
+                                getTransactionStatus() === 'sold' ? '#9C27B0' :
+                                getTransactionStatus() === 'hold' ? '#FFC107' :
+                                getTransactionStatus() === 'forfeited' ? '#FF5722' :
+                                getTransactionStatus() === 'overdue' ? '#F44336' :
+                                getTransactionStatus() === 'damaged' ? '#795548' :
+                                getTransactionStatus() === 'voided' ? '#9E9E9E' : '#E5E7EB'
+                            }}
+                          >
                             <div className="flex items-center space-x-2">
-                              <div className={`w-3 h-3 rounded-full ${
-                                getTransactionStatus() === 'active' ? 'bg-emerald-500' :
-                                getTransactionStatus() === 'overdue' ? 'bg-red-500' :
-                                getTransactionStatus() === 'extended' ? 'bg-blue-500' :
-                                getTransactionStatus() === 'redeemed' ? 'bg-green-500' : 'bg-slate-500'
-                              }`}></div>
+                              <div 
+                                className="w-3 h-3 rounded-full"
+                                style={{
+                                  backgroundColor:
+                                    getTransactionStatus() === 'redeemed' ? '#4CAF50' :
+                                    getTransactionStatus() === 'active' ? '#2196F3' :
+                                    getTransactionStatus() === 'extended' ? '#00BCD4' :
+                                    getTransactionStatus() === 'sold' ? '#9C27B0' :
+                                    getTransactionStatus() === 'hold' ? '#FFC107' :
+                                    getTransactionStatus() === 'forfeited' ? '#FF5722' :
+                                    getTransactionStatus() === 'overdue' ? '#F44336' :
+                                    getTransactionStatus() === 'damaged' ? '#795548' :
+                                    getTransactionStatus() === 'voided' ? '#9E9E9E' : '#E5E7EB'
+                                }}
+                              ></div>
                               <span className="font-bold capitalize text-slate-900 dark:text-slate-100">
                                 {getTransactionStatus()}
                               </span>
@@ -1399,11 +1616,12 @@ const TransactionHub = () => {
                           <TransactionNotesDisplay 
                             transaction={selectedTransaction?.transaction || selectedTransaction}
                             onNotesUpdate={() => {
-                              // Refresh transaction data when notes are updated
-                              if (selectedTransaction) {
-                                // You might want to refresh the transaction data here
-                                // This depends on how your transaction data is managed
-                                // Notes updated successfully
+                              // Refresh timeline when notes are updated
+                              if (selectedTransaction?.transaction_id || selectedTransaction?.transaction?.transaction_id) {
+                                const transactionId = selectedTransaction.transaction_id || selectedTransaction.transaction?.transaction_id;
+                                refreshTimelineData(transactionId).catch(error => {
+                                  console.error('Failed to refresh timeline after notes update:', error);
+                                });
                               }
                             }}
                           />
@@ -1556,6 +1774,20 @@ const TransactionHub = () => {
                             <Activity className="w-4 h-4 mr-2" />
                             Update Status
                           </Button>
+                          
+                          {/* Admin-only Void Transaction Button */}
+                          {user?.role === 'admin' && (
+                            <Button 
+                              variant="destructive"
+                              onClick={() => {
+                                handleVoidTransaction(selectedTransaction?.transaction || selectedTransaction);
+                              }}
+                              className="w-full"
+                            >
+                              <Trash2 className="w-4 h-4 mr-2" />
+                              Void Transaction
+                            </Button>
+                          )}
                         </div>
 
                         {/* Timeline Section */}
@@ -1591,11 +1823,26 @@ const TransactionHub = () => {
                               {/* Status indicator - Most Recent */}
                               {getTransactionStatus() !== 'active' && (
                                 <div className="flex space-x-3">
-                                  <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${
-                                    getTransactionStatus() === 'redeemed' ? 'bg-green-500' :
-                                    getTransactionStatus() === 'overdue' ? 'bg-red-500' :
-                                    getTransactionStatus() === 'extended' ? 'bg-blue-500' : 'bg-slate-500'
-                                  }`}></div>
+                                  <div 
+                                    className="w-2 h-2 rounded-full mt-2 flex-shrink-0"
+                                    style={{ 
+                                      backgroundColor: (() => {
+                                        const status = getTransactionStatus();
+                                        switch (status) {
+                                          case 'redeemed': return '#4CAF50';
+                                          case 'active': return '#2196F3';
+                                          case 'extended': return '#00BCD4';
+                                          case 'sold': return '#9C27B0';
+                                          case 'hold': return '#FFC107';
+                                          case 'forfeited': return '#FF5722';
+                                          case 'overdue': return '#F44336';
+                                          case 'damaged': return '#795548';
+                                          case 'voided': return '#9E9E9E';
+                                          default: return '#9E9E9E';
+                                        }
+                                      })()
+                                    }}
+                                  ></div>
                                   <div>
                                     <div className="text-sm font-medium text-slate-900 dark:text-slate-100 capitalize">
                                       {getTransactionStatus()}
@@ -1647,7 +1894,12 @@ const TransactionHub = () => {
                                         {event.type === 'payment' ? (
                                           // Payment Timeline Entry
                                           <div className="flex space-x-3">
-                                            <div className={`w-2 h-2 ${event.data.is_voided ? 'bg-red-500' : 'bg-green-500'} rounded-full mt-2 flex-shrink-0`}></div>
+                                            <div 
+                                              className="w-2 h-2 rounded-full mt-2 flex-shrink-0"
+                                              style={{
+                                                backgroundColor: event.data.is_voided ? '#F44336' : '#4CAF50'
+                                              }}
+                                            ></div>
                                             <div className="flex-1">
                                               <div className="flex items-center justify-between">
                                                 <div className={`text-sm font-medium ${event.data.is_voided ? 'text-red-700 dark:text-red-300 line-through' : 'text-slate-900 dark:text-slate-100'}`}>
@@ -1693,12 +1945,15 @@ const TransactionHub = () => {
                                               )}
                                             </div>
                                           </div>
-                                        ) : (
+                                        ) : event.type === 'extension' ? (
                                           // Extension Timeline Entry
                                           <div className="flex space-x-3">
-                                            <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${
-                                              event.data.is_cancelled ? 'bg-red-500' : 'bg-amber-500'
-                                            }`}></div>
+                                            <div 
+                                              className="w-2 h-2 rounded-full mt-2 flex-shrink-0"
+                                              style={{
+                                                backgroundColor: event.data.is_cancelled ? '#F44336' : '#00BCD4'
+                                              }}
+                                            ></div>
                                             <div className="flex-1">
                                               <div className="flex items-center justify-between">
                                                 <div className={`text-sm font-medium ${
@@ -1735,11 +1990,16 @@ const TransactionHub = () => {
                                                 <div className="text-xs text-slate-600 dark:text-slate-400">
                                                   {formatBusinessDate(event.data.extension_date || event.data.created_at)}
                                                 </div>
-                                                <div className={`text-xs font-medium ${
-                                                  event.data.is_cancelled 
-                                                    ? 'text-red-500 dark:text-red-400 line-through' 
-                                                    : 'text-amber-600 dark:text-amber-400'
-                                                }`}>
+                                                <div 
+                                                  className={`text-xs font-medium ${
+                                                    event.data.is_cancelled 
+                                                      ? 'text-red-500 dark:text-red-400 line-through' 
+                                                      : ''
+                                                  }`}
+                                                  style={{
+                                                    color: event.data.is_cancelled ? undefined : '#00BCD4'
+                                                  }}
+                                                >
                                                   Fee: {formatCurrency(
                                                     event.data.total_extension_fee || 
                                                     event.data.extension_fee || 
@@ -1760,7 +2020,212 @@ const TransactionHub = () => {
                                               )}
                                             </div>
                                           </div>
-                                        )}
+                                        ) : event.type === 'audit' ? (
+                                          // Check if this is a voided or canceled transaction for clean display
+                                          (event.data.new_value === 'voided' || event.data.new_value === 'TransactionStatus.VOIDED' || event.data.new_value?.toLowerCase().includes('voided')) ? (
+                                            // Clean Voided Transaction Display (like extensions)
+                                            <div className="flex space-x-3">
+                                              <div 
+                                                className="w-2 h-2 rounded-full mt-2 flex-shrink-0"
+                                                style={{ backgroundColor: '#9E9E9E' }}
+                                              ></div>
+                                              <div className="flex-1">
+                                                <div className="flex items-center justify-between">
+                                                  <div className="text-sm font-medium text-red-700 dark:text-red-300">
+                                                    Transaction VOIDED
+                                                    <span className="ml-2 px-2 py-0.5 text-xs bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded-full border border-red-200 dark:border-red-800">
+                                                      VOIDED
+                                                    </span>
+                                                  </div>
+                                                </div>
+                                                <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                                                  {formatBusinessDate(event.data.timestamp)}
+                                                </div>
+                                                {event.data.staff_member && (
+                                                  <div className="text-xs text-slate-600 dark:text-slate-400">
+                                                    by User #{event.data.staff_member}
+                                                  </div>
+                                                )}
+                                                {event.data.details && (event.data.details.includes('VOIDED:') || event.data.details.includes('Reason:')) && (
+                                                  <div className="text-xs text-slate-600 dark:text-slate-400">
+                                                    Reason: {
+                                                      event.data.details.includes('VOIDED:') 
+                                                        ? event.data.details.split('VOIDED:')[1]?.split('|')[0]?.trim()
+                                                        : event.data.details.includes('Reason:')
+                                                        ? event.data.details.split('Reason:')[1]?.trim()
+                                                        : event.data.details
+                                                    }
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                          ) : (event.data.new_value === 'canceled' || event.data.new_value === 'TransactionStatus.CANCELED' || event.data.new_value?.toLowerCase().includes('canceled')) ? (
+                                            // Clean Canceled Transaction Display (like extensions)
+                                            <div className="flex space-x-3">
+                                              <div className="w-2 h-2 rounded-full mt-2 flex-shrink-0 bg-yellow-500"></div>
+                                              <div className="flex-1">
+                                                <div className="flex items-center justify-between">
+                                                  <div className="text-sm font-medium text-yellow-700 dark:text-yellow-300">
+                                                    Transaction CANCELED
+                                                    <span className="ml-2 px-2 py-0.5 text-xs bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 rounded-full border border-yellow-200 dark:border-yellow-800">
+                                                      CANCELED
+                                                    </span>
+                                                  </div>
+                                                </div>
+                                                <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                                                  {formatBusinessDate(event.data.timestamp)}
+                                                </div>
+                                                {event.data.staff_member && (
+                                                  <div className="text-xs text-slate-600 dark:text-slate-400">
+                                                    by User #{event.data.staff_member}
+                                                  </div>
+                                                )}
+                                                {event.data.details && (event.data.details.includes('CANCELED:') || event.data.details.includes('Reason:')) && (
+                                                  <div className="text-xs text-slate-600 dark:text-slate-400">
+                                                    Reason: {
+                                                      event.data.details.includes('CANCELED:') 
+                                                        ? event.data.details.split('CANCELED:')[1]?.split('|')[0]?.trim()
+                                                        : event.data.details.includes('Reason:')
+                                                        ? event.data.details.split('Reason:')[1]?.trim()
+                                                        : event.data.details
+                                                    }
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                          ) : event.data.action_type === 'status_changed' ? (
+                                            // Clean Status Change Display (like extensions)
+                                            <div className="flex space-x-3">
+                                              <div 
+                                                className="w-2 h-2 rounded-full mt-2 flex-shrink-0"
+                                                style={{ 
+                                                  backgroundColor: (() => {
+                                                    const status = event.data.new_value?.toLowerCase().replace('transactionstatus.', '');
+                                                    switch (status) {
+                                                      case 'redeemed': return '#4CAF50';
+                                                      case 'active': return '#2196F3';
+                                                      case 'extended': return '#00BCD4';
+                                                      case 'sold': return '#9C27B0';
+                                                      case 'hold': return '#FFC107';
+                                                      case 'forfeited': return '#FF5722';
+                                                      case 'overdue': return '#F44336';
+                                                      case 'damaged': return '#795548';
+                                                      case 'voided': return '#9E9E9E';
+                                                      default: return '#2196F3';
+                                                    }
+                                                  })()
+                                                }}
+                                              ></div>
+                                              <div className="flex-1">
+                                                <div className="flex items-center justify-between">
+                                                  <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                    Status Changed
+                                                    <span 
+                                                      className="ml-2 px-2 py-0.5 text-xs rounded-full border text-white"
+                                                      style={{ 
+                                                        backgroundColor: (() => {
+                                                          const status = event.data.new_value?.toLowerCase().replace('transactionstatus.', '');
+                                                          switch (status) {
+                                                            case 'redeemed': return '#4CAF50';
+                                                            case 'active': return '#2196F3';
+                                                            case 'extended': return '#00BCD4';
+                                                            case 'sold': return '#9C27B0';
+                                                            case 'hold': return '#FFC107';
+                                                            case 'forfeited': return '#FF5722';
+                                                            case 'overdue': return '#F44336';
+                                                            case 'damaged': return '#795548';
+                                                            case 'voided': return '#9E9E9E';
+                                                            default: return '#2196F3';
+                                                          }
+                                                        })(),
+                                                        borderColor: (() => {
+                                                          const status = event.data.new_value?.toLowerCase().replace('transactionstatus.', '');
+                                                          switch (status) {
+                                                            case 'redeemed': return '#4CAF50';
+                                                            case 'active': return '#2196F3';
+                                                            case 'extended': return '#00BCD4';
+                                                            case 'sold': return '#9C27B0';
+                                                            case 'hold': return '#FFC107';
+                                                            case 'forfeited': return '#FF5722';
+                                                            case 'overdue': return '#F44336';
+                                                            case 'damaged': return '#795548';
+                                                            case 'voided': return '#9E9E9E';
+                                                            default: return '#2196F3';
+                                                          }
+                                                        })(),
+                                                        color: event.data.new_value?.toLowerCase().replace('transactionstatus.', '') === 'hold' ? '#000' : '#fff'
+                                                      }}
+                                                    >
+                                                      {event.data.new_value?.replace('TransactionStatus.', '').toUpperCase() || 'STATUS CHANGE'}
+                                                    </span>
+                                                  </div>
+                                                </div>
+                                                <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                                                  {formatBusinessDate(event.data.timestamp || event.data.created_at)}
+                                                </div>
+                                                {event.data.staff_member && (
+                                                  <div className="text-xs text-slate-600 dark:text-slate-400">
+                                                    by User #{event.data.staff_member}
+                                                  </div>
+                                                )}
+                                                {event.data.previous_value && event.data.new_value && (
+                                                  <div className="text-xs text-slate-600 dark:text-slate-400">
+                                                    From: {event.data.previous_value?.replace('TransactionStatus.', '')} → {event.data.new_value?.replace('TransactionStatus.', '')}
+                                                  </div>
+                                                )}
+                                                {event.data.details && event.data.details.includes('Reason:') && (
+                                                  <div className="text-xs text-slate-600 dark:text-slate-400">
+                                                    Reason: {event.data.details.split('Reason:')[1]?.trim()}
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                          ) : (
+                                            // Other Audit Timeline Entries
+                                            <div className="flex space-x-3">
+                                              <div 
+                                                className="w-2 h-2 rounded-full mt-2 flex-shrink-0"
+                                                style={{ 
+                                                  backgroundColor: (() => {
+                                                    const status = event.data.new_value?.toLowerCase().replace('transactionstatus.', '');
+                                                    switch (status) {
+                                                      case 'redeemed': return '#4CAF50';
+                                                      case 'active': return '#2196F3';
+                                                      case 'extended': return '#00BCD4';
+                                                      case 'sold': return '#9C27B0';
+                                                      case 'hold': return '#FFC107';
+                                                      case 'forfeited': return '#FF5722';
+                                                      case 'overdue': return '#F44336';
+                                                      case 'damaged': return '#795548';
+                                                      case 'voided': return '#9E9E9E';
+                                                      default: return '#9E9E9E';
+                                                    }
+                                                  })()
+                                                }}
+                                              ></div>
+                                              <div className="flex-1">
+                                                <div className="flex items-center justify-between">
+                                                  <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                    {event.data.action_summary}
+                                                  </div>
+                                                </div>
+                                                <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                                                  {formatBusinessDate(event.data.timestamp || event.data.created_at)}
+                                                </div>
+                                                {event.data.staff_member && (
+                                                  <div className="text-xs text-slate-600 dark:text-slate-400">
+                                                    by User #{event.data.staff_member}
+                                                  </div>
+                                                )}
+                                                {event.data.details && (
+                                                  <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                                                    {event.data.details}
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                          )
+                                        ) : null}
                                       </React.Fragment>
                                     ))}
                                     
@@ -1952,6 +2417,21 @@ const TransactionHub = () => {
                         <Activity className="w-4 h-4 mr-2" />
                         Update Status
                       </Button>
+                      
+                      {/* Admin-only Void Transaction Button */}
+                      {user?.role === 'admin' && (
+                        <Button 
+                          variant="destructive"
+                          onClick={() => {
+                            setShowTransactionDetails(false);
+                            handleVoidTransaction(selectedTransaction?.transaction || selectedTransaction);
+                          }}
+                          className="w-full"
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Void Transaction
+                        </Button>
+                      )}
                       <Button 
                         variant="outline"
                         onClick={() => setShowTransactionDetails(false)}
@@ -1970,16 +2450,25 @@ const TransactionHub = () => {
 
       {/* Status Update Dialog */}
       <Dialog open={showStatusUpdateForm} onOpenChange={setShowStatusUpdateForm}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Update Transaction Status</DialogTitle>
-            <DialogDescription>
+            <div className="flex items-center space-x-3">
+              <div className="p-2 rounded-full bg-blue-100">
+                <RefreshCw className="h-5 w-5 text-blue-600" />
+              </div>
+              <div>
+                <DialogTitle className="text-xl text-blue-500 font-bold">Transaction Status Update</DialogTitle>
+                <p className="text-xs text-blue-600 font-medium mt-1">STATUS CHANGE</p>
+              </div>
+            </div>
+            <DialogDescription className="mt-3">
               Change the status of the selected transaction. This action will be recorded in the audit log.
             </DialogDescription>
           </DialogHeader>
           {selectedTransaction && (
             <StatusUpdateForm
               transaction={selectedTransaction}
+              customer={selectedTransactionCustomer}
               onSuccess={handleStatusUpdateSuccess}
               onCancel={() => setShowStatusUpdateForm(false)}
             />
@@ -2115,13 +2604,21 @@ const TransactionHub = () => {
                             >
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center space-x-3">
-                                  <div className={`w-3 h-3 rounded-full ${
-                                    transaction.status === 'active' ? 'bg-emerald-500' :
-                                    transaction.status === 'overdue' ? 'bg-red-500' :
-                                    transaction.status === 'extended' ? 'bg-blue-500' :
-                                    transaction.status === 'redeemed' ? 'bg-green-500' :
-                                    transaction.status === 'sold' ? 'bg-purple-500' : 'bg-slate-500'
-                                  }`}></div>
+                                  <div 
+                                    className="w-3 h-3 rounded-full"
+                                    style={{ 
+                                      backgroundColor: 
+                                        transaction.status === 'redeemed' ? '#4CAF50' :
+                                        transaction.status === 'active' ? '#2196F3' :
+                                        transaction.status === 'extended' ? '#00BCD4' :
+                                        transaction.status === 'sold' ? '#9C27B0' :
+                                        transaction.status === 'hold' ? '#FFC107' :
+                                        transaction.status === 'forfeited' ? '#FF5722' :
+                                        transaction.status === 'overdue' ? '#F44336' :
+                                        transaction.status === 'damaged' ? '#795548' :
+                                        transaction.status === 'voided' ? '#9E9E9E' : '#E5E7EB'
+                                    }}
+                                  ></div>
                                   <div>
                                     <div className="font-medium text-slate-900 dark:text-slate-100">
                                       #{formatTransactionId(transaction)}
@@ -2278,18 +2775,32 @@ onKeyPress={async (e) => {
         requireReason={true}
         warningMessage={reversalEligibility?.warnings ? reversalEligibility.warnings.join(' ') : undefined}
       >
-        {reversalEligibility && (
-          <div className="bg-red-50 border border-red-200 rounded-md p-3">
-            <h4 className="text-sm font-medium text-red-800 mb-2">Reversal Details</h4>
-            <div className="text-sm text-red-700 space-y-1">
-              {reversalEligibility.payment_amount && (
+        {(pendingReversalTransaction || selectedTransaction || reversalEligibility) && (
+          <div className="bg-amber-50 border border-amber-300 rounded-md p-3">
+            <h4 className="text-sm font-medium text-amber-900 mb-2">Reversal Details</h4>
+            <div className="text-sm text-amber-900 space-y-1">
+              {(() => {
+                const transactionData = pendingReversalTransaction?.transaction || selectedTransaction?.transaction;
+                return transactionData ? (
+                  <>
+                    <p><strong>Transaction ID:</strong> {formatTransactionId(transactionData)}</p>
+                    <div><strong>Current Status:</strong> <StatusBadge status={transactionData.status} /></div>
+                    {selectedTransactionCustomer && (
+                      <p><strong>Customer:</strong> {`${selectedTransactionCustomer.first_name || ''} ${selectedTransactionCustomer.last_name || ''}`.trim().toUpperCase()}</p>
+                    )}
+                    {transactionData.loan_amount && (
+                      <p><strong>Loan Amount:</strong> {formatCurrency(transactionData.loan_amount)}</p>
+                    )}
+                  </>
+                ) : (
+                  <p><strong>Payment ID:</strong> {pendingReversalPaymentId}</p>
+                );
+              })()}
+              {reversalEligibility?.payment_amount && (
                 <p><strong>Payment Amount:</strong> {formatCurrency(reversalEligibility.payment_amount)}</p>
               )}
-              {reversalEligibility.payment_date && (
+              {reversalEligibility?.payment_date && (
                 <p><strong>Payment Date:</strong> {formatBusinessDate(reversalEligibility.payment_date)}</p>
-              )}
-              {reversalEligibility.transaction_id && (
-                <p><strong>Transaction:</strong> {formatTransactionId({transaction_id: reversalEligibility.transaction_id})}</p>
               )}
             </div>
           </div>
@@ -2309,23 +2820,138 @@ onKeyPress={async (e) => {
         requireReason={true}
         warningMessage={reversalEligibility?.warnings ? reversalEligibility.warnings.join(' ') : undefined}
       >
-        {reversalEligibility && (
+        {(pendingCancelTransaction || selectedTransaction || reversalEligibility) && (
           <div className="bg-orange-50 border border-orange-200 rounded-md p-3">
-            <h4 className="text-sm font-medium text-orange-800 mb-2">Cancellation Details</h4>
-            <div className="text-sm text-orange-700 space-y-1">
-              {reversalEligibility.extension_fee && (
+            <h4 className="text-sm font-medium text-orange-900 mb-2">Cancellation Details</h4>
+            <div className="text-sm text-orange-900 space-y-1">
+              {(() => {
+                const transactionData = pendingCancelTransaction?.transaction || selectedTransaction?.transaction;
+                return transactionData ? (
+                  <>
+                    <p><strong>Transaction ID:</strong> {formatTransactionId(transactionData)}</p>
+                    <div><strong>Current Status:</strong> <StatusBadge status={transactionData.status} /></div>
+                    {selectedTransactionCustomer && (
+                      <p><strong>Customer:</strong> {`${selectedTransactionCustomer.first_name || ''} ${selectedTransactionCustomer.last_name || ''}`.trim().toUpperCase()}</p>
+                    )}
+                    {transactionData.loan_amount && (
+                      <p><strong>Loan Amount:</strong> {formatCurrency(transactionData.loan_amount)}</p>
+                    )}
+                  </>
+                ) : (
+                  <p><strong>Extension ID:</strong> {pendingCancelExtensionId}</p>
+                );
+              })()}
+              {reversalEligibility?.extension_fee && (
                 <p><strong>Extension Fee:</strong> {formatCurrency(reversalEligibility.extension_fee)}</p>
               )}
-              {reversalEligibility.extension_date && (
+              {reversalEligibility?.extension_date && (
                 <p><strong>Extension Date:</strong> {formatBusinessDate(reversalEligibility.extension_date)}</p>
               )}
-              {reversalEligibility.extension_months && (
+              {reversalEligibility?.extension_months && (
                 <p><strong>Extension Period:</strong> {reversalEligibility.extension_months} month(s)</p>
               )}
             </div>
           </div>
         )}
       </AdminApprovalDialog>
+
+      {/* Transaction Void Dialog */}
+      <Dialog open={showVoidApprovalDialog} onOpenChange={setShowVoidApprovalDialog}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <div className="flex items-center space-x-3">
+              <div className="p-2 rounded-full bg-red-100">
+                <X className="h-5 w-5 text-red-600" />
+              </div>
+              <div>
+                <DialogTitle className="text-xl text-red-800 font-bold">Transaction Void Authorization</DialogTitle>
+                <p className="text-xs text-red-600 font-medium mt-1">PERMANENT ACTION</p>
+              </div>
+            </div>
+            <DialogDescription className="mt-3">
+              This action will permanently void the transaction and mark it as canceled. This action cannot be reversed.
+            </DialogDescription>
+          </DialogHeader>
+          {pendingVoidTransaction && (
+            <div className="space-y-4">
+              {/* Transaction Details */}
+              <div className="bg-red-50 border border-red-200 rounded-md p-3">
+                <h4 className="text-sm font-medium text-red-900 mb-2">Transaction Details</h4>
+                <div className="text-sm text-red-900 space-y-1">
+                  <p><strong>Transaction ID:</strong> {formatTransactionId(pendingVoidTransaction)}</p>
+                  <div><strong>Current Status:</strong> <StatusBadge status={pendingVoidTransaction.status} /></div>
+                  {selectedTransactionCustomer && (
+                    <p><strong>Customer:</strong> {`${selectedTransactionCustomer.first_name || ''} ${selectedTransactionCustomer.last_name || ''}`.trim().toUpperCase()}</p>
+                  )}
+                  {pendingVoidTransaction.loan_amount && (
+                    <p><strong>Loan Amount:</strong> {formatCurrency(pendingVoidTransaction.loan_amount)}</p>
+                  )}
+                </div>
+              </div>
+
+              <form onSubmit={(e) => {
+                e.preventDefault();
+                const formData = new FormData(e.target);
+                const approvalData = {
+                  admin_pin: formData.get('admin-pin'),
+                  reason: formData.get('void-reason')
+                };
+                handleVoidTransactionApproval(approvalData);
+              }} className="space-y-4">
+                {/* Reason */}
+                <div className="space-y-2">
+                  <Label htmlFor="void-reason">Reason for void *</Label>
+                  <Textarea
+                    id="void-reason"
+                    name="void-reason"
+                    placeholder="Describe the specific reason for voiding this transaction (e.g., data entry error, customer request, duplicate entry)..."
+                    rows={3}
+                    required
+                  />
+                </div>
+
+                {/* Admin PIN */}
+                <div className="space-y-2">
+                  <Label htmlFor="admin-pin">Admin PIN *</Label>
+                  <Input
+                    id="admin-pin"
+                    name="admin-pin"
+                    type="password"
+                    placeholder="Enter your admin PIN"
+                    required
+                  />
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex justify-end space-x-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowVoidApprovalDialog(false)}
+                    disabled={processingCancel === `void-${pendingVoidTransaction.transaction_id}`}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    className="bg-red-600 hover:bg-red-700 text-white"
+                    disabled={processingCancel === `void-${pendingVoidTransaction.transaction_id}`}
+                  >
+                    {processingCancel === `void-${pendingVoidTransaction.transaction_id}` ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Processing...
+                      </>
+                    ) : (
+                      'Authorize Void'
+                    )}
+                  </Button>
+                </div>
+              </form>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

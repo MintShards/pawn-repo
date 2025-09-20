@@ -81,7 +81,7 @@ import { useToast } from '../ui/toast';
 import { useAuth } from '../../context/AuthContext';
 import { useAlertCount } from '../../context/AlertCountContext';
 import { isAdmin as isAdminRole } from '../../utils/roleUtils';
-import { formatLocalDate, formatLocalDateTime } from '../../utils/timezoneUtils';
+import { formatBusinessDate } from '../../utils/timezoneUtils';
 import { formatCurrency } from '../../utils/transactionUtils';
 import CustomerCard from './CustomerCard';
 import CustomLoanLimitDialog from './CustomLoanLimitDialog';
@@ -1067,7 +1067,7 @@ const EnhancedCustomerManagement = () => {
 
 
   const formatDate = (dateString) => {
-    return formatLocalDate(dateString);
+    return formatBusinessDate(dateString);
   };
 
   const getRelativeTime = (dateString) => {
@@ -2502,13 +2502,13 @@ const EnhancedCustomerManagement = () => {
                       <div className="min-w-0">
                         <p className="text-slate-500 dark:text-slate-400 break-words">Created Date</p>
                         <p className="text-slate-900 dark:text-slate-100 break-words">
-                          {selectedCustomer?.created_at ? formatLocalDate(selectedCustomer.created_at) : 'N/A'}
+                          {selectedCustomer?.created_at ? formatBusinessDate(selectedCustomer.created_at) : 'N/A'}
                         </p>
                       </div>
                       <div className="min-w-0">
                         <p className="text-slate-500 dark:text-slate-400 break-words">Last Updated</p>
                         <p className="text-slate-900 dark:text-slate-100 break-words">
-                          {selectedCustomer?.updated_at ? formatLocalDate(selectedCustomer.updated_at) : 'N/A'}
+                          {selectedCustomer?.updated_at ? formatBusinessDate(selectedCustomer.updated_at) : 'N/A'}
                         </p>
                       </div>
                     </div>

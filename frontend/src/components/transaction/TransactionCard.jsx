@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { MoreHorizontal, DollarSign, Calendar, Phone, CreditCard, Clock, MapPin, Eye, Banknote, ArrowRightLeft } from 'lucide-react';
+import { MoreHorizontal, DollarSign, Calendar, Phone, CreditCard, Clock, MapPin, Eye, Banknote, ArrowRightLeft, Trash2 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader } from '../ui/card';
 import { Badge } from '../ui/badge';
@@ -22,17 +23,26 @@ const TransactionCard = ({
   onPayment, 
   onExtension,
   onStatusUpdate,
+  onVoidTransaction,
   isSelected = false,
   onSelect,
   refreshTrigger, // Add prop to trigger balance refresh
-  customerData = {} // Customer data map
+  customerData = {}, // Customer data map
+  balance: parentBalance // Balance passed from parent
 }) => {
-  const [balance, setBalance] = useState(null);
+  const { user } = useAuth();
+  const [balance, setBalance] = useState(parentBalance || null);
   const [loading, setLoading] = useState(false);
 
-  // Fetch balance on mount and when refresh triggered
+  // Use parent balance if provided, otherwise fetch it
   const loadBalance = useCallback(async () => {
     if (!transaction?.transaction_id) return;
+    
+    // If parent provides balance, use it
+    if (parentBalance !== undefined) {
+      setBalance(parentBalance);
+      return;
+    }
     
     try {
       setLoading(true);
@@ -43,7 +53,7 @@ const TransactionCard = ({
     } finally {
       setLoading(false);
     }
-  }, [transaction?.transaction_id]);
+  }, [transaction?.transaction_id, parentBalance]);
 
   useEffect(() => {
     loadBalance();
@@ -88,13 +98,21 @@ const TransactionCard = ({
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between">
           <div className="flex items-center space-x-3">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-              transaction.status === 'active' ? 'bg-emerald-500/20' :
-              transaction.status === 'overdue' ? 'bg-red-500/20' :
-              transaction.status === 'extended' ? 'bg-blue-500/20' :
-              transaction.status === 'redeemed' ? 'bg-green-500/20' :
-              'bg-slate-500/20'
-            }`}>
+            <div 
+              className="w-10 h-10 rounded-xl flex items-center justify-center"
+              style={{ 
+                backgroundColor: 
+                  transaction.status === 'redeemed' ? '#4CAF5033' :
+                  transaction.status === 'active' ? '#2196F333' :
+                  transaction.status === 'extended' ? '#00BCD433' :
+                  transaction.status === 'sold' ? '#9C27B033' :
+                  transaction.status === 'hold' ? '#FFC10733' :
+                  transaction.status === 'forfeited' ? '#FF572233' :
+                  transaction.status === 'overdue' ? '#F4433633' :
+                  transaction.status === 'damaged' ? '#79554833' :
+                  transaction.status === 'voided' ? '#9E9E9E33' : '#E5E7EB33'
+              }}
+            >
               {getStatusIcon(transaction.status)}
             </div>
             <div>
@@ -146,6 +164,17 @@ const TransactionCard = ({
                 <CreditCard className="w-4 h-4" />
                 Update Status
               </DropdownMenuItem>
+              
+              {/* Admin-only Void Transaction Option */}
+              {user?.role === 'admin' && (
+                <DropdownMenuItem 
+                  onClick={() => onVoidTransaction?.(transaction)} 
+                  className="flex items-center gap-2 text-red-600 focus:text-red-600 focus:bg-red-50"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Void Transaction
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

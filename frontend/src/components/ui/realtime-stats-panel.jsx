@@ -3,7 +3,7 @@
  * Displays all 5 stat cards with periodic polling updates via REST API
  */
 
-import { memo } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import { 
   CreditCard, 
   Plus, 
@@ -22,6 +22,7 @@ export const StatsPanel = memo(({
   className,
   refreshInterval = 30000, // Optimized 30-second refresh for production stability
   onStatClick,
+  refreshTrigger, // Add trigger to force refresh on important actions
   ...props 
 }) => {
   const {
@@ -31,11 +32,30 @@ export const StatsPanel = memo(({
     maturityThisWeek,
     todaysCollection,
     isLoading,
-    error
+    error,
+    triggerRefresh
   } = useStatsPolling({
     refreshInterval,
     autoStart: true
   });
+
+  // Use ref to track last trigger value to prevent duplicates
+  const lastTriggerRef = useRef(0);
+
+  // Trigger refresh when refreshTrigger prop changes
+  useEffect(() => {
+    if (refreshTrigger && refreshTrigger > 0 && refreshTrigger !== lastTriggerRef.current && triggerRefresh) {
+      // Update ref to prevent duplicate triggers
+      lastTriggerRef.current = refreshTrigger;
+      
+      // Add a small delay to ensure backend has processed the update
+      const timer = setTimeout(() => {
+        triggerRefresh();
+      }, 500); // 500ms delay for backend processing
+      
+      return () => clearTimeout(timer);
+    }
+  }, [refreshTrigger, triggerRefresh]);
 
   // Stats configuration with click handlers and accessibility
   const statsConfig = [

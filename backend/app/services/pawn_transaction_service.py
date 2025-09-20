@@ -21,6 +21,7 @@ from app.models.payment_model import Payment
 from app.models.extension_model import Extension
 from app.models.customer_model import Customer, CustomerStatus
 from app.models.user_model import User, UserStatus
+from app.models.audit_entry_model import create_status_change_audit
 from app.core.transaction_notes import safe_append_transaction_notes, format_system_note
 from app.core.timezone_utils import utc_to_user_timezone, format_user_datetime, get_user_now, get_user_business_date, user_timezone_to_utc, add_months_user_timezone
 from app.core.redis_cache import BusinessCache, cached_result, CacheConfig
@@ -557,6 +558,16 @@ class PawnTransactionService:
         
         # Update transaction
         transaction.status = new_status
+        
+        # Create structured audit entry for status change
+        audit_entry = create_status_change_audit(
+            staff_member=updated_by_user_id,
+            old_status=str(old_status),
+            new_status=str(new_status),
+            reason=notes
+        )
+        transaction.add_system_audit_entry(audit_entry)
+        
         if notes:
             # Use shared notes utility for consistent formatting and truncation
             status_note = format_system_note(
@@ -573,7 +584,7 @@ class PawnTransactionService:
         await transaction.save()
         
         # CRITICAL: Immediate comprehensive cache invalidation for real-time updates
-        await PawnTransactionService._invalidate_all_transaction_caches()
+        await _invalidate_all_transaction_caches()
         
         # LOG: Status change success for monitoring
         logger.info(f"✅ STATUS UPDATED: {transaction_id} changed from {old_status} to {new_status} with cache cleared")

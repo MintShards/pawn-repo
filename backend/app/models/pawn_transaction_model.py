@@ -28,7 +28,6 @@ class TransactionStatus(str, Enum):
     HOLD = "hold"
     DAMAGED = "damaged"
     VOIDED = "voided"      # Admin-voided transaction
-    CANCELED = "canceled"  # Staff-canceled transaction
 
 
 class PawnTransaction(Document):

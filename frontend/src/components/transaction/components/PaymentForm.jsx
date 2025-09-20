@@ -9,7 +9,7 @@ import { Alert, AlertDescription } from '../../ui/alert';
 import paymentService from '../../../services/paymentService';
 import transactionService from '../../../services/transactionService';
 import { formatTransactionId, formatCurrency } from '../../../utils/transactionUtils';
-import { useFormValidation, validateRequired, validateAmount, validatePayment } from '../../../utils/formValidation';
+import { useFormValidation, validateAmount, validatePayment } from '../../../utils/formValidation';
 import { handleError, handleSuccess } from '../../../utils/errorHandling';
 import ConfirmationDialog from '../../common/ConfirmationDialog';
 import LoadingDialog from '../../common/LoadingDialog';
@@ -171,7 +171,7 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
       setSubmitting(false);
       setShowConfirmation(false);
     }
-  }, [formData, transaction, paymentBreakdown, onSuccess]);
+  }, [formData, transaction, paymentBreakdown, onSuccess, triggerRefresh, loadBalance]);
 
   const handleSubmit = useCallback(async (e) => {
     e.preventDefault();
@@ -188,7 +188,7 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
     }
 
     await processPayment();
-  }, [validateFormExtended, formData.payment_amount, paymentBreakdown]);
+  }, [validateFormExtended, formData.payment_amount, paymentBreakdown, processPayment]);
 
   // Load balance on mount
   useEffect(() => {

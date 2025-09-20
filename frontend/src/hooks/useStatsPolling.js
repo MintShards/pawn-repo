@@ -4,7 +4,7 @@
  * Implements singleton pattern to prevent multiple polling instances
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import authService from '../services/authService';
 
@@ -51,6 +51,7 @@ class StatsPollingManager {
     this.isPageVisible = true;
     this.circuitBreaker = { state: 'closed', failureCount: 0, lastFailureTime: null };
     this.adaptiveInterval = this.refreshInterval;
+    this.immediateRefreshTimer = null;
 
     // Initialize default metrics
     Object.values(METRIC_TYPES).forEach(type => {
@@ -246,7 +247,17 @@ class StatsPollingManager {
     // Initial fetch
     this.fetchMetrics();
     
-    // Set up periodic refresh
+    // Set up periodic refresh with adaptive interval
+    this.setupPollingInterval();
+  }
+
+  setupPollingInterval() {
+    // Clear any existing interval
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+    }
+    
+    // Set up new interval with current adaptive interval
     this.intervalId = setInterval(() => {
       this.fetchMetrics();
     }, this.adaptiveInterval);
@@ -278,9 +289,17 @@ class StatsPollingManager {
     }
   }
 
-  // Trigger immediate refresh after user actions
+  // Trigger immediate refresh after user actions with debouncing
   triggerImmediateRefresh() {
-    this.fetchMetrics(true);
+    // Clear any existing immediate refresh timer
+    if (this.immediateRefreshTimer) {
+      clearTimeout(this.immediateRefreshTimer);
+    }
+    
+    // Debounce immediate refreshes to prevent rapid fire requests
+    this.immediateRefreshTimer = setTimeout(() => {
+      this.fetchMetrics(true);
+    }, 100); // Small delay to batch multiple rapid triggers
   }
 }
 

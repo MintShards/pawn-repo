@@ -69,99 +69,6 @@ export const formatLocalDateTime = (utcDateTimeString, options = {}) => {
 };
 
 /**
- * Format a UTC date string for display in user's timezone (date only).
- * 
- * @param {string} utcDateString - ISO date string in UTC
- * @returns {string} Formatted date string in user's timezone with abbreviated months
- */
-export const formatLocalDate = (utcDateString) => {
-  return formatAbbreviatedDate(utcDateString);
-};
-
-
-/**
- * Format a UTC date string with abbreviated month names.
- * 
- * @param {string} utcDateString - ISO date string in UTC
- * @returns {string} Formatted date string with abbreviated month (e.g., "Jan. 1, 2025")
- */
-export const formatAbbreviatedDate = (utcDateString) => {
-  if (!utcDateString) return '';
-  
-  try {
-    const date = new Date(utcDateString);
-    const userTimezone = getUserTimezone();
-    
-    const months = [
-      'Jan.', 'Feb.', 'Mar.', 'Apr.', 'May', 'Jun.',
-      'Jul.', 'Aug.', 'Sep.', 'Oct.', 'Nov.', 'Dec.'
-    ];
-    
-    // Convert to user's timezone
-    const localDate = new Intl.DateTimeFormat('en-US', {
-      timeZone: userTimezone,
-      year: 'numeric',
-      month: 'numeric',
-      day: 'numeric'
-    }).formatToParts(date);
-    
-    const month = months[parseInt(localDate.find(part => part.type === 'month').value) - 1];
-    const day = parseInt(localDate.find(part => part.type === 'day').value);
-    const year = localDate.find(part => part.type === 'year').value;
-    
-    return `${month} ${day}, ${year}`;
-  } catch (error) {
-    console.warn('Failed to format abbreviated date:', error);
-    return utcDateString;
-  }
-};
-
-/**
- * Get current date/time in user's timezone.
- * 
- * @returns {Date} Current date in user's timezone
- */
-export const getUserNow = () => {
-  return new Date();
-};
-
-/**
- * Convert a local date/time to UTC for API submission.
- * 
- * @param {Date|string} localDateTime - Local date/time
- * @returns {string} ISO string in UTC
- */
-export const localToUTC = (localDateTime) => {
-  try {
-    const date = localDateTime instanceof Date ? localDateTime : new Date(localDateTime);
-    return date.toISOString();
-  } catch (error) {
-    console.warn('Failed to convert to UTC:', error);
-    return new Date().toISOString();
-  }
-};
-
-/**
- * Enhanced API fetch with automatic timezone headers.
- * 
- * @param {string} url - API endpoint URL
- * @param {Object} options - Fetch options
- * @returns {Promise} Fetch promise with timezone headers included
- */
-export const fetchWithTimezone = (url, options = {}) => {
-  const headers = {
-    'Content-Type': 'application/json',
-    ...getTimezoneHeaders(),
-    ...(options.headers || {})
-  };
-  
-  return fetch(url, {
-    ...options,
-    headers
-  });
-};
-
-/**
  * Get timezone information for debugging and display.
  * 
  * @returns {Object} Timezone information object
@@ -199,12 +106,12 @@ const isDaylightSavingTime = (date) => {
 // Always use these for transaction dates, redemption dates, and business operations
 
 /**
- * Parse a UTC date string and format it in business timezone (Pacific Time).
+ * Parse a UTC date string or Date object and format it in business timezone (Pacific Time).
  * This is the PRIMARY function to use for all business date displays.
  * 
  * CRITICAL: This function prevents timezone conversion bugs by always using Pacific Time.
  * 
- * @param {string} utcDateString - UTC date string from backend (with or without 'Z')
+ * @param {string|Date} utcDateString - UTC date string from backend (with or without 'Z') or Date object
  * @param {Object} options - Formatting options
  * @returns {string} Formatted date in Pacific Time
  */
@@ -212,13 +119,19 @@ export const formatBusinessDate = (utcDateString, options = {}) => {
   if (!utcDateString) return 'Not Set';
   
   try {
-    // Ensure proper UTC parsing by adding 'Z' if missing
-    let dateString = utcDateString;
-    if (!dateString.endsWith('Z') && !dateString.includes('+') && !dateString.includes('-')) {
-      dateString = dateString + 'Z';
-    }
+    let utcDate;
     
-    const utcDate = new Date(dateString);
+    // Handle both Date objects and string inputs
+    if (utcDateString instanceof Date) {
+      utcDate = utcDateString;
+    } else {
+      // Ensure proper UTC parsing by adding 'Z' if missing
+      let dateString = utcDateString;
+      if (!dateString.endsWith('Z') && !dateString.includes('+') && !dateString.includes('-')) {
+        dateString = dateString + 'Z';
+      }
+      utcDate = new Date(dateString);
+    }
     
     // Validate the date
     if (isNaN(utcDate.getTime())) {
@@ -242,9 +155,9 @@ export const formatBusinessDate = (utcDateString, options = {}) => {
 };
 
 /**
- * Format a UTC date/time string in business timezone with time included.
+ * Format a UTC date/time string or Date object in business timezone with time included.
  * 
- * @param {string} utcDateString - UTC date string from backend
+ * @param {string|Date} utcDateString - UTC date string from backend or Date object
  * @param {Object} options - Formatting options
  * @returns {string} Formatted date/time in Pacific Time
  */
@@ -396,17 +309,6 @@ export const isSameBusinessDay = (utcDateString) => {
     
     // Compare date strings (YYYY-MM-DD format)
     const isSameDay = eventBusinessDate === currentBusinessDate;
-    
-    // Debug logging for development
-    if (process.env.NODE_ENV === 'development') {
-      console.log('Business day check:', {
-        eventDate: utcDateString,
-        eventBusinessDate,
-        currentBusinessDate,
-        isSameDay,
-        timezone: BUSINESS_TIMEZONE
-      });
-    }
     
     return isSameDay;
     

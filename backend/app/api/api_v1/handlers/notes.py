@@ -393,6 +393,64 @@ async def get_system_audit_log(
 
 
 @notes_router.get(
+    "/transaction/{transaction_id}/audit-entries",
+    response_model=List[Dict[str, Any]],
+    summary="Get structured audit entries",
+    description="Get system audit entries as structured data for timeline display"
+)
+async def get_audit_entries(
+    transaction_id: str = Path(..., description="Transaction ID"),
+    limit: int = Query(default=20, ge=1, le=100, description="Maximum entries to return"),
+    current_user: User = Depends(get_staff_or_admin_user)
+) -> List[Dict[str, Any]]:
+    """Get structured system audit entries for a transaction with optimized performance."""
+    
+    try:
+        # Optimized query with projection to only fetch needed fields
+        transaction = await PawnTransaction.find_one(
+            PawnTransaction.transaction_id == transaction_id,
+            projection_model=None,  # Get full document but optimize further below
+            fetch_links=False  # Don't fetch related documents
+        )
+        
+        if not transaction:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Transaction not found"
+            )
+        
+        # Performance optimization: return empty list immediately if no audit log
+        if not transaction.system_audit_log:
+            return []
+        
+        # Optimized sorting and limiting with slice for better memory usage
+        audit_entries = transaction.system_audit_log
+        if len(audit_entries) > limit:
+            # Sort only if needed, and slice efficiently
+            audit_entries = sorted(audit_entries, key=lambda x: x.timestamp, reverse=True)[:limit]
+        else:
+            # If we have fewer entries than limit, just sort them all
+            audit_entries = sorted(audit_entries, key=lambda x: x.timestamp, reverse=True)
+        
+        # Convert to dictionaries for JSON response (optimized)
+        return [entry.dict() for entry in audit_entries]
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await notes_logger.aerror(
+            "Failed to retrieve audit entries",
+            transaction_id=transaction_id,
+            user_id=current_user.user_id,
+            error=str(e)
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve audit entries"
+        )
+
+
+@notes_router.get(
     "/transaction/{transaction_id}/migration-status",
     response_model=MigrationStatusResponse,
     summary="Check migration status",

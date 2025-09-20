@@ -10,7 +10,7 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 import { StatusBadge } from '../ui/enhanced-badge';
-import { formatLocalDate } from '../../utils/timezoneUtils';
+import { formatBusinessDate } from '../../utils/timezoneUtils';
 import customerService from '../../services/customerService';
 import { useAuth } from '../../context/AuthContext';
 import { isAdmin as isAdminRole } from '../../utils/roleUtils';
@@ -48,7 +48,7 @@ const CustomerCard = ({
   };
 
   const formatDate = (dateString) => {
-    return formatLocalDate(dateString);
+    return formatBusinessDate(dateString);
   };
 
   const getRelativeTime = (dateString) => {

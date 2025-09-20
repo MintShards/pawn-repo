@@ -13,9 +13,9 @@ class AuthService {
     this.requestQueue = new Map(); // Track ongoing requests
     this.requestCache = new Map(); // Cache recent responses
     this.lastRequestTime = 0;
-    this.minRequestInterval = 100; // Minimum 100ms between requests
-    this.rateLimitRetryDelay = 2000; // 2 second delay for rate limit retries
-    this.cacheExpiry = 30000; // 30 second cache for GET requests to reduce API calls
+    this.minRequestInterval = 50; // Reduced to 50ms for better responsiveness
+    this.rateLimitRetryDelay = 1000; // Reduced to 1 second delay for rate limit retries
+    this.cacheExpiry = 20000; // Reduced to 20 second cache for more up-to-date data
   }
 
   async login(userCredentials) {
@@ -319,16 +319,23 @@ class AuthService {
     // Handle rate limiting with exponential backoff
     if (response.status === 429) {
       const retryAfter = response.headers.get('Retry-After');
-      const delay = retryAfter ? parseInt(retryAfter) * 1000 : this.rateLimitRetryDelay;
+      const delay = retryAfter ? parseInt(retryAfter) * 1000 : Math.min(this.rateLimitRetryDelay * 2, 10000);
       
+      console.warn(`Rate limited. Retrying after ${Math.ceil(delay / 1000)} seconds...`);
       await new Promise(resolve => setTimeout(resolve, delay));
+      
+      // Increase retry delay for future requests to back off more aggressively
+      this.rateLimitRetryDelay = Math.min(this.rateLimitRetryDelay * 1.5, 15000);
       
       // Retry the request once
       response = await fetch(url, config);
       
       if (response.status === 429) {
-        throw new Error('Rate limit exceeded. Please wait and try again.');
+        throw new Error(`Rate limit exceeded. Please wait ${Math.ceil(delay / 1000)} seconds and try again.`);
       }
+    } else {
+      // Reset retry delay on successful request
+      this.rateLimitRetryDelay = 3000;
     }
     
     // If we get a 401 (token expired), try to refresh and retry once

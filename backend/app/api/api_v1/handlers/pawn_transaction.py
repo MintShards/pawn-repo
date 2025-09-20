@@ -1382,15 +1382,35 @@ async def void_transaction(
     }
     """
     try:
-        # Verify transaction exists
-        transaction = await PawnTransactionService.get_transaction_by_id(transaction_id)
+        # Input validation
+        if not transaction_id or not transaction_id.strip():
+            raise ValidationError("Transaction ID is required")
+        
+        if not void_request.void_reason or not void_request.void_reason.strip():
+            raise ValidationError("Void reason is required")
+        
+        # Verify transaction exists with enhanced error handling
+        try:
+            transaction = await PawnTransactionService.get_transaction_by_id(transaction_id)
+        except Exception as e:
+            await transaction_logger.aerror(
+                "Failed to retrieve transaction for void operation",
+                transaction_id=transaction_id,
+                user_id=current_user.user_id,
+                error=str(e)
+            )
+            raise TransactionNotFoundError(
+                transaction_id,
+                error_code="TRANSACTION_NOT_FOUND"
+            )
+        
         if not transaction:
             raise TransactionNotFoundError(
                 transaction_id,
                 error_code="TRANSACTION_NOT_FOUND"
             )
         
-        # Validate void eligibility
+        # Validate void eligibility with detailed error messages
         voidable_statuses = [TransactionStatus.ACTIVE, TransactionStatus.OVERDUE, 
                            TransactionStatus.EXTENDED, TransactionStatus.HOLD]
         if transaction.status not in voidable_statuses:
@@ -1428,6 +1448,16 @@ async def void_transaction(
         transaction.status = TransactionStatus.VOIDED
         transaction.updated_at = datetime.now(UTC)
         
+        # Create structured audit entry for status change (THIS WAS MISSING!)
+        from app.models.audit_entry_model import create_status_change_audit
+        audit_entry = create_status_change_audit(
+            staff_member=current_user.user_id,
+            old_status=original_status.value if hasattr(original_status, 'value') else str(original_status),
+            new_status=TransactionStatus.VOIDED.value,
+            reason=f"VOIDED: {void_request.void_reason}" + (f" | Admin notes: {void_request.admin_notes}" if void_request.admin_notes else "")
+        )
+        transaction.add_system_audit_entry(audit_entry)
+        
         # Add void information to internal notes (handle 500 char limit)
         void_info = f"\n--- VOIDED by {current_user.user_id} on {datetime.now(UTC).strftime('%Y-%m-%d %H:%M')} ---\nReason: {void_request.void_reason}"
         if void_request.admin_notes:
@@ -1451,6 +1481,12 @@ async def void_transaction(
             transaction.internal_notes = void_info.strip()[:500]
         
         await transaction.save()
+        
+        # CRITICAL: Immediate comprehensive cache invalidation for real-time updates
+        try:
+            await PawnTransactionService._invalidate_all_transaction_caches()
+        except Exception as cache_error:
+            transaction_logger.warning("Cache invalidation failed after void", error=str(cache_error))
         
         # Create audit trail
         operation_datetime = datetime.now(UTC)
@@ -1591,6 +1627,16 @@ async def cancel_transaction(
         transaction.status = TransactionStatus.CANCELED
         transaction.updated_at = datetime.now(UTC)
         
+        # Create structured audit entry for status change
+        from app.models.audit_entry_model import create_status_change_audit
+        audit_entry = create_status_change_audit(
+            staff_member=current_user.user_id,
+            old_status=original_status.value if hasattr(original_status, 'value') else str(original_status),
+            new_status=TransactionStatus.CANCELED.value,
+            reason=f"CANCELED: {cancel_request.cancel_reason}" + (f" | Staff notes: {cancel_request.staff_notes}" if cancel_request.staff_notes else "")
+        )
+        transaction.add_system_audit_entry(audit_entry)
+        
         # Add cancellation info (handle 500 char limit)
         cancel_info = f"\n--- CANCELED by {current_user.user_id} on {datetime.now(UTC).strftime('%Y-%m-%d %H:%M')} ---\nReason: {cancel_request.cancel_reason}"
         if cancel_request.staff_notes:
@@ -1614,6 +1660,12 @@ async def cancel_transaction(
             transaction.internal_notes = cancel_info.strip()[:500]
         
         await transaction.save()
+        
+        # CRITICAL: Immediate comprehensive cache invalidation for real-time updates
+        try:
+            await PawnTransactionService._invalidate_all_transaction_caches()
+        except Exception as cache_error:
+            transaction_logger.warning("Cache invalidation failed after cancel", error=str(cache_error))
         
         operation_datetime = datetime.now(UTC)
         original_status_str = original_status.value if hasattr(original_status, 'value') else str(original_status)

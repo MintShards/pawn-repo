@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AlertTriangle, Save, X } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 import { Button } from '../../ui/button';
 import { Label } from '../../ui/label';
 import { Textarea } from '../../ui/textarea';
@@ -8,50 +8,66 @@ import { Alert, AlertDescription } from '../../ui/alert';
 import StatusBadge from './StatusBadge';
 import transactionService from '../../../services/transactionService';
 import { useStatsPolling } from '../../../hooks/useStatsPolling';
+import { useAuth } from '../../../context/AuthContext';
+import { formatTransactionId } from '../../../utils/transactionUtils';
 
-const StatusUpdateForm = ({ transaction, onSuccess, onCancel }) => {
+const StatusUpdateForm = ({ transaction, customer, onSuccess, onCancel }) => {
   const { triggerRefresh } = useStatsPolling();
+  const { user } = useAuth();
   const [newStatus, setNewStatus] = useState('');
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  
+  const isAdmin = user?.role === 'admin';
 
-  // Define valid status transitions based on business rules
+  // Define valid status transitions based on backend business rules
   const getValidStatusOptions = (currentStatus) => {
-    const allStatuses = [
-      { value: 'active', label: 'Active', description: 'Loan is current and active' },
-      { value: 'overdue', label: 'Overdue', description: 'Past maturity date, within grace period' },
-      { value: 'extended', label: 'Extended', description: 'Loan has been extended' },
-      { value: 'redeemed', label: 'Redeemed', description: 'Customer redeemed items (paid in full)' },
-      { value: 'forfeited', label: 'Forfeited', description: 'Items forfeited to shop' },
-      { value: 'sold', label: 'Sold', description: 'Forfeited items sold by shop' },
-      { value: 'hold', label: 'Hold', description: 'Transaction on temporary hold' },
-      { value: 'damaged', label: 'Damaged', description: 'Items damaged while in storage' },
-      { value: 'voided', label: 'Voided', description: 'Transaction voided (admin only)' },
-      { value: 'canceled', label: 'Canceled', description: 'Transaction canceled (staff)' }
-    ];
+    // Status definitions with accurate business rules
+    const statusDefinitions = {
+      'active': { label: 'Active', description: 'Loan is current and active' },
+      'overdue': { label: 'Overdue', description: 'Past maturity date' },
+      'extended': { label: 'Extended', description: 'Loan has been extended' },
+      'redeemed': { label: 'Redeemed', description: 'Customer redeemed items (paid in full)' },
+      'forfeited': { label: 'Forfeited', description: 'Items forfeited to shop' },
+      'sold': { label: 'Sold', description: 'Forfeited items sold by shop' },
+      'hold': { label: 'Hold', description: 'Transaction on temporary hold' },
+      'damaged': { label: 'Damaged', description: 'Items damaged while in storage' },
+      'voided': { label: 'Voided', description: 'Transaction voided by admin' }
+    };
 
-    // Filter out current status and define business rule restrictions
-    return allStatuses.filter(status => {
-      if (status.value === currentStatus) return false;
-      
-      // Business rules for valid transitions
-      switch (currentStatus) {
-        case 'sold':
-        case 'voided':
-        case 'canceled':
-          return false; // Terminal states - no transitions allowed
-        
-        case 'redeemed':
-          return ['voided'].includes(status.value); // Only admin void allowed
-        
-        case 'forfeited':
-          return ['sold', 'redeemed', 'voided'].includes(status.value);
-        
-        default:
-          return true; // Most statuses can transition to any other status
+    // Admin-only statuses (for future use)
+    const adminOnlyStatuses = []; // None currently defined, but infrastructure ready
+
+    // Valid transitions based on backend business rules
+    // Note: 'extended', 'redeemed', and 'voided' are handled by separate workflows, not this form
+    const validTransitions = {
+      'active': ['overdue', 'hold', 'damaged', 'forfeited'],
+      'overdue': ['active', 'forfeited', 'hold', 'damaged'],
+      'extended': ['overdue', 'forfeited', 'hold', 'damaged'],
+      'hold': ['active', 'overdue', 'damaged', 'forfeited'],
+      'damaged': ['forfeited', 'sold'],
+      'redeemed': [], // Terminal state
+      'forfeited': ['sold'],
+      'sold': [], // Terminal state
+      'voided': [] // Terminal state
+    };
+
+    const allowedStatuses = validTransitions[currentStatus] || [];
+    
+    // Filter out admin-only statuses for non-admin users
+    const filteredStatuses = allowedStatuses.filter(statusValue => {
+      if (adminOnlyStatuses.includes(statusValue)) {
+        return isAdmin;
       }
+      return true;
     });
+    
+    return filteredStatuses.map(statusValue => ({
+      value: statusValue,
+      label: statusDefinitions[statusValue]?.label || statusValue,
+      description: statusDefinitions[statusValue]?.description || ''
+    }));
   };
 
   const handleSubmit = async (e) => {
@@ -62,11 +78,20 @@ const StatusUpdateForm = ({ transaction, onSuccess, onCancel }) => {
       return;
     }
 
+    // Double-check that the selected status is still valid
+    const currentValidOptions = getValidStatusOptions(transaction.status);
+    const isStillValid = currentValidOptions.some(option => option.value === newStatus);
+    
+    if (!isStillValid) {
+      setError(`This status transition is no longer valid. The transaction status may have changed. Please close and reopen to see the current status.`);
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
     try {
-      await transactionService.updateTransactionStatus(transaction.transaction_id, {
+      const result = await transactionService.updateTransactionStatus(transaction.transaction_id, {
         new_status: newStatus,
         notes: notes.trim() || undefined
       });
@@ -74,9 +99,38 @@ const StatusUpdateForm = ({ transaction, onSuccess, onCancel }) => {
       // Trigger immediate stats refresh after status update
       triggerRefresh();
       
-      onSuccess && onSuccess();
+      // Pass the result with status information to the success handler
+      onSuccess && onSuccess({
+        ...result,
+        new_status: newStatus,
+        old_status: transaction.status,
+        transaction_id: transaction.transaction_id
+      });
     } catch (error) {
-      setError(error.message || 'Failed to update transaction status');
+      let errorMessage = 'Failed to update transaction status';
+      
+      // Parse specific error messages for better user feedback
+      if (error.message) {
+        if (error.message.includes('Invalid status transition')) {
+          errorMessage = `Cannot change status from "${transaction.status}" to "${newStatus}". This transition is not allowed by business rules.`;
+        } else if (error.message.includes('not found')) {
+          errorMessage = 'Transaction not found. Please refresh and try again.';
+        } else if (error.message.includes('Forbidden') || error.message.includes('permission') || error.message.includes('403')) {
+          errorMessage = 'You do not have permission to make this status change. Your session may have expired.';
+        } else if (error.message.includes('400')) {
+          // Try to extract the actual error message from the backend
+          const match = error.message.match(/detail:\s*"([^"]+)"/);
+          if (match) {
+            errorMessage = match[1];
+          } else {
+            errorMessage = `Invalid request: The status change from "${transaction.status}" to "${newStatus}" is not allowed.`;
+          }
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -86,18 +140,21 @@ const StatusUpdateForm = ({ transaction, onSuccess, onCancel }) => {
 
   return (
     <div className="space-y-4">
-      {/* Current Status Display */}
-      <div className="bg-gray-50 p-4 rounded-lg">
-        <div className="flex items-center justify-between">
-          <div>
-            <h4 className="font-medium text-gray-900">Current Status</h4>
-            <p className="text-sm text-gray-600">Transaction #{transaction.transaction_id?.slice(-8)}</p>
-          </div>
-          <StatusBadge status={transaction.status} />
+      {/* Transaction Details */}
+      <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+        <h4 className="text-sm font-medium text-blue-900 mb-2">Transaction Details</h4>
+        <div className="text-sm text-blue-900 space-y-1">
+          <p><strong>Transaction ID:</strong> {formatTransactionId(transaction)}</p>
+          <div><strong>Current Status:</strong> <StatusBadge status={transaction.status} /></div>
+          {customer && (
+            <p><strong>Customer:</strong> {`${customer.first_name || ''} ${customer.last_name || ''}`.trim().toUpperCase()}</p>
+          )}
+          {transaction.loan_amount && (
+            <p><strong>Loan Amount:</strong> ${transaction.loan_amount}</p>
+          )}
         </div>
       </div>
 
-      {/* Status Update Form */}
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* New Status Selection */}
         <div className="space-y-2">
@@ -118,9 +175,26 @@ const StatusUpdateForm = ({ transaction, onSuccess, onCancel }) => {
             </SelectContent>
           </Select>
           {validOptions.length === 0 && (
-            <p className="text-sm text-gray-500">
-              No status changes available for {transaction.status} transactions
-            </p>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="flex items-start">
+                <div className="flex-shrink-0">
+                  <svg className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium text-blue-800">
+                    No Status Changes Available
+                  </h3>
+                  <p className="text-sm text-blue-700 mt-1">
+                    {transaction.status === 'redeemed' || transaction.status === 'sold' 
+                      ? `Transactions with "${transaction.status}" status are final and cannot be changed.`
+                      : `No valid status transitions are available for "${transaction.status}" transactions at this time.`
+                    }
+                  </p>
+                </div>
+              </div>
+            </div>
           )}
         </div>
 
@@ -154,12 +228,12 @@ const StatusUpdateForm = ({ transaction, onSuccess, onCancel }) => {
             onClick={onCancel}
             disabled={loading}
           >
-            <X className="w-4 h-4 mr-1" />
             Cancel
           </Button>
           <Button
             type="submit"
             disabled={loading || !newStatus || validOptions.length === 0}
+            className="bg-blue-600 hover:bg-blue-700 text-white"
           >
             {loading ? (
               <>
@@ -167,10 +241,7 @@ const StatusUpdateForm = ({ transaction, onSuccess, onCancel }) => {
                 Updating...
               </>
             ) : (
-              <>
-                <Save className="w-4 h-4 mr-1" />
-                Update Status
-              </>
+              'Update Status'
             )}
           </Button>
         </div>
