@@ -1,22 +1,26 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { 
-  CreditCard, 
+  Receipt, 
   DollarSign, 
   Clock, 
   Plus,
+  LayoutDashboard,
+  Zap,
   Activity,
   AlertTriangle,
   CheckCircle,
   Crown,
   UserCheck,
+  FileBarChart,
   FileText,
+  CreditCard,
   LogOut,
   Calendar,
   Package,
   Phone,
-  BarChart3,
+  TrendingUp,
   Mail,
   Trash2,
   X,
@@ -56,6 +60,7 @@ import AdminApprovalDialog from '../components/common/AdminApprovalDialog';
 const TransactionHub = () => {
   const { user, logout, loading, fetchUserDataIfNeeded, isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [selectedTransaction, setSelectedTransaction] = useState(null);
   const [selectedTransactionCustomer, setSelectedTransactionCustomer] = useState(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -75,6 +80,9 @@ const TransactionHub = () => {
   const [customerTransactions, setCustomerTransactions] = useState([]);
   const [showQuickPayment, setShowQuickPayment] = useState(false);
   const [showQuickExtension, setShowQuickExtension] = useState(false);
+  
+  // Filter state for URL parameters
+  const [initialFilters, setInitialFilters] = useState({});
   
   // Admin approval dialog states
   const [showPaymentReversalDialog, setShowPaymentReversalDialog] = useState(false);
@@ -1050,12 +1058,12 @@ const TransactionHub = () => {
                   onClick={() => navigate('/')}
                   className="h-9 px-3 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
                 >
-                  <Activity className="w-4 h-4 mr-2" />
+                  <LayoutDashboard className="w-4 h-4 mr-2" />
                   Dashboard
                 </Button>
                 <div className="h-6 w-px bg-slate-200 dark:bg-slate-700 mx-2"></div>
                 <div className="flex items-center space-x-2 px-3 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/50 dark:to-indigo-950/50 rounded-lg border border-blue-100 dark:border-blue-900/50">
-                  <CreditCard className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                  <Receipt className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                   <span className="text-sm font-medium text-blue-900 dark:text-blue-100">
                     Transactions
                   </span>
@@ -1143,7 +1151,6 @@ const TransactionHub = () => {
               refreshInterval={60000} // Reduced to 60-second refresh to prevent rate limiting
               refreshTrigger={refreshKey} // Pass refresh trigger to update stats after actions
               onStatClick={(filterType, filterValue) => {
-                // Future enhancement: Filter transactions based on stat card clicks
               }}
             />
           </div>
@@ -1160,7 +1167,7 @@ const TransactionHub = () => {
                 <div className="flex items-center space-x-3">
                   <div className="relative">
                     <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/30">
-                      <Activity className="w-5 h-5 text-white" />
+                      <Zap className="w-5 h-5 text-white" />
                     </div>
                     <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-white dark:border-slate-900"></div>
                   </div>
@@ -1224,7 +1231,7 @@ const TransactionHub = () => {
                 <div className="flex items-center space-x-3">
                   <div className="relative">
                     <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl flex items-center justify-center shadow-lg shadow-purple-500/30">
-                      <FileText className="w-5 h-5 text-white" />
+                      <FileBarChart className="w-5 h-5 text-white" />
                     </div>
                     <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-orange-500 rounded-full border-2 border-white dark:border-slate-900"></div>
                   </div>
@@ -1250,7 +1257,7 @@ const TransactionHub = () => {
                   variant="outline"
                 >
                   <div className="w-6 h-6 bg-slate-200/60 dark:bg-slate-600/30 rounded-md flex items-center justify-center mr-2 group-hover:bg-slate-300/70 dark:group-hover:bg-slate-500/40 transition-colors">
-                    <FileText className="w-4 h-4" />
+                    <FileBarChart className="w-4 h-4" />
                   </div>
                   <span className="font-medium text-sm">Generate Report</span>
                 </Button>
@@ -1263,7 +1270,7 @@ const TransactionHub = () => {
               <CardContent className="relative p-5">
                 <div className="flex items-center space-x-2 mb-4">
                   <div className="w-6 h-6 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center">
-                    <BarChart3 className="w-4 h-4 text-white" />
+                    <TrendingUp className="w-4 h-4 text-white" />
                   </div>
                   <h4 className="text-sm font-semibold text-slate-900 dark:text-white">Today's Overview</h4>
                 </div>

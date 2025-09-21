@@ -75,8 +75,8 @@ const DashboardPage = () => {
 
     if (user) {
       fetchAlertStats();
-      // Refresh stats every 30 seconds
-      const interval = setInterval(fetchAlertStats, 30000);
+      // Refresh stats every 60 seconds for rate limit safety
+      const interval = setInterval(fetchAlertStats, 60000);
       return () => clearInterval(interval);
     }
   }, [user]);

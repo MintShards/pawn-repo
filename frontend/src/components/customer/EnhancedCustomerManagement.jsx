@@ -330,10 +330,10 @@ const EnhancedCustomerManagement = () => {
     window.addEventListener('refreshAlertCounts', handleServiceAlertUpdate);
     window.addEventListener('refreshCustomerAlerts', handleServiceAlertUpdate);
     
-    // Set up periodic refresh for stats (every 30 seconds, but debounced)
+    // Set up periodic refresh for stats (every 60 seconds, but debounced)
     const statsRefreshInterval = setInterval(() => {
       debouncedLoadCustomerStats();
-    }, 30000);
+    }, 60000);
     
     return () => {
       window.removeEventListener('refreshAlertCounts', handleServiceAlertUpdate);

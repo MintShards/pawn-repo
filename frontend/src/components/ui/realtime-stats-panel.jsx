@@ -20,7 +20,7 @@ import { cn } from '../../lib/utils';
  */
 export const StatsPanel = memo(({ 
   className,
-  refreshInterval = 30000, // Optimized 30-second refresh for production stability
+  refreshInterval = 60000, // Optimized 60-second refresh for production stability and rate limit safety
   onStatClick,
   refreshTrigger, // Add trigger to force refresh on important actions
   ...props 
