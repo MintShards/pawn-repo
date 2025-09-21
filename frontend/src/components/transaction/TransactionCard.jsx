@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { MoreHorizontal, DollarSign, Calendar, Phone, CreditCard, Clock, MapPin, Eye, Banknote, ArrowRightLeft, Trash2 } from 'lucide-react';
+import { MoreHorizontal, DollarSign, Phone, CreditCard, Eye, Banknote, ArrowRightLeft, Trash2, MapPin } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader } from '../ui/card';
-import { Badge } from '../ui/badge';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -66,68 +65,87 @@ const TransactionCard = ({
 
   const getStatusColor = (status) => {
     switch (status) {
-      case 'active': return 'from-emerald-50 to-teal-50 dark:from-emerald-950/50 dark:to-teal-950/50';
-      case 'overdue': return 'from-red-50 to-rose-50 dark:from-red-950/50 dark:to-rose-950/50';
-      case 'extended': return 'from-blue-50 to-indigo-50 dark:from-blue-950/50 dark:to-indigo-950/50';
-      case 'redeemed': return 'from-green-50 to-emerald-50 dark:from-green-950/50 dark:to-emerald-950/50';
-      case 'sold': return 'from-purple-50 to-violet-50 dark:from-purple-950/50 dark:to-violet-950/50';
+      case 'active': return 'from-blue-50 to-blue-100 dark:from-blue-950/50 dark:to-blue-900/50';
+      case 'overdue': return 'from-red-50 to-red-100 dark:from-red-950/50 dark:to-red-900/50';
+      case 'extended': return 'from-teal-50 to-teal-100 dark:from-teal-950/50 dark:to-teal-900/50';
+      case 'redeemed': return 'from-green-50 to-green-100 dark:from-green-950/50 dark:to-green-900/50';
+      case 'sold': return 'from-purple-50 to-purple-100 dark:from-purple-950/50 dark:to-purple-900/50';
+      case 'hold': return 'from-amber-50 to-amber-100 dark:from-amber-950/50 dark:to-amber-900/50';
+      case 'forfeited': return 'from-orange-50 to-orange-100 dark:from-orange-950/50 dark:to-orange-900/50';
+      case 'damaged': return 'from-amber-50 to-amber-100 dark:from-amber-950/50 dark:to-amber-900/50';
+      case 'voided': return 'from-gray-50 to-gray-100 dark:from-gray-950/50 dark:to-gray-900/50';
       default: return 'from-slate-50 to-slate-100 dark:from-slate-800/50 dark:to-slate-700/50';
     }
   };
 
-  const getStatusIcon = (status) => {
-    switch (status) {
-      case 'active': return <CreditCard className="w-4 h-4" />;
-      case 'overdue': return <Clock className="w-4 h-4" />;
-      case 'extended': return <ArrowRightLeft className="w-4 h-4" />;
-      case 'redeemed': return <Banknote className="w-4 h-4" />;
-      default: return <CreditCard className="w-4 h-4" />;
+
+  // Calculate days until maturity or days overdue
+  const getMaturityInfo = () => {
+    if (!transaction.maturity_date) return null;
+    
+    const now = new Date();
+    const maturityDate = new Date(transaction.maturity_date);
+    const diffTime = maturityDate - now;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays > 0) {
+      return {
+        type: 'due',
+        days: diffDays,
+        text: `Due in ${diffDays} day${diffDays !== 1 ? 's' : ''}`,
+        color: diffDays <= 7 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-600 dark:text-slate-400'
+      };
+    } else if (diffDays < 0) {
+      const overdueDays = Math.abs(diffDays);
+      return {
+        type: 'overdue',
+        days: overdueDays,
+        text: `${overdueDays} day${overdueDays !== 1 ? 's' : ''} overdue`,
+        color: 'text-red-600 dark:text-red-400'
+      };
+    } else {
+      return {
+        type: 'today',
+        days: 0,
+        text: 'Due today',
+        color: 'text-orange-600 dark:text-orange-400'
+      };
     }
   };
 
+  const maturityInfo = getMaturityInfo();
+
+
   return (
     <Card 
-      className={`border-0 shadow-lg bg-gradient-to-br ${getStatusColor(transaction.status)} relative overflow-hidden transition-all duration-200 hover:shadow-xl group cursor-pointer ${
-        isSelected ? 'ring-2 ring-blue-500' : ''
+      className={`border-0 shadow-md bg-gradient-to-br ${getStatusColor(transaction.status)} relative overflow-hidden transition-all duration-200 hover:shadow-lg group cursor-pointer ${
+        isSelected ? 'ring-2 ring-blue-500 shadow-lg' : ''
       }`}
       onClick={() => onView?.(transaction)}
     >
-      {/* Decorative Element */}
-      <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -mr-10 -mt-10"></div>
+      {/* Simplified decorative element */}
+      <div className="absolute top-0 right-0 w-16 h-16 bg-white/5 rounded-full -mr-8 -mt-8"></div>
       
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between">
-          <div className="flex items-center space-x-3">
-            <div 
-              className="w-10 h-10 rounded-xl flex items-center justify-center"
-              style={{ 
-                backgroundColor: 
-                  transaction.status === 'redeemed' ? '#4CAF5033' :
-                  transaction.status === 'active' ? '#2196F333' :
-                  transaction.status === 'extended' ? '#00BCD433' :
-                  transaction.status === 'sold' ? '#9C27B033' :
-                  transaction.status === 'hold' ? '#FFC10733' :
-                  transaction.status === 'forfeited' ? '#FF572233' :
-                  transaction.status === 'overdue' ? '#F4433633' :
-                  transaction.status === 'damaged' ? '#79554833' :
-                  transaction.status === 'voided' ? '#9E9E9E33' : '#E5E7EB33'
-              }}
-            >
-              {getStatusIcon(transaction.status)}
-            </div>
-            <div>
+          <div className="flex-1">
+            <div className="flex items-center justify-between mb-2">
               <h3 className="font-bold text-lg text-slate-900 dark:text-slate-100">
                 #{formatTransactionId(transaction)}
               </h3>
-              <div className="flex items-center space-x-2">
-                <StatusBadge status={transaction.status} />
-                {transaction.hasExtensions && (
-                  <Badge variant="outline" className="text-xs">
-                    <Clock className="h-3 w-3 mr-1" />
-                    {transaction.extensions?.length || 0} Extension{transaction.extensions?.length !== 1 ? 's' : ''}
-                  </Badge>
-                )}
-              </div>
+              <StatusBadge status={transaction.status} />
+            </div>
+            
+            {/* Key info row */}
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-slate-600 dark:text-slate-400">
+                {formatBusinessDate(transaction.pawn_date)}
+              </span>
+              {maturityInfo && (
+                <span className={`text-xs font-medium ${maturityInfo.color}`}>
+                  {maturityInfo.text}
+                </span>
+              )}
             </div>
           </div>
 
@@ -181,7 +199,7 @@ const TransactionCard = ({
       </CardHeader>
       
       <CardContent className="pt-0">
-        {/* Financial Summary */}
+        {/* Simplified Financial Summary */}
         <div className="grid grid-cols-2 gap-4 mb-4">
           <div className="space-y-1">
             <div className="flex items-center space-x-2">
@@ -206,8 +224,8 @@ const TransactionCard = ({
           </div>
         </div>
 
-        {/* Customer & Date Info */}
-        <div className="grid grid-cols-1 gap-3 mb-4">
+        {/* Customer Info */}
+        <div className="mb-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2">
               <Phone className="h-4 w-4 text-slate-600 dark:text-slate-400" />
@@ -215,49 +233,25 @@ const TransactionCard = ({
             </div>
             {(transaction.customer_phone || transaction.customer_id) && 
              (transaction.customer_phone !== 'No Customer' && transaction.customer_id !== 'No Customer') ? (
-              <div className="space-y-1">
-                {/* Customer Name in DOE, J. format */}
-                <div className="min-h-[20px]">
-                  {customerData[transaction.customer_phone || transaction.customer_id] ? (
-                    <Button
-                      variant="link"
-                      className="h-auto p-0 text-sm font-bold text-slate-900 dark:text-slate-100 hover:text-blue-700 dark:hover:text-blue-300 underline-offset-2"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onViewCustomer?.(transaction.customer_phone || transaction.customer_id);
-                      }}
-                    >
-                      {customerService.getCustomerNameFormatted(customerData[transaction.customer_phone || transaction.customer_id])}
-                    </Button>
-                  ) : (
-                    <div className="text-xs text-slate-400 dark:text-slate-500">Loading...</div>
-                  )}
-                </div>
-                {/* Customer Phone Number */}
-                <Button
-                  variant="link"
-                  className="h-auto p-0 text-xs font-normal text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 underline-offset-2 opacity-75"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onViewCustomer?.(transaction.customer_phone || transaction.customer_id);
-                  }}
-                >
-                  {transaction.customer_phone || transaction.customer_id}
-                </Button>
+              <div className="text-right">
+                {customerData[transaction.customer_phone || transaction.customer_id] ? (
+                  <Button
+                    variant="link"
+                    className="h-auto p-0 text-sm font-medium text-slate-900 dark:text-slate-100 hover:text-blue-700 dark:hover:text-blue-300"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onViewCustomer?.(transaction.customer_phone || transaction.customer_id);
+                    }}
+                  >
+                    {customerService.getCustomerNameFormatted(customerData[transaction.customer_phone || transaction.customer_id])}
+                  </Button>
+                ) : (
+                  <span className="text-sm text-slate-600 dark:text-slate-400">Loading...</span>
+                )}
               </div>
             ) : (
-              <span className="text-sm font-medium text-slate-400 dark:text-slate-500">No Customer</span>
+              <span className="text-sm text-slate-400 dark:text-slate-500">No Customer</span>
             )}
-          </div>
-          
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Calendar className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-              <span className="text-sm text-slate-600 dark:text-slate-400">Loan Date:</span>
-            </div>
-            <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
-              {formatBusinessDate(transaction.pawn_date)}
-            </span>
           </div>
 
           {transaction.storage_location && (
@@ -275,23 +269,35 @@ const TransactionCard = ({
 
         {/* Items Preview */}
         {transaction.items && transaction.items.length > 0 && (
-          <div className="mb-4 p-3 bg-white/50 dark:bg-slate-800/50 rounded-lg border border-white/20 dark:border-slate-700/20">
+          <div className="mb-4 p-3 bg-white/40 dark:bg-slate-800/40 rounded-lg">
             <div className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">
               Items ({transaction.items.length})
             </div>
-            <div className="text-sm text-slate-700 dark:text-slate-300">
-              {transaction.items.slice(0, 2).map(item => item.description).join(', ')}
+            <div className="space-y-2">
+              {transaction.items.slice(0, 2).map((item, index) => (
+                <div key={index} className="text-sm">
+                  <div className="text-slate-700 dark:text-slate-300 font-medium">
+                    {item.description}
+                  </div>
+                  {item.serial_number && (
+                    <div className="text-xs text-slate-500 dark:text-slate-400 font-mono">
+                      S/N: {item.serial_number}
+                    </div>
+                  )}
+                </div>
+              ))}
               {transaction.items.length > 2 && (
-                <span className="text-slate-500 dark:text-slate-400">
-                  {' '}+{transaction.items.length - 2} more
-                </span>
+                <div className="text-xs text-slate-500 dark:text-slate-400 font-medium pt-1">
+                  +{transaction.items.length - 2} more item{transaction.items.length - 2 !== 1 ? 's' : ''}
+                </div>
               )}
             </div>
           </div>
         )}
 
         {/* Quick Actions */}
-        <div className="flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
+        <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
+          {/* View Button */}
           <Button 
             variant="outline" 
             size="sm" 
@@ -299,14 +305,15 @@ const TransactionCard = ({
               e.stopPropagation();
               onView?.(transaction);
             }}
-            className="flex items-center gap-2 bg-white/50 dark:bg-slate-800/50 hover:bg-white dark:hover:bg-slate-800"
+            className="w-full flex items-center justify-center gap-2 bg-white/50 dark:bg-slate-800/50 hover:bg-white dark:hover:bg-slate-800"
           >
             <Eye className="w-4 h-4" />
-            View
+            View Details
           </Button>
           
+          {/* Action Buttons for Active Loans */}
           {(transaction.status === 'active' || transaction.status === 'overdue' || transaction.status === 'extended') && (
-            <div className="flex items-center space-x-2">
+            <div className="grid grid-cols-2 gap-2">
               <Button 
                 variant="outline" 
                 size="sm"
@@ -314,7 +321,7 @@ const TransactionCard = ({
                   e.stopPropagation();
                   onPayment?.(transaction);
                 }}
-                className="flex items-center gap-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/50 dark:text-emerald-300 dark:border-emerald-800"
+                className="flex items-center justify-center gap-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/50 dark:text-emerald-300 dark:border-emerald-800"
               >
                 <Banknote className="w-4 h-4" />
                 Payment
@@ -326,7 +333,7 @@ const TransactionCard = ({
                   e.stopPropagation();
                   onExtension?.(transaction);
                 }}
-                className="flex items-center gap-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:hover:bg-blue-900/50 dark:text-blue-300 dark:border-blue-800"
+                className="flex items-center justify-center gap-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:hover:bg-blue-900/50 dark:text-blue-300 dark:border-blue-800"
               >
                 <ArrowRightLeft className="w-4 h-4" />
                 Extend
@@ -341,7 +348,10 @@ const TransactionCard = ({
             <Button 
               variant={isSelected ? "default" : "outline"} 
               size="sm" 
-              onClick={() => onSelect(transaction)}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelect(transaction);
+              }}
               className="w-full"
             >
               {isSelected ? 'Selected' : 'Select Transaction'}

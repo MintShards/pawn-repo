@@ -16,7 +16,9 @@ import {
   Package,
   FileText,
   User,
-  Wallet
+  Wallet,
+  Table as TableIcon,
+  LayoutGrid
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -929,12 +931,7 @@ const TransactionList = ({
                 }`}
               >
                 <div className="flex items-center space-x-2">
-                  <div className="grid grid-cols-2 gap-0.5 w-3.5 h-3.5">
-                    <div className="w-1.5 h-1.5 bg-current rounded-sm"></div>
-                    <div className="w-1.5 h-1.5 bg-current rounded-sm"></div>
-                    <div className="w-1.5 h-1.5 bg-current rounded-sm"></div>
-                    <div className="w-1.5 h-1.5 bg-current rounded-sm"></div>
-                  </div>
+                  <TableIcon className="w-4 h-4" />
                   <span className="font-medium">Table</span>
                 </div>
               </Button>
@@ -949,11 +946,7 @@ const TransactionList = ({
                 }`}
               >
                 <div className="flex items-center space-x-2">
-                  <div className="grid grid-cols-1 gap-0.5 w-3.5 h-3.5">
-                    <div className="w-3.5 h-1 bg-current rounded-sm"></div>
-                    <div className="w-3.5 h-1 bg-current rounded-sm"></div>
-                    <div className="w-3.5 h-0.5 bg-current rounded-sm"></div>
-                  </div>
+                  <LayoutGrid className="w-4 h-4" />
                   <span className="font-medium">Cards</span>
                 </div>
               </Button>
