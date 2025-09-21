@@ -94,11 +94,19 @@ const TransactionList = ({
   
   // Advanced search fields
   const [searchFields, setSearchFields] = useState({
-    transactionId: '',
-    customerId: '',
-    loanAmount: '',
-    storageLocation: ''
+    // New filters only
+    minLoanAmount: '',
+    maxLoanAmount: '',
+    minDaysOverdue: '',
+    maxDaysOverdue: '',
+    pawnDateFrom: '',
+    pawnDateTo: '',
+    maturityDateFrom: '',
+    maturityDateTo: ''
   });
+
+  // Sheet state for auto-close functionality
+  const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
 
   // Customer data for name display
   const [customerData, setCustomerData] = useState({});
@@ -122,19 +130,62 @@ const TransactionList = ({
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Filter and sort transactions (backend now handles basic search)
+  // Filter and sort transactions (backend handles most filters, frontend handles unsupported ones)
   const filteredAndSortedTransactions = transactions
     .filter(transaction => {
-      // Advanced search filters (basic search now handled by backend)
-      if (searchFields.transactionId && !formatTransactionId(transaction).toLowerCase().includes(searchFields.transactionId.toLowerCase())) return false;
-      if (searchFields.customerId && !transaction.customer_id?.includes(searchFields.customerId)) return false;
-      if (searchFields.loanAmount && transaction.loan_amount < parseFloat(searchFields.loanAmount)) return false;
-      if (searchFields.storageLocation && !transaction.storage_location?.toLowerCase().includes(searchFields.storageLocation.toLowerCase())) return false;
-      
-      // Status filter (local filter for immediate UI response)
-      if (filters.status && transaction.status !== filters.status) return false;
-      
-      return true;
+      try {
+        // Only keep frontend filters that aren't supported by backend yet
+        
+        // Days overdue filter (frontend-only until backend support)
+        if ((searchFields.minDaysOverdue && searchFields.minDaysOverdue.trim() !== '') || 
+            (searchFields.maxDaysOverdue && searchFields.maxDaysOverdue.trim() !== '')) {
+          
+          if (transaction.maturity_date) {
+            const maturityDate = new Date(transaction.maturity_date);
+            const today = new Date();
+            
+            // Only calculate if we have valid dates
+            if (!isNaN(maturityDate.getTime())) {
+              const daysOverdue = Math.max(0, Math.floor((today - maturityDate) / (1000 * 60 * 60 * 24)));
+              
+              if (searchFields.minDaysOverdue && searchFields.minDaysOverdue.trim() !== '') {
+                const minDays = parseInt(searchFields.minDaysOverdue);
+                if (!isNaN(minDays) && daysOverdue < minDays) return false;
+              }
+              if (searchFields.maxDaysOverdue && searchFields.maxDaysOverdue.trim() !== '') {
+                const maxDays = parseInt(searchFields.maxDaysOverdue);
+                if (!isNaN(maxDays) && daysOverdue > maxDays) return false;
+              }
+            }
+          }
+        }
+        
+        // Maturity Date range filter (frontend-only until backend support)
+        if ((searchFields.maturityDateFrom && searchFields.maturityDateFrom.trim() !== '') || 
+            (searchFields.maturityDateTo && searchFields.maturityDateTo.trim() !== '')) {
+          
+          if (transaction.maturity_date) {
+            const maturityDate = new Date(transaction.maturity_date);
+            
+            if (!isNaN(maturityDate.getTime())) {
+              if (searchFields.maturityDateFrom && searchFields.maturityDateFrom.trim() !== '') {
+                const fromDate = new Date(searchFields.maturityDateFrom + 'T00:00:00');
+                if (!isNaN(fromDate.getTime()) && maturityDate < fromDate) return false;
+              }
+              if (searchFields.maturityDateTo && searchFields.maturityDateTo.trim() !== '') {
+                const toDate = new Date(searchFields.maturityDateTo + 'T23:59:59');
+                if (!isNaN(toDate.getTime()) && maturityDate > toDate) return false;
+              }
+            }
+          }
+        }
+        
+        return true;
+      } catch (error) {
+        // If any filter fails, include the transaction to avoid breaking the list
+        console.warn('Filter error for transaction:', transaction.transaction_id, error);
+        return true;
+      }
     })
     .sort((a, b) => {
       let comparison = 0;
@@ -233,7 +284,13 @@ const TransactionList = ({
           page: currentPage,
           page_size: transactionsPerPage,
           sortBy: sortField,
-          sortOrder: sortDirection
+          sortOrder: sortDirection,
+          // Add advanced search filters
+          ...(searchFields.minLoanAmount && { min_amount: parseInt(searchFields.minLoanAmount) }),
+          ...(searchFields.maxLoanAmount && { max_amount: parseInt(searchFields.maxLoanAmount) }),
+          ...(searchFields.pawnDateFrom && { start_date: searchFields.pawnDateFrom }),
+          ...(searchFields.pawnDateTo && { end_date: searchFields.pawnDateTo }),
+          // Note: Days overdue and maturity date filters need backend support
         };
         
         response = await transactionService.getAllTransactions(searchParams);
@@ -278,7 +335,7 @@ const TransactionList = ({
     } finally {
       setLoading(false);
     }
-  }, [filters, activeSearchTerm, currentPage, transactionsPerPage, sortField, sortDirection, fetchCustomerNames]);
+  }, [filters, activeSearchTerm, currentPage, transactionsPerPage, sortField, sortDirection, fetchCustomerNames, searchFields]);
 
   const fetchAllTransactionsCounts = useCallback(async (immediate = false) => {
     try {
@@ -507,11 +564,26 @@ const TransactionList = ({
   }, [refreshTrigger, filters, transactionsPerPage, sortField, sortDirection, activeSearchTerm, customerData, fetchAllTransactionsCounts]);
 
   // Calculate total pages for pagination
-  // During search/filter operations, use totalTransactions (from search results)
-  // For normal browsing (no active search), use allTransactionsCounts for current filter status
-  const effectiveTotalTransactions = activeSearchTerm 
-    ? totalTransactions // Use search result count when searching
-    : (allTransactionsCounts[filters.status] || allTransactionsCounts.all || 0); // Use filtered count when browsing
+  // Check if any advanced filters are active
+  const hasAdvancedFilters = Object.values(searchFields).some(v => v && v.trim() !== '');
+  
+  // Check if frontend-only filters are active (days overdue, maturity date)
+  const hasFrontendFilters = (searchFields.minDaysOverdue || searchFields.maxDaysOverdue || 
+                             searchFields.maturityDateFrom || searchFields.maturityDateTo);
+  
+  // During search/filter operations, use appropriate count
+  let effectiveTotalTransactions;
+  if (hasFrontendFilters) {
+    // If frontend filters are applied, use the actual filtered list length
+    effectiveTotalTransactions = filteredAndSortedTransactions.length;
+  } else if (activeSearchTerm || hasAdvancedFilters) {
+    // If only backend filters/search, use API result count
+    effectiveTotalTransactions = totalTransactions;
+  } else {
+    // For normal browsing (no filters), use status count
+    effectiveTotalTransactions = allTransactionsCounts[filters.status] || allTransactionsCounts.all || 0;
+  }
+  
   const totalPages = Math.ceil(effectiveTotalTransactions / transactionsPerPage);
 
 
@@ -558,7 +630,16 @@ const TransactionList = ({
 
   const clearSearchFields = () => {
     setSearchTerm('');
-    setSearchFields({ transactionId: '', customerId: '', loanAmount: '', storageLocation: '' });
+    setSearchFields({ 
+      minLoanAmount: '',
+      maxLoanAmount: '',
+      minDaysOverdue: '',
+      maxDaysOverdue: '',
+      pawnDateFrom: '',
+      pawnDateTo: '',
+      maturityDateFrom: '',
+      maturityDateTo: ''
+    });
     setFilters({ status: '', page_size: 10, sortBy: 'updated_at', sortOrder: 'desc' });
     setCurrentPage(1);
   };
@@ -778,73 +859,221 @@ const TransactionList = ({
                   <span className="font-medium">Refresh</span>
                 </Button>
 
-                <Sheet>
+                <Sheet open={isFilterSheetOpen} onOpenChange={setIsFilterSheetOpen}>
                   <SheetTrigger asChild>
                     <Button 
                       variant="outline" 
                       size="sm" 
-                      className="h-10 px-3 bg-slate-200/50 hover:bg-slate-300/60 hover:shadow-sm text-slate-700 hover:text-slate-900 border-slate-300/50 hover:border-slate-400/60 dark:bg-slate-700/50 dark:hover:bg-slate-600/60 dark:text-slate-300 dark:hover:text-white dark:border-slate-600/50 dark:hover:border-slate-500/60 transition-all duration-200 text-sm"
+                      className="relative h-10 px-3 bg-slate-200/50 hover:bg-slate-300/60 hover:shadow-sm text-slate-700 hover:text-slate-900 border-slate-300/50 hover:border-slate-400/60 dark:bg-slate-700/50 dark:hover:bg-slate-600/60 dark:text-slate-300 dark:hover:text-white dark:border-slate-600/50 dark:hover:border-slate-500/60 transition-all duration-200 text-sm"
                     >
                       <Filter className="h-4 w-4 mr-2" />
                       <span className="font-medium">Advanced</span>
                       {Object.values(searchFields).some(v => v) && (
-                        <div className="ml-2 w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
+                        <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
                       )}
                     </Button>
                   </SheetTrigger>
-                  <SheetContent>
-                    <SheetHeader>
-                      <SheetTitle>Advanced Search</SheetTitle>
-                      <SheetDescription>
+                  <SheetContent className="w-[400px] sm:w-[540px]">
+                    <SheetHeader className="pb-6">
+                      <SheetTitle className="flex items-center gap-2 text-lg">
+                        <Filter className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                        Advanced Search
+                      </SheetTitle>
+                      <SheetDescription className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
                         Use these filters for detailed transaction searches. For quick searches, use the main search bar for transaction numbers, extension IDs, customer names, or phone numbers.
                       </SheetDescription>
                     </SheetHeader>
-                    <div className="space-y-6 mt-6">
-                      <div className="space-y-4">
-                        <div>
-                          <Label htmlFor="transactionId">Transaction ID</Label>
-                          <Input
-                            id="transactionId"
-                            placeholder="PW000123"
-                            value={searchFields.transactionId}
-                            onChange={(e) => setSearchFields(prev => ({ ...prev, transactionId: e.target.value }))}
-                          />
-                        </div>
-                        <div>
-                          <Label htmlFor="customerId">Customer Phone</Label>
-                          <Input
-                            id="customerId"
-                            placeholder="1234567890"
-                            value={searchFields.customerId}
-                            onChange={(e) => setSearchFields(prev => ({ ...prev, customerId: e.target.value }))}
-                          />
-                        </div>
-                        <div>
-                          <Label htmlFor="loanAmount">Minimum Loan Amount</Label>
-                          <Input
-                            id="loanAmount"
-                            type="number"
-                            placeholder="0.00"
-                            value={searchFields.loanAmount}
-                            onChange={(e) => setSearchFields(prev => ({ ...prev, loanAmount: e.target.value }))}
-                          />
-                        </div>
-                        <div>
-                          <Label htmlFor="storageLocation">Storage Location</Label>
-                          <Input
-                            id="storageLocation"
-                            placeholder="Shelf A-1"
-                            value={searchFields.storageLocation}
-                            onChange={(e) => setSearchFields(prev => ({ ...prev, storageLocation: e.target.value }))}
-                          />
-                        </div>
-                      </div>
+                    
+                    <div className="space-y-6 overflow-y-auto max-h-[calc(100vh-140px)]">
+                      {/* Loan Amount Range Card */}
+                      <Card className="border-slate-200 dark:border-slate-700 shadow-sm dark:bg-slate-800/50">
+                        <CardContent className="p-4">
+                          <div className="flex items-center gap-2 mb-3">
+                            <DollarSign className="h-4 w-4 text-green-600 dark:text-green-400" />
+                            <Label className="text-sm font-medium text-slate-700 dark:text-slate-300">Loan Amount Range</Label>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                              <Label htmlFor="minLoanAmount" className="text-xs text-slate-500 dark:text-slate-400 font-medium">Minimum</Label>
+                              <div className="relative">
+                                <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-500 dark:text-slate-400 text-sm">$</span>
+                                <Input
+                                  id="minLoanAmount"
+                                  type="number"
+                                  placeholder="0"
+                                  step="1"
+                                  className="pl-6 h-9"
+                                  value={searchFields.minLoanAmount}
+                                  onChange={(e) => setSearchFields(prev => ({ ...prev, minLoanAmount: e.target.value }))}
+                                />
+                              </div>
+                            </div>
+                            <div className="space-y-1">
+                              <Label htmlFor="maxLoanAmount" className="text-xs text-slate-500 dark:text-slate-400 font-medium">Maximum</Label>
+                              <div className="relative">
+                                <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-500 dark:text-slate-400 text-sm">$</span>
+                                <Input
+                                  id="maxLoanAmount"
+                                  type="number"
+                                  placeholder="10000"
+                                  step="1"
+                                  className="pl-6 h-9"
+                                  value={searchFields.maxLoanAmount}
+                                  onChange={(e) => setSearchFields(prev => ({ ...prev, maxLoanAmount: e.target.value }))}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
                       
-                      <div className="flex space-x-2">
-                        <Button onClick={clearSearchFields} variant="outline" className="flex-1">
+                      {/* Days Overdue Card */}
+                      <Card className="border-slate-200 dark:border-slate-700 shadow-sm dark:bg-slate-800/50">
+                        <CardContent className="p-4">
+                          <div className="flex items-center gap-2 mb-3">
+                            <Calendar className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                            <Label className="text-sm font-medium text-slate-700 dark:text-slate-300">Days Overdue</Label>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                              <Label htmlFor="minDaysOverdue" className="text-xs text-slate-500 dark:text-slate-400 font-medium">Minimum Days</Label>
+                              <Input
+                                id="minDaysOverdue"
+                                type="number"
+                                placeholder="0"
+                                min="0"
+                                className="h-9"
+                                value={searchFields.minDaysOverdue}
+                                onChange={(e) => setSearchFields(prev => ({ ...prev, minDaysOverdue: e.target.value }))}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label htmlFor="maxDaysOverdue" className="text-xs text-slate-500 dark:text-slate-400 font-medium">Maximum Days</Label>
+                              <Input
+                                id="maxDaysOverdue"
+                                type="number"
+                                placeholder="365"
+                                min="0"
+                                className="h-9"
+                                value={searchFields.maxDaysOverdue}
+                                onChange={(e) => setSearchFields(prev => ({ ...prev, maxDaysOverdue: e.target.value }))}
+                              />
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                      
+                      {/* Date Ranges Card */}
+                      <Card className="border-slate-200 dark:border-slate-700 shadow-sm dark:bg-slate-800/50">
+                        <CardContent className="p-4">
+                          <div className="flex items-center gap-2 mb-4">
+                            <Calendar className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                            <Label className="text-sm font-medium text-slate-700 dark:text-slate-300">Date Ranges</Label>
+                          </div>
+                          
+                          {/* Pawn Date Range */}
+                          <div className="space-y-3 mb-4">
+                            <div className="flex items-center gap-2">
+                              <div className="w-2 h-2 bg-blue-400 dark:bg-blue-500 rounded-full"></div>
+                              <Label className="text-xs text-slate-600 dark:text-slate-400 font-medium">Pawn Date Range</Label>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="space-y-1">
+                                <Label htmlFor="pawnDateFrom" className="text-xs text-slate-500 dark:text-slate-400">From</Label>
+                                <Input
+                                  id="pawnDateFrom"
+                                  type="date"
+                                  className="h-9 text-sm"
+                                  value={searchFields.pawnDateFrom}
+                                  onChange={(e) => setSearchFields(prev => ({ ...prev, pawnDateFrom: e.target.value }))}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label htmlFor="pawnDateTo" className="text-xs text-slate-500 dark:text-slate-400">To</Label>
+                                <Input
+                                  id="pawnDateTo"
+                                  type="date"
+                                  className="h-9 text-sm"
+                                  value={searchFields.pawnDateTo}
+                                  onChange={(e) => setSearchFields(prev => ({ ...prev, pawnDateTo: e.target.value }))}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* Maturity Date Range */}
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-2">
+                              <div className="w-2 h-2 bg-purple-400 dark:bg-purple-500 rounded-full"></div>
+                              <Label className="text-xs text-slate-600 dark:text-slate-400 font-medium">Maturity Date Range</Label>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="space-y-1">
+                                <Label htmlFor="maturityDateFrom" className="text-xs text-slate-500 dark:text-slate-400">From</Label>
+                                <Input
+                                  id="maturityDateFrom"
+                                  type="date"
+                                  className="h-9 text-sm"
+                                  value={searchFields.maturityDateFrom}
+                                  onChange={(e) => setSearchFields(prev => ({ ...prev, maturityDateFrom: e.target.value }))}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label htmlFor="maturityDateTo" className="text-xs text-slate-500 dark:text-slate-400">To</Label>
+                                <Input
+                                  id="maturityDateTo"
+                                  type="date"
+                                  className="h-9 text-sm"
+                                  value={searchFields.maturityDateTo}
+                                  onChange={(e) => setSearchFields(prev => ({ ...prev, maturityDateTo: e.target.value }))}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                    
+                    {/* Action Buttons */}
+                    <div className="sticky bottom-0 pt-4 pb-2 border-t border-slate-200 dark:border-slate-700">
+                      <div className="flex space-x-3">
+                        <Button 
+                          onClick={clearSearchFields} 
+                          variant="outline" 
+                          className="flex-1 h-10 border-slate-300 hover:border-slate-400 hover:bg-slate-50 dark:border-slate-600 dark:hover:border-slate-500 dark:hover:bg-slate-800"
+                        >
+                          <X className="h-4 w-4 mr-2" />
                           Clear All
                         </Button>
+                        <Button 
+                          variant="default" 
+                          className="flex-1 h-10 bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
+                          onClick={() => {
+                            // Trigger re-filtering by updating a state that causes re-render
+                            // The filters are already applied automatically in the filteredAndSortedTransactions
+                            // This button provides visual feedback that filters are being applied
+                            const hasActiveFilters = Object.values(searchFields).some(v => v);
+                            if (hasActiveFilters) {
+                              // Force a refresh to ensure the latest data is filtered
+                              forceRefresh();
+                            }
+                            // Auto-close the filter sidebar after applying filters
+                            setIsFilterSheetOpen(false);
+                          }}
+                        >
+                          <Search className="h-4 w-4 mr-2" />
+                          Apply Filters
+                        </Button>
                       </div>
+                      
+                      {/* Active Filters Count */}
+                      {Object.values(searchFields).some(v => v) && (
+                        <div className="mt-3 text-center">
+                          <Badge variant="secondary" className="text-xs px-2 py-1">
+                            {Object.values(searchFields).filter(v => v).length} active filter{Object.values(searchFields).filter(v => v).length !== 1 ? 's' : ''}
+                          </Badge>
+                        </div>
+                      )}
                     </div>
                   </SheetContent>
                 </Sheet>
@@ -1243,7 +1472,7 @@ const TransactionList = ({
               <div className="w-24 h-24 bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-900/30 dark:to-indigo-900/30 rounded-3xl flex items-center justify-center mx-auto shadow-lg border border-blue-200/50 dark:border-blue-800/50">
                 <CreditCard className="w-12 h-12 text-blue-600 dark:text-blue-400" />
               </div>
-              {activeSearchTerm || filters.status ? (
+              {activeSearchTerm || filters.status || Object.values(searchFields).some(v => v) ? (
                 <div className="absolute -top-2 -right-2 w-8 h-8 bg-amber-500 rounded-full flex items-center justify-center shadow-lg border-2 border-white dark:border-slate-900">
                   <Search className="w-4 h-4 text-white" />
                 </div>
@@ -1255,10 +1484,10 @@ const TransactionList = ({
             </div>
             
             <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100 mb-3">
-              {activeSearchTerm || filters.status ? 'No Matching Transactions' : 'Ready to Start'}
+              {activeSearchTerm || filters.status || Object.values(searchFields).some(v => v) ? 'No Matching Transactions' : 'Ready to Start'}
             </h3>
             <p className="text-slate-600 dark:text-slate-400 mb-8 max-w-md mx-auto leading-relaxed">
-              {activeSearchTerm || filters.status ? 
+              {activeSearchTerm || filters.status || Object.values(searchFields).some(v => v) ? 
                 (activeSearchTerm && /^#?(PW)?\d+$/i.test(activeSearchTerm) ?
                   `Transaction ${activeSearchTerm.replace('#', '').toUpperCase().startsWith('PW') ? activeSearchTerm.replace('#', '').toUpperCase() : 'PW' + activeSearchTerm.replace('#', '').padStart(6, '0')} not found.` :
                   activeSearchTerm && /^#?(EX)\d+$/i.test(activeSearchTerm) ?
@@ -1271,6 +1500,8 @@ const TransactionList = ({
                   `No transactions found for customer phone ${activeSearchTerm}` :
                   activeSearchTerm ?
                   `No transactions found for "${activeSearchTerm}"` :
+                  Object.values(searchFields).some(v => v) ?
+                  'No transactions match your advanced search criteria. Try adjusting your filters.' :
                   'No transactions match your filters.'
                 ) : 
                 'Create your first pawn transaction to begin managing loans and tracking customer activity.'
@@ -1278,14 +1509,23 @@ const TransactionList = ({
             </p>
             
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-              {(activeSearchTerm || filters.status) && (
+              {(activeSearchTerm || filters.status || Object.values(searchFields).some(v => v)) && (
                 <Button 
                   variant="outline"
                   onClick={() => {
                     setSearchTerm('');
                     setActiveSearchTerm('');
                     setFilters({ status: '', page_size: 10, sortBy: 'updated_at', sortOrder: 'desc' });
-                    setSearchFields({ transactionId: '', customerId: '', loanAmount: '', storageLocation: '' });
+                    setSearchFields({ 
+                      minLoanAmount: '',
+                      maxLoanAmount: '',
+                      minDaysOverdue: '',
+                      maxDaysOverdue: '',
+                      pawnDateFrom: '',
+                      pawnDateTo: '',
+                      maturityDateFrom: '',
+                      maturityDateTo: ''
+                    });
                     setCurrentPage(1);
                   }}
                   className="bg-white/80 dark:bg-slate-800/80 border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700"
