@@ -70,6 +70,15 @@ class MetricCalculationService:
             logger.warning("Cache retrieval failed", metric_type=metric_type, error=str(e))
             return None
     
+    def _calculate_trend_direction(self, percentage_change: float, threshold: float = 0.1) -> str:
+        """Calculate trend direction based on percentage change and threshold"""
+        if percentage_change > threshold:
+            return "up"
+        elif percentage_change < -threshold:
+            return "down"
+        else:
+            return "stable"
+    
     def _cap_trend_percentage(self, trend_percentage: float, current_count: float, previous_count: float, metric_name: str) -> float:
         """Cap extreme trend percentages to reasonable values"""
         if abs(trend_percentage) > 200:
@@ -368,12 +377,7 @@ class MetricCalculationService:
                 count_difference = int(current_count - previous_count)
                 
                 # Determine trend direction with threshold matching frontend (0.1%)
-                if percentage_change > 0.1:
-                    trend_direction = "up"
-                elif percentage_change < -0.1:
-                    trend_direction = "down"
-                else:
-                    trend_direction = "stable"
+                trend_direction = self._calculate_trend_direction(percentage_change)
                 
                 trend_percentage = abs(round(percentage_change, 1))
                 
@@ -595,12 +599,7 @@ class MetricCalculationService:
                 count_difference = int(current_count - previous_count)
                 
                 # Determine trend direction with threshold matching frontend (0.1%)
-                if percentage_change > 0.1:
-                    trend_direction = "up"
-                elif percentage_change < -0.1:
-                    trend_direction = "down"
-                else:
-                    trend_direction = "stable"
+                trend_direction = self._calculate_trend_direction(percentage_change)
                 
                 # Cap extreme percentages before rounding
                 percentage_change = self._cap_trend_percentage(percentage_change, current_count, previous_count, "new_this_month")
@@ -798,12 +797,7 @@ class MetricCalculationService:
                 count_difference = int(current_count - previous_count)
                 
                 # Determine trend direction with threshold matching frontend (0.1%)
-                if percentage_change > 0.1:
-                    trend_direction = "up"
-                elif percentage_change < -0.1:
-                    trend_direction = "down"
-                else:
-                    trend_direction = "stable"
+                trend_direction = self._calculate_trend_direction(percentage_change)
                 
                 # Cap extreme percentages before rounding
                 percentage_change = self._cap_trend_percentage(percentage_change, current_count, previous_count, "trend_calculation")
@@ -959,12 +953,7 @@ class MetricCalculationService:
                 count_difference = int(current_count - previous_count)
                 
                 # Determine trend direction with threshold matching frontend (0.1%)
-                if percentage_change > 0.1:
-                    trend_direction = "up"
-                elif percentage_change < -0.1:
-                    trend_direction = "down"
-                else:
-                    trend_direction = "stable"
+                trend_direction = self._calculate_trend_direction(percentage_change)
                 
                 # Cap extreme percentages before rounding
                 percentage_change = self._cap_trend_percentage(percentage_change, current_count, previous_count, "trend_calculation")
@@ -1097,6 +1086,47 @@ class MetricCalculationService:
             logger.error("Failed to calculate today's collection", error=str(e))
             return 0.0
     
+    async def calculate_new_today(self, timezone_header: Optional[str] = None) -> float:
+        """Calculate number of new transactions created today"""
+        cached_value = await self._get_cached_value("new_today")
+        if cached_value is not None:
+            return cached_value
+        
+        start_time = time.time()
+        
+        try:
+            # Calculate today's date range in user's timezone
+            business_date = get_user_business_date(timezone_header)
+            # Convert to UTC for database query
+            from app.core.timezone_utils import user_timezone_to_utc
+            start_of_day_utc = user_timezone_to_utc(business_date, timezone_header)
+            end_of_day_utc = start_of_day_utc + timedelta(days=1)
+            
+            # Count new transactions created today
+            pipeline = [
+                {
+                    "$match": {
+                        "created_at": {
+                            "$gte": start_of_day_utc,
+                            "$lt": end_of_day_utc
+                        }
+                    }
+                },
+                {"$count": "total"}
+            ]
+            
+            result = await PawnTransaction.aggregate(pipeline).to_list()
+            count = result[0]["total"] if result else 0
+            
+            calculation_time = (time.time() - start_time) * 1000
+            logger.info("Calculated new today", count=count, duration_ms=calculation_time)
+            
+            await self._cache_value("new_today", float(count))
+            return float(count)
+        except Exception as e:
+            logger.error("Failed to calculate new today", error=str(e))
+            return 0.0
+    
     async def calculate_yesterdays_collection(self, timezone_header: Optional[str] = None) -> float:
         """Calculate total collection yesterday (redeem payments + extension fees)"""
         cached_value = await self._get_cached_value("yesterdays_collection")
@@ -1175,6 +1205,118 @@ class MetricCalculationService:
             logger.error("Failed to calculate yesterday's collection", error=str(e))
             return 0.0
     
+    async def calculate_yesterdays_new(self, timezone_header: Optional[str] = None) -> float:
+        """Calculate number of new transactions created yesterday"""
+        try:
+            # Calculate yesterday's date range in user's timezone
+            today_business_date = get_user_business_date(timezone_header)
+            yesterday_business_date = today_business_date - timedelta(days=1)
+            
+            # Convert to UTC for database query
+            from app.core.timezone_utils import user_timezone_to_utc
+            start_of_day_utc = user_timezone_to_utc(yesterday_business_date, timezone_header)
+            end_of_day_utc = start_of_day_utc + timedelta(days=1)
+            
+            # Count new transactions created yesterday
+            pipeline = [
+                {
+                    "$match": {
+                        "created_at": {
+                            "$gte": start_of_day_utc,
+                            "$lt": end_of_day_utc
+                        }
+                    }
+                },
+                {"$count": "total"}
+            ]
+            
+            result = await PawnTransaction.aggregate(pipeline).to_list()
+            count = result[0]["total"] if result else 0
+            
+            logger.info("Calculated yesterdays new", count=count)
+            return float(count)
+        except Exception as e:
+            logger.error("Failed to calculate yesterday's new", error=str(e))
+            return 0.0
+    
+    async def calculate_new_today_trend(self, timezone_header: Optional[str] = None) -> Dict[str, Any]:
+        """Calculate trend for new today comparing with yesterday"""
+        try:
+            # Get today's and yesterday's counts
+            todays_count = await self.calculate_new_today(timezone_header)
+            yesterdays_count = await self.calculate_yesterdays_new(timezone_header)
+            
+            # Calculate trend metrics
+            count_difference = todays_count - yesterdays_count
+            
+            if yesterdays_count == 0:
+                if todays_count > 0:
+                    trend_direction = "up"
+                    trend_percentage = 100.0
+                    context_message = f"First loans today ({int(todays_count)} vs 0 yesterday)"
+                else:
+                    trend_direction = "stable"
+                    trend_percentage = 0.0
+                    context_message = "No new loans today or yesterday"
+            else:
+                percentage_change = (count_difference / yesterdays_count) * 100
+                
+                # Determine trend direction with threshold matching frontend (0.1%)
+                trend_direction = self._calculate_trend_direction(percentage_change)
+                
+                # Cap extreme percentages before rounding
+                percentage_change = self._cap_trend_percentage(percentage_change, todays_count, yesterdays_count, "new_today_trend")
+                trend_percentage = round(percentage_change, 1)
+                
+                # Generate business-friendly context message
+                if count_difference == 0:
+                    context_message = f"Same as yesterday ({int(todays_count)} loans)"
+                elif count_difference > 0:
+                    context_message = f"{int(count_difference)} more than yesterday"
+                else:
+                    context_message = f"{int(abs(count_difference))} fewer than yesterday"
+            
+            # Determine if this change is typical (daily new loans can be volatile)
+            is_typical = abs(trend_percentage) < 75  # Changes >75% are considered unusual
+            
+            trend_result = {
+                "current_value": todays_count,
+                "previous_value": yesterdays_count,
+                "trend_direction": trend_direction,
+                "trend_percentage": trend_percentage,
+                "context_message": context_message,
+                "period": "daily",
+                "period_label": "yesterday",
+                "is_typical": is_typical,
+                "count_difference": int(count_difference)
+            }
+            
+            logger.info("Calculated new today trend",
+                       todays_count=todays_count,
+                       yesterdays_count=yesterdays_count,
+                       trend_direction=trend_direction,
+                       trend_percentage=trend_percentage,
+                       context=context_message)
+            
+            return trend_result
+            
+        except Exception as e:
+            logger.error("Failed to calculate new today trend", error=str(e))
+            
+            # Return safe default
+            todays_count = await self.calculate_new_today(timezone_header) if 'todays_count' not in locals() else 0.0
+            return {
+                "current_value": todays_count,
+                "previous_value": 0.0,
+                "trend_direction": "stable",
+                "trend_percentage": 0.0,
+                "context_message": "Trend calculation unavailable",
+                "period": "daily",
+                "period_label": "yesterday",
+                "is_typical": True,
+                "count_difference": 0
+            }
+    
     async def calculate_todays_collection_trend(self, timezone_header: Optional[str] = None) -> Dict[str, Any]:
         """Calculate enhanced trend data for today's collection"""
         try:
@@ -1200,12 +1342,7 @@ class MetricCalculationService:
                 percentage_change = (count_difference / yesterdays_amount) * 100
                 
                 # Determine trend direction with threshold matching frontend (0.1%)
-                if percentage_change > 0.1:
-                    trend_direction = "up"
-                elif percentage_change < -0.1:
-                    trend_direction = "down"
-                else:
-                    trend_direction = "stable"
+                trend_direction = self._calculate_trend_direction(percentage_change)
                 
                 # Cap extreme percentages before rounding
                 percentage_change = self._cap_trend_percentage(percentage_change, todays_amount, yesterdays_amount, "todays_collection_trend")
@@ -1271,11 +1408,13 @@ class MetricCalculationService:
         results = await asyncio.gather(
             self.calculate_active_loans(),
             self.calculate_new_this_month(),
+            self.calculate_new_today(timezone_header),
             self.calculate_overdue_loans(),
             self.calculate_maturity_this_week(timezone_header),
             self.calculate_todays_collection(timezone_header),
             self.calculate_yesterdays_collection(timezone_header),
             self.calculate_new_last_month(timezone_header),
+            self.calculate_yesterdays_new(timezone_header),
             return_exceptions=True
         )
         
@@ -1283,7 +1422,7 @@ class MetricCalculationService:
         
         # Handle any exceptions
         metrics = {}
-        metric_names = ["active_loans", "new_this_month", "overdue_loans", "maturity_this_week", "todays_collection", "yesterdays_collection", "new_last_month"]
+        metric_names = ["active_loans", "new_this_month", "new_today", "overdue_loans", "maturity_this_week", "todays_collection", "yesterdays_collection", "new_last_month", "yesterdays_new"]
         
         for i, result in enumerate(results):
             if isinstance(result, Exception):
@@ -1365,6 +1504,8 @@ class MetricCalculationService:
                 new_value = await self.calculate_active_loans()
             elif metric_type == MetricType.NEW_THIS_MONTH:
                 new_value = await self.calculate_new_this_month()
+            elif metric_type == MetricType.NEW_TODAY:
+                new_value = await self.calculate_new_today()
             elif metric_type == MetricType.OVERDUE_LOANS:
                 new_value = await self.calculate_overdue_loans()
             elif metric_type == MetricType.MATURITY_THIS_WEEK:

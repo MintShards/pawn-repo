@@ -15,6 +15,7 @@ class MetricType(str, Enum):
     """Valid metric types for stat cards"""
     ACTIVE_LOANS = "active_loans"
     NEW_THIS_MONTH = "new_this_month"
+    NEW_TODAY = "new_today"
     OVERDUE_LOANS = "overdue_loans"
     MATURITY_THIS_WEEK = "maturity_this_week"
     TODAYS_COLLECTION = "todays_collection"
@@ -191,6 +192,7 @@ class TransactionMetrics(Document):
         descriptions = {
             MetricType.ACTIVE_LOANS: "Number of active loan transactions",
             MetricType.NEW_THIS_MONTH: "New transactions created this month",
+            MetricType.NEW_TODAY: "New transactions created today",
             MetricType.OVERDUE_LOANS: "Transactions past their maturity date",
             MetricType.MATURITY_THIS_WEEK: "Transactions maturing within this week",
             MetricType.TODAYS_COLLECTION: "Total payments collected today"

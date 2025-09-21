@@ -57,6 +57,42 @@ router = APIRouter(prefix="/stats", tags=["statistics"])
 metric_service = MetricCalculationService()
 
 
+async def _update_or_create_metric(
+    metric_type: MetricType,
+    calculated_value: float,
+    trend_data: Dict[str, Any],
+    existing_metric: Optional[TransactionMetrics],
+    timezone_header: Optional[str]
+) -> TransactionMetrics:
+    """Helper function to update or create a metric with trend data"""
+    if existing_metric:
+        # Update with enhanced trend data
+        existing_metric.update_value(
+            calculated_value,
+            f"api_request_timezone_{timezone_header or 'utc'}",
+            trend_data
+        )
+        await existing_metric.save()
+        return existing_metric
+    else:
+        # Create new metric with trend data
+        metric = TransactionMetrics(
+            metric_type=metric_type,
+            current_value=calculated_value,
+            previous_value=trend_data["previous_value"],
+            trend_direction=TrendDirection(trend_data["trend_direction"]),
+            trend_percentage=trend_data["trend_percentage"],
+            context_message=trend_data["context_message"],
+            trend_period=trend_data["period"],
+            is_typical=trend_data["is_typical"],
+            count_difference=trend_data["count_difference"]
+        )
+        metric.display_value = metric.format_display_value()
+        metric.description = metric.get_description()
+        await metric.save()
+        return metric
+
+
 @router.get("/metrics", 
            response_model=AllMetricsResponse,
            responses={
@@ -175,6 +211,7 @@ async def get_all_metrics(
                     metric_type_map = {
                         "active_loans": MetricType.ACTIVE_LOANS,
                         "new_this_month": MetricType.NEW_THIS_MONTH,
+                        "new_today": MetricType.NEW_TODAY,
                         "overdue_loans": MetricType.OVERDUE_LOANS,
                         "maturity_this_week": MetricType.MATURITY_THIS_WEEK,
                         "todays_collection": MetricType.TODAYS_COLLECTION
@@ -190,148 +227,39 @@ async def get_all_metrics(
                         if metric_name == "todays_collection":
                             # Calculate daily trend for today's collection
                             trend_data = await metric_service.calculate_todays_collection_trend(timezone_header)
-                            
-                            if existing_metric:
-                                # Update with enhanced trend data
-                                existing_metric.update_value(
-                                    calculated_value, 
-                                    f"api_request_timezone_{timezone_header or 'utc'}", 
-                                    trend_data
-                                )
-                                await existing_metric.save()
-                                metric = existing_metric
-                            else:
-                                # Create new metric with daily trend data
-                                metric = TransactionMetrics(
-                                    metric_type=metric_type,
-                                    current_value=calculated_value,
-                                    previous_value=trend_data["previous_value"],
-                                    trend_direction=TrendDirection(trend_data["trend_direction"]),
-                                    trend_percentage=trend_data["trend_percentage"],
-                                    context_message=trend_data["context_message"],
-                                    trend_period=trend_data["period"],
-                                    is_typical=trend_data["is_typical"],
-                                    count_difference=trend_data["count_difference"]
-                                )
-                                metric.display_value = metric.format_display_value()
-                                metric.description = metric.get_description()
-                                await metric.save()
+                            metric = await _update_or_create_metric(
+                                metric_type, calculated_value, trend_data, existing_metric, timezone_header
+                            )
                         elif metric_name == "active_loans":
                                 # Calculate daily trend for active loans
                                 trend_data = await metric_service.calculate_active_loans_trend("daily", timezone_header, existing_metric)
-                                
-                                if existing_metric:
-                                    # Update with enhanced trend data
-                                    existing_metric.update_value(
-                                        calculated_value, 
-                                        f"api_request_timezone_{timezone_header or 'utc'}", 
-                                        trend_data
-                                    )
-                                    await existing_metric.save()
-                                    metric = existing_metric
-                                else:
-                                    # Create new metric with daily trend data
-                                    metric = TransactionMetrics(
-                                        metric_type=metric_type,
-                                        current_value=calculated_value,
-                                        previous_value=trend_data["previous_value"],
-                                        trend_direction=TrendDirection(trend_data["trend_direction"]),
-                                        trend_percentage=trend_data["trend_percentage"],
-                                        context_message=trend_data["context_message"],
-                                        trend_period=trend_data["period"],
-                                        is_typical=trend_data["is_typical"],
-                                        count_difference=trend_data["count_difference"]
-                                    )
-                                    metric.display_value = metric.format_display_value()
-                                    metric.description = metric.get_description()
-                                    await metric.save()
+                                metric = await _update_or_create_metric(
+                                    metric_type, calculated_value, trend_data, existing_metric, timezone_header
+                                )
                         elif metric_name == "new_this_month":
                                 # Calculate monthly trend for new this month
                                 trend_data = await metric_service.calculate_new_this_month_trend(timezone_header)
-                                
-                                if existing_metric:
-                                    # Update with enhanced trend data
-                                    existing_metric.update_value(
-                                        calculated_value, 
-                                        f"api_request_timezone_{timezone_header or 'utc'}", 
-                                        trend_data
-                                    )
-                                    await existing_metric.save()
-                                    metric = existing_metric
-                                else:
-                                    # Create new metric with monthly trend data
-                                    metric = TransactionMetrics(
-                                        metric_type=metric_type,
-                                        current_value=calculated_value,
-                                        previous_value=trend_data["previous_value"],
-                                        trend_direction=TrendDirection(trend_data["trend_direction"]),
-                                        trend_percentage=trend_data["trend_percentage"],
-                                        context_message=trend_data["context_message"],
-                                        trend_period=trend_data["period"],
-                                        is_typical=trend_data["is_typical"],
-                                        count_difference=trend_data["count_difference"]
-                                    )
-                                    metric.display_value = metric.format_display_value()
-                                    metric.description = metric.get_description()
-                                    await metric.save()
+                                metric = await _update_or_create_metric(
+                                    metric_type, calculated_value, trend_data, existing_metric, timezone_header
+                                )
+                        elif metric_name == "new_today":
+                                # Calculate daily trend for new today
+                                trend_data = await metric_service.calculate_new_today_trend(timezone_header)
+                                metric = await _update_or_create_metric(
+                                    metric_type, calculated_value, trend_data, existing_metric, timezone_header
+                                )
                         elif metric_name == "overdue_loans":
                                 # Calculate monthly trend for overdue loans
                                 trend_data = await metric_service.calculate_overdue_loans_trend(timezone_header)
-                                
-                                if existing_metric:
-                                    # Update with enhanced trend data
-                                    existing_metric.update_value(
-                                        calculated_value, 
-                                        f"api_request_timezone_{timezone_header or 'utc'}", 
-                                        trend_data
-                                    )
-                                    await existing_metric.save()
-                                    metric = existing_metric
-                                else:
-                                    # Create new metric with monthly trend data
-                                    metric = TransactionMetrics(
-                                        metric_type=metric_type,
-                                        current_value=calculated_value,
-                                        previous_value=trend_data["previous_value"],
-                                        trend_direction=TrendDirection(trend_data["trend_direction"]),
-                                        trend_percentage=trend_data["trend_percentage"],
-                                        context_message=trend_data["context_message"],
-                                        trend_period=trend_data["period"],
-                                        is_typical=trend_data["is_typical"],
-                                        count_difference=trend_data["count_difference"]
-                                    )
-                                    metric.display_value = metric.format_display_value()
-                                    metric.description = metric.get_description()
-                                    await metric.save()
+                                metric = await _update_or_create_metric(
+                                    metric_type, calculated_value, trend_data, existing_metric, timezone_header
+                                )
                         elif metric_name == "maturity_this_week":
                                 # Calculate weekly trend for maturity this week
                                 trend_data = await metric_service.calculate_maturity_this_week_trend(timezone_header)
-                                
-                                if existing_metric:
-                                    # Update with enhanced trend data
-                                    existing_metric.update_value(
-                                        calculated_value, 
-                                        f"api_request_timezone_{timezone_header or 'utc'}", 
-                                        trend_data
-                                    )
-                                    await existing_metric.save()
-                                    metric = existing_metric
-                                else:
-                                    # Create new metric with weekly trend data
-                                    metric = TransactionMetrics(
-                                        metric_type=metric_type,
-                                        current_value=calculated_value,
-                                        previous_value=trend_data["previous_value"],
-                                        trend_direction=TrendDirection(trend_data["trend_direction"]),
-                                        trend_percentage=trend_data["trend_percentage"],
-                                        context_message=trend_data["context_message"],
-                                        trend_period=trend_data["period"],
-                                        is_typical=trend_data["is_typical"],
-                                        count_difference=trend_data["count_difference"]
-                                    )
-                                    metric.display_value = metric.format_display_value()
-                                    metric.description = metric.get_description()
-                                    await metric.save()
+                                metric = await _update_or_create_metric(
+                                    metric_type, calculated_value, trend_data, existing_metric, timezone_header
+                                )
                                 
                         else:
                                 # Handle other metrics normally

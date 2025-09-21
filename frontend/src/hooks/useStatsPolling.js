@@ -14,7 +14,8 @@ const STATS_API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 // Available metrics
 export const METRIC_TYPES = {
   ACTIVE_LOANS: 'active_loans',
-  NEW_THIS_MONTH: 'new_this_month', 
+  NEW_THIS_MONTH: 'new_this_month',
+  NEW_TODAY: 'new_today',
   OVERDUE_LOANS: 'overdue_loans',
   MATURITY_THIS_WEEK: 'maturity_this_week',
   TODAYS_COLLECTION: 'todays_collection'
@@ -362,6 +363,7 @@ export const useStatsPolling = (options = {}) => {
     // Individual metrics for convenience
     activeLoans: metrics[METRIC_TYPES.ACTIVE_LOANS],
     newThisMonth: metrics[METRIC_TYPES.NEW_THIS_MONTH],
+    newToday: metrics[METRIC_TYPES.NEW_TODAY],
     overdueLoans: metrics[METRIC_TYPES.OVERDUE_LOANS],
     maturityThisWeek: metrics[METRIC_TYPES.MATURITY_THIS_WEEK],
     todaysCollection: metrics[METRIC_TYPES.TODAYS_COLLECTION],

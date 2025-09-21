@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { 
   Receipt, 
@@ -48,6 +48,7 @@ import { formatRedemptionDate, formatBusinessDate, canReversePayment, canCancelE
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '../components/ui/resizable';
 import { ScrollArea } from '../components/ui/scroll-area';
 import StatsPanel from '../components/ui/realtime-stats-panel';
+import useStatsPolling from '../hooks/useStatsPolling';
 import transactionService from '../services/transactionService';
 import extensionService from '../services/extensionService';
 import customerService from '../services/customerService';
@@ -60,7 +61,6 @@ import AdminApprovalDialog from '../components/common/AdminApprovalDialog';
 const TransactionHub = () => {
   const { user, logout, loading, fetchUserDataIfNeeded, isAuthenticated } = useAuth();
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
   const [selectedTransaction, setSelectedTransaction] = useState(null);
   const [selectedTransactionCustomer, setSelectedTransactionCustomer] = useState(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -81,9 +81,6 @@ const TransactionHub = () => {
   const [showQuickPayment, setShowQuickPayment] = useState(false);
   const [showQuickExtension, setShowQuickExtension] = useState(false);
   
-  // Filter state for URL parameters
-  const [initialFilters, setInitialFilters] = useState({});
-  
   // Admin approval dialog states
   const [showPaymentReversalDialog, setShowPaymentReversalDialog] = useState(false);
   const [showExtensionCancelDialog, setShowExtensionCancelDialog] = useState(false);
@@ -94,6 +91,13 @@ const TransactionHub = () => {
   const [pendingCancelTransaction, setPendingCancelTransaction] = useState(null);
   const [pendingVoidTransaction, setPendingVoidTransaction] = useState(null);
   const [reversalEligibility, setReversalEligibility] = useState(null);
+  
+  // Get real-time stats data
+  const { 
+    newToday, 
+    todaysCollection, 
+    maturityThisWeek 
+  } = useStatsPolling({ refreshInterval: 60000 });
   
   // Optimized timeline calculation with memoization and performance improvements
   const timelineData = useMemo(() => {
@@ -1277,15 +1281,15 @@ const TransactionHub = () => {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between py-1">
                     <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">New Loans</span>
-                    <span className="text-sm font-bold text-emerald-400">-</span>
+                    <span className="text-sm font-bold text-emerald-400">{newToday?.value || 0}</span>
                   </div>
                   <div className="flex items-center justify-between py-1">
                     <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">Collections</span>
-                    <span className="text-sm font-bold text-blue-400">-</span>
+                    <span className="text-sm font-bold text-blue-400">${(todaysCollection?.value || 0).toLocaleString()}</span>
                   </div>
                   <div className="flex items-center justify-between py-1">
                     <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">Due Soon</span>
-                    <span className="text-sm font-bold text-indigo-400">-</span>
+                    <span className="text-sm font-bold text-indigo-400">{maturityThisWeek?.value || 0}</span>
                   </div>
                 </div>
               </CardContent>
