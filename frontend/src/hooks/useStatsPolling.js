@@ -37,7 +37,7 @@ const createDefaultMetric = (type) => ({
 // Singleton polling manager
 class StatsPollingManager {
   constructor() {
-    this.subscribers = new Map(); // Changed to Map to track refresh intervals
+    this.subscribers = new Set();
     this.metrics = {};
     this.isPolling = false;
     this.intervalId = null;
@@ -76,30 +76,9 @@ class StatsPollingManager {
     document.addEventListener('visibilitychange', handleVisibilityChange);
   }
 
-  // Calculate optimal refresh interval based on all subscribers
-  updateRefreshInterval() {
-    if (this.subscribers.size === 0) {
-      this.refreshInterval = 60000; // Default when no subscribers
-      return;
-    }
 
-    // Use the longest interval for production stability and rate limit safety
-    const intervals = Array.from(this.subscribers.values());
-    this.refreshInterval = Math.max(...intervals);
-    this.adaptiveInterval = this.refreshInterval;
-
-    // Restart polling with new interval if currently polling
-    if (this.isPolling) {
-      this.setupPollingInterval();
-    }
-  }
-
-  subscribe(callback, refreshInterval = 60000) {
-    // Store callback with its preferred refresh interval
-    this.subscribers.set(callback, refreshInterval);
-    
-    // Update the polling interval based on all subscribers
-    this.updateRefreshInterval();
+  subscribe(callback) {
+    this.subscribers.add(callback);
     
     // Start polling if this is the first subscriber
     if (this.subscribers.size === 1) {
@@ -119,9 +98,6 @@ class StatsPollingManager {
     return () => {
       this.subscribers.delete(callback);
       
-      // Update interval after removing subscriber
-      this.updateRefreshInterval();
-      
       // Stop polling if no subscribers
       if (this.subscribers.size === 0) {
         this.stopPolling();
@@ -138,7 +114,7 @@ class StatsPollingManager {
       connectionHealth: this.connectionHealth
     };
 
-    this.subscribers.forEach((interval, callback) => {
+    this.subscribers.forEach(callback => {
       try {
         callback(data);
       } catch (error) {
@@ -345,6 +321,17 @@ export const useStatsPolling = (options = {}) => {
     connectionHealth: 'good'
   });
 
+  // Set the refresh interval on the singleton when this hook is used
+  useEffect(() => {
+    if (refreshInterval !== pollingManager.refreshInterval) {
+      pollingManager.refreshInterval = refreshInterval;
+      pollingManager.adaptiveInterval = refreshInterval;
+      if (pollingManager.isPolling) {
+        pollingManager.setupPollingInterval();
+      }
+    }
+  }, [refreshInterval]);
+
   useEffect(() => {
     if (!isAuthenticated || !authService.getToken()) {
       setState({
@@ -357,13 +344,13 @@ export const useStatsPolling = (options = {}) => {
       return;
     }
 
-    // Subscribe to the singleton manager with refresh interval
+    // Subscribe to the singleton manager (interval is set above)
     const unsubscribe = pollingManager.subscribe((data) => {
       setState(data);
-    }, refreshInterval);
+    });
 
     return unsubscribe;
-  }, [isAuthenticated, refreshInterval]);
+  }, [isAuthenticated]);
 
   // Individual metrics for convenience
   const metrics = state.metrics;
