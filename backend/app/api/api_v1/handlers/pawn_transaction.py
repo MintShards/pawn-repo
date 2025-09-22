@@ -24,7 +24,7 @@ from app.schemas.pawn_transaction_schema import (
     PayoffAmountResponse, TransactionSummaryResponse, TransactionSearchFilters,
     BulkStatusUpdateRequest, BulkStatusUpdateResponse, TransactionVoidRequest,
     TransactionCancelRequest, TransactionVoidResponse, UnifiedSearchRequest,
-    UnifiedSearchResponse, BatchStatusCountResponse
+    UnifiedSearchResponse, BatchStatusCountResponse, UnifiedSearchType
 )
 from app.schemas.receipt_schema import (
     InitialPawnReceiptResponse, PaymentReceiptResponse, ExtensionReceiptResponse,
@@ -35,10 +35,9 @@ from app.services.pawn_transaction_service import (
     CustomerValidationError, StaffValidationError, TransactionStateError
 )
 from app.services.unified_search_service import UnifiedSearchService
-from app.schemas.pawn_transaction_schema import UnifiedSearchType
 from app.services.payment_service import PaymentService
 from app.services.interest_calculation_service import (
-    InterestCalculationService, TransactionNotFoundError, InterestCalculationError
+    InterestCalculationService, InterestCalculationError
 )
 from app.services.receipt_service import ReceiptService, ReceiptGenerationError
 from app.core.exceptions import (
@@ -228,8 +227,12 @@ async def get_pawn_transactions_list(
     search_text: Optional[str] = Query(None, description="Search by transaction ID (PW000123) or customer phone number"),
     min_amount: Optional[int] = Query(None, description="Minimum loan amount filter"),
     max_amount: Optional[int] = Query(None, description="Maximum loan amount filter"),
-    start_date: Optional[datetime] = Query(None, description="Start date filter"),
-    end_date: Optional[datetime] = Query(None, description="End date filter"),
+    start_date: Optional[datetime] = Query(None, description="Start date filter (pawn date)"),
+    end_date: Optional[datetime] = Query(None, description="End date filter (pawn date)"),
+    maturity_date_from: Optional[datetime] = Query(None, description="Maturity date from filter"),
+    maturity_date_to: Optional[datetime] = Query(None, description="Maturity date to filter"),
+    min_days_overdue: Optional[int] = Query(None, description="Minimum days overdue filter"),
+    max_days_overdue: Optional[int] = Query(None, description="Maximum days overdue filter"),
     storage_location: Optional[str] = Query(None, description="Storage location filter"),
     page: int = Query(1, description="Page number", ge=1),
     page_size: int = Query(20, description="Items per page", ge=1, le=100),
@@ -249,6 +252,10 @@ async def get_pawn_transactions_list(
             max_amount=max_amount,
             start_date=start_date,
             end_date=end_date,
+            maturity_date_from=maturity_date_from,
+            maturity_date_to=maturity_date_to,
+            min_days_overdue=min_days_overdue,
+            max_days_overdue=max_days_overdue,
             storage_location=storage_location,
             page=page,
             page_size=page_size,

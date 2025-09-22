@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   RefreshCw,
   Search,
@@ -105,11 +105,124 @@ const TransactionList = ({
     maturityDateTo: ''
   });
 
+  // Filter validation errors
+  const [filterErrors, setFilterErrors] = useState({});
+
+  // Debounced search fields for API calls (prevents too many requests while typing)
+  const [debouncedSearchFields, setDebouncedSearchFields] = useState(searchFields);
+  const [isFilterPending, setIsFilterPending] = useState(false);
+
   // Sheet state for auto-close functionality
   const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
 
   // Customer data for name display
   const [customerData, setCustomerData] = useState({});
+
+  // Validation functions
+  const validateFilters = useCallback((fields) => {
+    const errors = {};
+    
+    // Validate loan amount range
+    if (fields.minLoanAmount && fields.maxLoanAmount) {
+      const min = parseInt(fields.minLoanAmount);
+      const max = parseInt(fields.maxLoanAmount);
+      if (min > max) {
+        errors.loanAmount = `Minimum amount ($${min}) cannot be greater than maximum amount ($${max})`;
+      }
+    }
+    
+    // Validate individual loan amounts
+    if (fields.minLoanAmount) {
+      const min = parseInt(fields.minLoanAmount);
+      if (min < 0) errors.minLoanAmount = 'Minimum loan amount cannot be negative';
+      if (min > 10000) errors.minLoanAmount = 'Minimum loan amount cannot exceed $10,000';
+    }
+    
+    if (fields.maxLoanAmount) {
+      const max = parseInt(fields.maxLoanAmount);
+      if (max < 0) errors.maxLoanAmount = 'Maximum loan amount cannot be negative';
+      if (max > 10000) errors.maxLoanAmount = 'Maximum loan amount cannot exceed $10,000';
+    }
+    
+    // Validate days overdue range
+    if (fields.minDaysOverdue && fields.maxDaysOverdue) {
+      const min = parseInt(fields.minDaysOverdue);
+      const max = parseInt(fields.maxDaysOverdue);
+      if (min > max) {
+        errors.daysOverdue = `Minimum days (${min}) cannot be greater than maximum days (${max})`;
+      }
+    }
+    
+    // Validate individual days overdue
+    if (fields.minDaysOverdue) {
+      const min = parseInt(fields.minDaysOverdue);
+      if (min < 0) errors.minDaysOverdue = 'Minimum days overdue cannot be negative';
+      if (min > 10000) errors.minDaysOverdue = 'Minimum days overdue cannot exceed 10,000';
+    }
+    
+    if (fields.maxDaysOverdue) {
+      const max = parseInt(fields.maxDaysOverdue);
+      if (max < 0) errors.maxDaysOverdue = 'Maximum days overdue cannot be negative';
+      if (max > 10000) errors.maxDaysOverdue = 'Maximum days overdue cannot exceed 10,000';
+    }
+    
+    // Validate pawn date range
+    if (fields.pawnDateFrom && fields.pawnDateTo) {
+      const fromDate = new Date(fields.pawnDateFrom);
+      const toDate = new Date(fields.pawnDateTo);
+      if (fromDate > toDate) {
+        errors.pawnDateRange = `Pawn date 'from' cannot be after 'to' date`;
+      }
+    }
+    
+    // Validate maturity date range
+    if (fields.maturityDateFrom && fields.maturityDateTo) {
+      const fromDate = new Date(fields.maturityDateFrom);
+      const toDate = new Date(fields.maturityDateTo);
+      if (fromDate > toDate) {
+        errors.maturityDateRange = `Maturity date 'from' cannot be after 'to' date`;
+      }
+    }
+    
+    // Validate date constraints (not too far in past/future)
+    const currentDate = new Date();
+    const maxFutureDate = new Date(currentDate.getFullYear() + 1, currentDate.getMonth(), currentDate.getDate());
+    const minPastDate = new Date(2020, 0, 1);
+    
+    [
+      { field: 'pawnDateFrom', label: 'Pawn date from' },
+      { field: 'pawnDateTo', label: 'Pawn date to' },
+      { field: 'maturityDateFrom', label: 'Maturity date from' },
+      { field: 'maturityDateTo', label: 'Maturity date to' }
+    ].forEach(({ field, label }) => {
+      if (fields[field]) {
+        const date = new Date(fields[field]);
+        if (date > maxFutureDate) {
+          errors[field] = `${label} cannot be more than 1 year in the future`;
+        }
+        if (date < minPastDate) {
+          errors[field] = `${label} cannot be before 2020`;
+        }
+      }
+    });
+    
+    return errors;
+  }, []);
+  
+  // Memoized check for frontend filters to optimize performance
+  const needsAllTransactionsMemo = useMemo(() => false, [searchFields]);
+  
+  // Debounced search to reduce API calls (but not for filters)
+  useEffect(() => {
+    // Only debounce the text search, not filter changes
+    if (searchTerm !== activeSearchTerm) {
+      const debounceTimer = setTimeout(() => {
+        setActiveSearchTerm(searchTerm);
+      }, 300);
+      
+      return () => clearTimeout(debounceTimer);
+    }
+  }, [searchTerm, activeSearchTerm]);
   
   // REAL-TIME FIX: Optimistic updates for immediate UI feedback
   const {
@@ -130,90 +243,96 @@ const TransactionList = ({
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Filter and sort transactions (backend handles most filters, frontend handles unsupported ones)
-  const filteredAndSortedTransactions = transactions
-    .filter(transaction => {
-      try {
-        // Only keep frontend filters that aren't supported by backend yet
-        
-        // Days overdue filter (frontend-only until backend support)
-        if ((searchFields.minDaysOverdue && searchFields.minDaysOverdue.trim() !== '') || 
-            (searchFields.maxDaysOverdue && searchFields.maxDaysOverdue.trim() !== '')) {
-          
-          if (transaction.maturity_date) {
-            const maturityDate = new Date(transaction.maturity_date);
-            const today = new Date();
-            
-            // Only calculate if we have valid dates
-            if (!isNaN(maturityDate.getTime())) {
-              const daysOverdue = Math.max(0, Math.floor((today - maturityDate) / (1000 * 60 * 60 * 24)));
-              
-              if (searchFields.minDaysOverdue && searchFields.minDaysOverdue.trim() !== '') {
-                const minDays = parseInt(searchFields.minDaysOverdue);
-                if (!isNaN(minDays) && daysOverdue < minDays) return false;
-              }
-              if (searchFields.maxDaysOverdue && searchFields.maxDaysOverdue.trim() !== '') {
-                const maxDays = parseInt(searchFields.maxDaysOverdue);
-                if (!isNaN(maxDays) && daysOverdue > maxDays) return false;
-              }
-            }
-          }
-        }
-        
-        // Maturity Date range filter (frontend-only until backend support)
-        if ((searchFields.maturityDateFrom && searchFields.maturityDateFrom.trim() !== '') || 
-            (searchFields.maturityDateTo && searchFields.maturityDateTo.trim() !== '')) {
-          
-          if (transaction.maturity_date) {
-            const maturityDate = new Date(transaction.maturity_date);
-            
-            if (!isNaN(maturityDate.getTime())) {
-              if (searchFields.maturityDateFrom && searchFields.maturityDateFrom.trim() !== '') {
-                const fromDate = new Date(searchFields.maturityDateFrom + 'T00:00:00');
-                if (!isNaN(fromDate.getTime()) && maturityDate < fromDate) return false;
-              }
-              if (searchFields.maturityDateTo && searchFields.maturityDateTo.trim() !== '') {
-                const toDate = new Date(searchFields.maturityDateTo + 'T23:59:59');
-                if (!isNaN(toDate.getTime()) && maturityDate > toDate) return false;
-              }
-            }
-          }
-        }
-        
-        return true;
-      } catch (error) {
-        // If any filter fails, include the transaction to avoid breaking the list
-        console.warn('Filter error for transaction:', transaction.transaction_id, error);
-        return true;
-      }
-    })
-    .sort((a, b) => {
+  // Constants for improved maintainability
+  const DAYS_MS = 1000 * 60 * 60 * 24;
+  const API_DELAY_MS = 500;
+  const MAX_PAGE_SIZE = 100;
+  
+  // Memoized utility functions
+  const calculateDaysOverdue = useCallback((maturityDate) => {
+    if (!maturityDate) return 0;
+    
+    const maturity = new Date(maturityDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    maturity.setHours(0, 0, 0, 0);
+    
+    if (isNaN(maturity.getTime())) return 0;
+    
+    const overdueStartDate = new Date(maturity);
+    overdueStartDate.setDate(overdueStartDate.getDate() + 1);
+    
+    const daysOverdue = Math.floor((today - overdueStartDate) / DAYS_MS);
+    return Math.max(0, daysOverdue);
+  }, []);
+  
+  // Memoized filter logic
+  const applyDaysOverdueFilter = useCallback((transaction, minDays, maxDays) => {
+    if (transaction.status?.toLowerCase() !== 'overdue') {
+      // Non-overdue transactions have 0 days overdue
+      return !(minDays && minDays > 0);
+    }
+    
+    const daysOverdue = calculateDaysOverdue(transaction.maturity_date);
+    
+    if (minDays && daysOverdue < minDays) return false;
+    if (maxDays && daysOverdue > maxDays) return false;
+    
+    return true;
+  }, [calculateDaysOverdue]);
+  
+  const applyMaturityDateFilter = useCallback((transaction, fromDate, toDate) => {
+    if (!transaction.maturity_date) return true;
+    
+    const maturityDate = new Date(transaction.maturity_date);
+    if (isNaN(maturityDate.getTime())) return true;
+    
+    if (fromDate) {
+      const from = new Date(fromDate + 'T00:00:00');
+      if (!isNaN(from.getTime()) && maturityDate < from) return false;
+    }
+    
+    if (toDate) {
+      const to = new Date(toDate + 'T23:59:59');
+      if (!isNaN(to.getTime()) && maturityDate > to) return false;
+    }
+    
+    return true;
+  }, []);
+  
+  // Since all filtering is now done on the backend, just sort the transactions
+  const filteredAndSortedTransactions = useMemo(() => {
+    // Early return if no transactions
+    if (!transactions.length) return [];
+    
+    // Just sort the transactions returned from the backend
+    return transactions.slice().sort((a, b) => {
       let comparison = 0;
       switch (sortField) {
-        case 'updated_at':
-          comparison = new Date(a.updated_at || a.created_at || 0) - new Date(b.updated_at || b.created_at || 0);
-          break;
-        case 'created_at':
-          comparison = new Date(a.created_at || a.pawn_date || 0) - new Date(b.created_at || b.pawn_date || 0);
-          break;
-        case 'pawn_date':
-          comparison = new Date(a.pawn_date || 0) - new Date(b.pawn_date || 0);
-          break;
-        case 'loan_amount':
-          comparison = (a.loan_amount || 0) - (b.loan_amount || 0);
-          break;
-        case 'status':
-          comparison = (a.status || '').localeCompare(b.status || '');
-          break;
-        case 'customer_id':
-          comparison = (a.customer_id || '').localeCompare(b.customer_id || '');
-          break;
-        default:
-          // Default to updated_at for recently modified items at top
-          comparison = new Date(a.updated_at || a.created_at || 0) - new Date(b.updated_at || b.created_at || 0);
-      }
-      return sortDirection === 'desc' ? -comparison : comparison;
-    });
+          case 'updated_at':
+            comparison = new Date(a.updated_at || a.created_at || 0) - new Date(b.updated_at || b.created_at || 0);
+            break;
+          case 'created_at':
+            comparison = new Date(a.created_at || a.pawn_date || 0) - new Date(b.created_at || b.pawn_date || 0);
+            break;
+          case 'pawn_date':
+            comparison = new Date(a.pawn_date || 0) - new Date(b.pawn_date || 0);
+            break;
+          case 'loan_amount':
+            comparison = (a.loan_amount || 0) - (b.loan_amount || 0);
+            break;
+          case 'status':
+            comparison = (a.status || '').localeCompare(b.status || '');
+            break;
+          case 'customer_id':
+            comparison = (a.customer_id || '').localeCompare(b.customer_id || '');
+            break;
+          default:
+            comparison = new Date(a.updated_at || a.created_at || 0) - new Date(b.updated_at || b.created_at || 0);
+        }
+        return sortDirection === 'desc' ? -comparison : comparison;
+      });
+  }, [transactions, sortField, sortDirection]);
 
   // Fetch customer names for transactions
   const fetchCustomerNames = useCallback(async (transactionList) => {
@@ -278,19 +397,25 @@ const TransactionList = ({
         // Set total count for pagination in search results
         setTotalTransactions(searchResult.total_count || 0);
       } else {
+        // Use memoized check for frontend filters
+        const needsAllTransactions = needsAllTransactionsMemo;
+
         // Regular getAllTransactions when no search term
         const searchParams = {
           ...filters,
-          page: currentPage,
-          page_size: transactionsPerPage,
+          page: needsAllTransactions ? 1 : currentPage, // Always start from page 1 when loading all
+          page_size: needsAllTransactions ? MAX_PAGE_SIZE : transactionsPerPage, // Load max transactions for frontend filtering
           sortBy: sortField,
           sortOrder: sortDirection,
-          // Add advanced search filters
-          ...(searchFields.minLoanAmount && { min_amount: parseInt(searchFields.minLoanAmount) }),
-          ...(searchFields.maxLoanAmount && { max_amount: parseInt(searchFields.maxLoanAmount) }),
-          ...(searchFields.pawnDateFrom && { start_date: searchFields.pawnDateFrom }),
-          ...(searchFields.pawnDateTo && { end_date: searchFields.pawnDateTo }),
-          // Note: Days overdue and maturity date filters need backend support
+          // Add advanced search filters (using debounced values)
+          ...(debouncedSearchFields.minLoanAmount && { min_amount: parseInt(debouncedSearchFields.minLoanAmount) }),
+          ...(debouncedSearchFields.maxLoanAmount && { max_amount: parseInt(debouncedSearchFields.maxLoanAmount) }),
+          ...(debouncedSearchFields.pawnDateFrom && { start_date: debouncedSearchFields.pawnDateFrom + 'T00:00:00Z' }),
+          ...(debouncedSearchFields.pawnDateTo && { end_date: debouncedSearchFields.pawnDateTo + 'T23:59:59Z' }),
+          ...(debouncedSearchFields.maturityDateFrom && { maturity_date_from: debouncedSearchFields.maturityDateFrom + 'T00:00:00Z' }),
+          ...(debouncedSearchFields.maturityDateTo && { maturity_date_to: debouncedSearchFields.maturityDateTo + 'T23:59:59Z' }),
+          ...(debouncedSearchFields.minDaysOverdue && { min_days_overdue: parseInt(debouncedSearchFields.minDaysOverdue) }),
+          ...(debouncedSearchFields.maxDaysOverdue && { max_days_overdue: parseInt(debouncedSearchFields.maxDaysOverdue) })
         };
         
         response = await transactionService.getAllTransactions(searchParams);
@@ -335,7 +460,7 @@ const TransactionList = ({
     } finally {
       setLoading(false);
     }
-  }, [filters, activeSearchTerm, currentPage, transactionsPerPage, sortField, sortDirection, fetchCustomerNames, searchFields]);
+  }, [filters.status, activeSearchTerm, currentPage, transactionsPerPage, sortField, sortDirection, fetchCustomerNames, debouncedSearchFields.minLoanAmount, debouncedSearchFields.maxLoanAmount, debouncedSearchFields.pawnDateFrom, debouncedSearchFields.pawnDateTo, debouncedSearchFields.maturityDateFrom, debouncedSearchFields.maturityDateTo, debouncedSearchFields.minDaysOverdue, debouncedSearchFields.maxDaysOverdue, needsAllTransactionsMemo]);
 
   const fetchAllTransactionsCounts = useCallback(async (immediate = false) => {
     try {
@@ -390,7 +515,7 @@ const TransactionList = ({
           while (retryCount <= maxRetries) {
             try {
               if (i > 0 || retryCount > 0) {
-                await delay(500 + (retryCount * 500)); // Increasing delay for retries
+                await delay(API_DELAY_MS + (retryCount * API_DELAY_MS)); // Increasing delay for retries
               }
               
               const response = await transactionService.getAllTransactions({
@@ -561,15 +686,15 @@ const TransactionList = ({
       // Cleanup timeout on unmount or when refreshTrigger changes
       return () => clearTimeout(performRefresh);
     }
-  }, [refreshTrigger, filters, transactionsPerPage, sortField, sortDirection, activeSearchTerm, customerData, fetchAllTransactionsCounts]);
+  }, [refreshTrigger, filters.status, transactionsPerPage, sortField, sortDirection, activeSearchTerm, Object.keys(customerData).length, fetchAllTransactionsCounts]);
 
   // Calculate total pages for pagination
   // Check if any advanced filters are active
   const hasAdvancedFilters = Object.values(searchFields).some(v => v && v.trim() !== '');
   
-  // Check if frontend-only filters are active (days overdue, maturity date)
-  const hasFrontendFilters = (searchFields.minDaysOverdue || searchFields.maxDaysOverdue || 
-                             searchFields.maturityDateFrom || searchFields.maturityDateTo);
+  // Check if frontend-only filters are active (memoized for performance)
+  const hasFrontendFilters = false;
+  
   
   // During search/filter operations, use appropriate count
   let effectiveTotalTransactions;
@@ -586,6 +711,13 @@ const TransactionList = ({
   
   const totalPages = Math.ceil(effectiveTotalTransactions / transactionsPerPage);
 
+  // Apply frontend pagination when frontend filters are active
+  const paginatedTransactions = hasFrontendFilters 
+    ? filteredAndSortedTransactions.slice(
+        (currentPage - 1) * transactionsPerPage,
+        currentPage * transactionsPerPage
+      )
+    : filteredAndSortedTransactions;
 
   const handleStatusFilter = (status) => {
     setFilters(prev => ({ 
@@ -625,12 +757,11 @@ const TransactionList = ({
   };
 
   const handleSelectAll = (checked) => {
-    setSelectedTransactionIds(checked ? filteredAndSortedTransactions.map(t => t.transaction_id) : []);
+    setSelectedTransactionIds(checked ? paginatedTransactions.map(t => t.transaction_id) : []);
   };
 
   const clearSearchFields = () => {
-    setSearchTerm('');
-    setSearchFields({ 
+    const emptyFields = { 
       minLoanAmount: '',
       maxLoanAmount: '',
       minDaysOverdue: '',
@@ -639,10 +770,48 @@ const TransactionList = ({
       pawnDateTo: '',
       maturityDateFrom: '',
       maturityDateTo: ''
-    });
+    };
+    
+    setSearchTerm('');
+    setActiveSearchTerm('');
+    setSearchFields(emptyFields);
+    setDebouncedSearchFields(emptyFields); // Clear debounced fields immediately
+    setFilterErrors({});
+    setIsFilterPending(false);
     setFilters({ status: '', page_size: 10, sortBy: 'updated_at', sortOrder: 'desc' });
     setCurrentPage(1);
   };
+
+  // Validate filters whenever search fields change
+  useEffect(() => {
+    const errors = validateFilters(searchFields);
+    setFilterErrors(errors);
+  }, [searchFields, validateFilters]);
+
+  // Debounce search fields to prevent too many API calls while typing
+  useEffect(() => {
+    // Check if search fields have actually changed
+    const hasChanged = JSON.stringify(searchFields) !== JSON.stringify(debouncedSearchFields);
+    
+    if (hasChanged && Object.values(searchFields).some(v => v)) {
+      setIsFilterPending(true);
+    }
+
+    const debounceTimer = setTimeout(() => {
+      // Only update debounced fields if there are no validation errors
+      if (Object.keys(filterErrors).length === 0) {
+        setDebouncedSearchFields(searchFields);
+        setIsFilterPending(false);
+      }
+    }, 500); // 500ms delay
+
+    return () => {
+      clearTimeout(debounceTimer);
+      if (!Object.values(searchFields).some(v => v)) {
+        setIsFilterPending(false);
+      }
+    };
+  }, [searchFields, filterErrors, debouncedSearchFields]);
 
   // Use business timezone for consistent date display across the application
   const formatDate = (dateString) => formatBusinessDate(dateString);
@@ -896,34 +1065,51 @@ const TransactionList = ({
                             <div className="space-y-1">
                               <Label htmlFor="minLoanAmount" className="text-xs text-slate-500 dark:text-slate-400 font-medium">Minimum</Label>
                               <div className="relative">
-                                <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-500 dark:text-slate-400 text-sm">$</span>
+                                <span className="absolute left-3 text-slate-500 dark:text-slate-400 text-sm pointer-events-none" style={{top: '50%', transform: 'translateY(-40%)', lineHeight: '1'}}>$</span>
                                 <Input
                                   id="minLoanAmount"
                                   type="number"
-                                  placeholder="0"
+                                  placeholder="Min amount"
                                   step="1"
-                                  className="pl-6 h-9"
+                                  min="0"
+                                  max="10000"
+                                  className={`pl-6 h-9 ${filterErrors.minLoanAmount ? 'border-red-500 focus:border-red-500' : ''}`}
                                   value={searchFields.minLoanAmount}
                                   onChange={(e) => setSearchFields(prev => ({ ...prev, minLoanAmount: e.target.value }))}
                                 />
                               </div>
+                              {filterErrors.minLoanAmount && (
+                                <p className="text-xs text-red-500 mt-1">{filterErrors.minLoanAmount}</p>
+                              )}
                             </div>
                             <div className="space-y-1">
                               <Label htmlFor="maxLoanAmount" className="text-xs text-slate-500 dark:text-slate-400 font-medium">Maximum</Label>
                               <div className="relative">
-                                <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-500 dark:text-slate-400 text-sm">$</span>
+                                <span className="absolute left-3 text-slate-500 dark:text-slate-400 text-sm pointer-events-none" style={{top: '50%', transform: 'translateY(-40%)', lineHeight: '1'}}>$</span>
                                 <Input
                                   id="maxLoanAmount"
                                   type="number"
-                                  placeholder="10000"
+                                  placeholder="Max amount"
                                   step="1"
-                                  className="pl-6 h-9"
+                                  min="0"
+                                  max="10000"
+                                  className={`pl-6 h-9 ${filterErrors.maxLoanAmount ? 'border-red-500 focus:border-red-500' : ''}`}
                                   value={searchFields.maxLoanAmount}
                                   onChange={(e) => setSearchFields(prev => ({ ...prev, maxLoanAmount: e.target.value }))}
                                 />
                               </div>
+                              {filterErrors.maxLoanAmount && (
+                                <p className="text-xs text-red-500 mt-1">{filterErrors.maxLoanAmount}</p>
+                              )}
                             </div>
                           </div>
+                          {filterErrors.loanAmount && (
+                            <div className="mt-3 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                              <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
+                                <span>⚠️</span> {filterErrors.loanAmount}
+                              </p>
+                            </div>
+                          )}
                         </CardContent>
                       </Card>
                       
@@ -940,26 +1126,59 @@ const TransactionList = ({
                               <Input
                                 id="minDaysOverdue"
                                 type="number"
-                                placeholder="0"
+                                placeholder="Min days"
                                 min="0"
-                                className="h-9"
+                                max="10000"
+                                className={`h-9 ${filterErrors.minDaysOverdue ? 'border-red-500 focus:border-red-500' : ''}`}
                                 value={searchFields.minDaysOverdue}
                                 onChange={(e) => setSearchFields(prev => ({ ...prev, minDaysOverdue: e.target.value }))}
                               />
+                              {filterErrors.minDaysOverdue && (
+                                <p className="text-xs text-red-500 mt-1">{filterErrors.minDaysOverdue}</p>
+                              )}
                             </div>
                             <div className="space-y-1">
                               <Label htmlFor="maxDaysOverdue" className="text-xs text-slate-500 dark:text-slate-400 font-medium">Maximum Days</Label>
                               <Input
                                 id="maxDaysOverdue"
                                 type="number"
-                                placeholder="365"
+                                placeholder="Max days"
                                 min="0"
-                                className="h-9"
+                                max="10000"
+                                className={`h-9 ${filterErrors.maxDaysOverdue ? 'border-red-500 focus:border-red-500' : ''}`}
                                 value={searchFields.maxDaysOverdue}
                                 onChange={(e) => setSearchFields(prev => ({ ...prev, maxDaysOverdue: e.target.value }))}
                               />
+                              {filterErrors.maxDaysOverdue && (
+                                <p className="text-xs text-red-500 mt-1">{filterErrors.maxDaysOverdue}</p>
+                              )}
                             </div>
                           </div>
+                          
+                          {filterErrors.daysOverdue && (
+                            <div className="mt-3 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                              <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
+                                <span>⚠️</span> {filterErrors.daysOverdue}
+                              </p>
+                            </div>
+                          )}
+                          
+                          {/* Helper text for Days Overdue filter */}
+                          {(searchFields.minDaysOverdue || searchFields.maxDaysOverdue) && !filterErrors.daysOverdue && (
+                            <div className="mt-3 p-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                              <div className="flex items-start gap-2">
+                                <div className="w-4 h-4 text-blue-600 dark:text-blue-400 mt-0.5">ℹ️</div>
+                                <div className="text-xs text-blue-700 dark:text-blue-300">
+                                  <strong>Note:</strong> Days Overdue counts from when the transaction became overdue (day after maturity date) to today. Only applies to "Overdue" status transactions.
+                                  {filters.status !== 'overdue' && (
+                                    <span className="block mt-1 font-medium">
+                                      Click "Apply Filters" to automatically switch to Overdue status.
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )}
                         </CardContent>
                       </Card>
                       
@@ -983,22 +1202,41 @@ const TransactionList = ({
                                 <Input
                                   id="pawnDateFrom"
                                   type="date"
-                                  className="h-9 text-sm"
+                                  placeholder="Start date"
+                                  min="2020-01-01"
+                                  max={new Date(new Date().getFullYear() + 1, 11, 31).toISOString().split('T')[0]}
+                                  className={`h-9 text-sm ${filterErrors.pawnDateFrom ? 'border-red-500 focus:border-red-500' : ''}`}
                                   value={searchFields.pawnDateFrom}
                                   onChange={(e) => setSearchFields(prev => ({ ...prev, pawnDateFrom: e.target.value }))}
                                 />
+                                {filterErrors.pawnDateFrom && (
+                                  <p className="text-xs text-red-500 mt-1">{filterErrors.pawnDateFrom}</p>
+                                )}
                               </div>
                               <div className="space-y-1">
                                 <Label htmlFor="pawnDateTo" className="text-xs text-slate-500 dark:text-slate-400">To</Label>
                                 <Input
                                   id="pawnDateTo"
                                   type="date"
-                                  className="h-9 text-sm"
+                                  placeholder="End date"
+                                  min="2020-01-01"
+                                  max={new Date(new Date().getFullYear() + 1, 11, 31).toISOString().split('T')[0]}
+                                  className={`h-9 text-sm ${filterErrors.pawnDateTo ? 'border-red-500 focus:border-red-500' : ''}`}
                                   value={searchFields.pawnDateTo}
                                   onChange={(e) => setSearchFields(prev => ({ ...prev, pawnDateTo: e.target.value }))}
                                 />
+                                {filterErrors.pawnDateTo && (
+                                  <p className="text-xs text-red-500 mt-1">{filterErrors.pawnDateTo}</p>
+                                )}
                               </div>
                             </div>
+                            {filterErrors.pawnDateRange && (
+                              <div className="mt-3 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                                <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
+                                  <span>⚠️</span> {filterErrors.pawnDateRange}
+                                </p>
+                              </div>
+                            )}
                           </div>
                           
                           {/* Maturity Date Range */}
@@ -1013,22 +1251,41 @@ const TransactionList = ({
                                 <Input
                                   id="maturityDateFrom"
                                   type="date"
-                                  className="h-9 text-sm"
+                                  placeholder="Start date"
+                                  min="2020-01-01"
+                                  max={new Date(new Date().getFullYear() + 1, 11, 31).toISOString().split('T')[0]}
+                                  className={`h-9 text-sm ${filterErrors.maturityDateFrom ? 'border-red-500 focus:border-red-500' : ''}`}
                                   value={searchFields.maturityDateFrom}
                                   onChange={(e) => setSearchFields(prev => ({ ...prev, maturityDateFrom: e.target.value }))}
                                 />
+                                {filterErrors.maturityDateFrom && (
+                                  <p className="text-xs text-red-500 mt-1">{filterErrors.maturityDateFrom}</p>
+                                )}
                               </div>
                               <div className="space-y-1">
                                 <Label htmlFor="maturityDateTo" className="text-xs text-slate-500 dark:text-slate-400">To</Label>
                                 <Input
                                   id="maturityDateTo"
                                   type="date"
-                                  className="h-9 text-sm"
+                                  placeholder="End date"
+                                  min="2020-01-01"
+                                  max={new Date(new Date().getFullYear() + 1, 11, 31).toISOString().split('T')[0]}
+                                  className={`h-9 text-sm ${filterErrors.maturityDateTo ? 'border-red-500 focus:border-red-500' : ''}`}
                                   value={searchFields.maturityDateTo}
                                   onChange={(e) => setSearchFields(prev => ({ ...prev, maturityDateTo: e.target.value }))}
                                 />
+                                {filterErrors.maturityDateTo && (
+                                  <p className="text-xs text-red-500 mt-1">{filterErrors.maturityDateTo}</p>
+                                )}
                               </div>
                             </div>
+                            {filterErrors.maturityDateRange && (
+                              <div className="mt-3 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                                <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
+                                  <span>⚠️</span> {filterErrors.maturityDateRange}
+                                </p>
+                              </div>
+                            )}
                           </div>
                         </CardContent>
                       </Card>
@@ -1047,12 +1304,24 @@ const TransactionList = ({
                         </Button>
                         <Button 
                           variant="default" 
-                          className="flex-1 h-10 bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
+                          className="flex-1 h-10 bg-blue-600 hover:bg-blue-700 text-white shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                          disabled={Object.keys(filterErrors).length > 0}
                           onClick={() => {
                             // Trigger re-filtering by updating a state that causes re-render
                             // The filters are already applied automatically in the filteredAndSortedTransactions
                             // This button provides visual feedback that filters are being applied
                             const hasActiveFilters = Object.values(searchFields).some(v => v);
+                            
+                            // If Days Overdue filters are used, automatically set status to "overdue" 
+                            // to ensure we can see the overdue transactions
+                            const hasDaysOverdueFilter = searchFields.minDaysOverdue || searchFields.maxDaysOverdue;
+                            if (hasDaysOverdueFilter && filters.status !== 'overdue') {
+                              setFilters(prev => ({ 
+                                ...prev, 
+                                status: 'overdue'
+                              }));
+                            }
+                            
                             if (hasActiveFilters) {
                               // Force a refresh to ensure the latest data is filtered
                               forceRefresh();
@@ -1061,8 +1330,12 @@ const TransactionList = ({
                             setIsFilterSheetOpen(false);
                           }}
                         >
-                          <Search className="h-4 w-4 mr-2" />
-                          Apply Filters
+                          {isFilterPending ? (
+                            <div className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
+                          ) : (
+                            <Search className="h-4 w-4 mr-2" />
+                          )}
+                          {isFilterPending ? 'Applying...' : 'Apply Filters'}
                         </Button>
                       </div>
                       
@@ -1072,6 +1345,14 @@ const TransactionList = ({
                           <Badge variant="secondary" className="text-xs px-2 py-1">
                             {Object.values(searchFields).filter(v => v).length} active filter{Object.values(searchFields).filter(v => v).length !== 1 ? 's' : ''}
                           </Badge>
+                          {isFilterPending && (
+                            <div className="mt-2">
+                              <span className="text-xs text-amber-600 dark:text-amber-400 flex items-center justify-center gap-1">
+                                <div className="w-3 h-3 animate-spin rounded-full border border-amber-500 border-t-transparent"></div>
+                                Filters will apply in 0.5s...
+                              </span>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1113,7 +1394,7 @@ const TransactionList = ({
 
 
       {/* Enhanced Transaction Display */}
-      {!loading && filteredAndSortedTransactions.length > 0 && (
+      {!loading && paginatedTransactions.length > 0 && (
         <div className="space-y-4">
           {/* Results Summary & View Controls */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-gradient-to-r from-blue-50/50 to-indigo-50/50 dark:from-blue-950/20 dark:to-indigo-950/20 rounded-xl border border-blue-200/30 dark:border-blue-800/30">
@@ -1121,7 +1402,7 @@ const TransactionList = ({
               <div className="flex items-center space-x-2">
                 <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
                 <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                  {filteredAndSortedTransactions.length} result{filteredAndSortedTransactions.length !== 1 ? 's' : ''}
+                  {effectiveTotalTransactions} result{effectiveTotalTransactions !== 1 ? 's' : ''}
                 </span>
                 {(filters.status || searchTerm || Object.values(searchFields).some(v => v)) && (
                   <Badge variant="outline" className="text-xs bg-blue-100/50 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700">
@@ -1192,7 +1473,7 @@ const TransactionList = ({
                     <TableRow className="border-slate-200/50 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors duration-300">
                       <TableHead className="w-12 pl-6">
                         <Checkbox
-                          checked={selectedTransactionIds.length === filteredAndSortedTransactions.length && filteredAndSortedTransactions.length > 0}
+                          checked={selectedTransactionIds.length === paginatedTransactions.length && paginatedTransactions.length > 0}
                           onCheckedChange={handleSelectAll}
                           className="data-[state=checked]:bg-blue-500 data-[state=checked]:border-blue-500"
                         />
@@ -1251,7 +1532,7 @@ const TransactionList = ({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredAndSortedTransactions.map((transaction, index) => (
+                    {paginatedTransactions.map((transaction, index) => (
                       <TableRow 
                         key={transaction.transaction_id}
                         className={`border-0 hover:bg-slate-50/10 dark:hover:bg-slate-800/3 hover:shadow-sm transition-all duration-300 cursor-pointer group ${
@@ -1442,7 +1723,7 @@ const TransactionList = ({
           ) : (
             /* Enhanced Card View */
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-              {filteredAndSortedTransactions.map((transaction) => (
+              {paginatedTransactions.map((transaction) => (
                 <TransactionCard
                   key={transaction.transaction_id}
                   transaction={transaction}
@@ -1465,7 +1746,7 @@ const TransactionList = ({
       )}
 
       {/* Enhanced Empty State */}
-      {!loading && filteredAndSortedTransactions.length === 0 && !error && (
+      {!loading && effectiveTotalTransactions === 0 && !error && (
         <Card className="border-0 shadow-xl bg-gradient-to-br from-white/90 to-slate-50/90 dark:from-slate-900/90 dark:to-slate-800/90 backdrop-blur-sm">
           <CardContent className="text-center py-16">
             <div className="relative mb-8">
@@ -1513,10 +1794,7 @@ const TransactionList = ({
                 <Button 
                   variant="outline"
                   onClick={() => {
-                    setSearchTerm('');
-                    setActiveSearchTerm('');
-                    setFilters({ status: '', page_size: 10, sortBy: 'updated_at', sortOrder: 'desc' });
-                    setSearchFields({ 
+                    const emptyFields = { 
                       minLoanAmount: '',
                       maxLoanAmount: '',
                       minDaysOverdue: '',
@@ -1525,7 +1803,15 @@ const TransactionList = ({
                       pawnDateTo: '',
                       maturityDateFrom: '',
                       maturityDateTo: ''
-                    });
+                    };
+                    
+                    setSearchTerm('');
+                    setActiveSearchTerm('');
+                    setFilters({ status: '', page_size: 10, sortBy: 'updated_at', sortOrder: 'desc' });
+                    setSearchFields(emptyFields);
+                    setDebouncedSearchFields(emptyFields); // Clear debounced fields immediately
+                    setFilterErrors({});
+                    setIsFilterPending(false);
                     setCurrentPage(1);
                   }}
                   className="bg-white/80 dark:bg-slate-800/80 border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700"

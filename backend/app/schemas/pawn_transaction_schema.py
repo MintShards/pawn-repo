@@ -235,10 +235,14 @@ class TransactionSearchFilters(BaseModel):
     status: Optional[TransactionStatus] = Field(None, description="Filter by transaction status")
     customer_id: Optional[str] = Field(None, description="Filter by customer phone number")
     search_text: Optional[str] = Field(None, description="Search by transaction ID (PW000123) or customer phone number")
-    min_amount: Optional[int] = Field(None, ge=0, description="Minimum loan amount filter")
-    max_amount: Optional[int] = Field(None, ge=0, description="Maximum loan amount filter")
-    start_date: Optional[datetime] = Field(None, description="Start date filter")
-    end_date: Optional[datetime] = Field(None, description="End date filter")
+    min_amount: Optional[int] = Field(None, ge=0, le=10000, description="Minimum loan amount filter ($0-$10,000)")
+    max_amount: Optional[int] = Field(None, ge=0, le=10000, description="Maximum loan amount filter ($0-$10,000)")
+    start_date: Optional[datetime] = Field(None, description="Start date filter (pawn date)")
+    end_date: Optional[datetime] = Field(None, description="End date filter (pawn date)")
+    maturity_date_from: Optional[datetime] = Field(None, description="Maturity date from filter")
+    maturity_date_to: Optional[datetime] = Field(None, description="Maturity date to filter")
+    min_days_overdue: Optional[int] = Field(None, ge=0, le=10000, description="Minimum days overdue filter (0-10,000 days)")
+    max_days_overdue: Optional[int] = Field(None, ge=0, le=10000, description="Maximum days overdue filter (0-10,000 days)")
     storage_location: Optional[str] = Field(None, description="Storage location filter")
     
     # Pagination
@@ -269,6 +273,52 @@ class TransactionSearchFilters(BaseModel):
             except ValueError:
                 raise ValueError(f"Invalid sort order '{v}'. Allowed values: {[order.value for order in SortOrder]}")
         return v
+    
+    @field_validator('start_date', 'end_date', 'maturity_date_from', 'maturity_date_to')
+    @classmethod
+    def validate_dates(cls, v):
+        """Validate date filters are not in the future and are reasonable"""
+        if v is None:
+            return v
+        
+        from datetime import datetime, UTC
+        now = datetime.now(UTC)
+        
+        # Allow dates up to 1 year in the future for maturity dates
+        max_future_date = now.replace(year=now.year + 1)
+        
+        # Allow dates back to 2020 for historical data
+        min_past_date = now.replace(year=2020, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        
+        if v > max_future_date:
+            raise ValueError(f"Date cannot be more than 1 year in the future. Maximum allowed: {max_future_date.strftime('%Y-%m-%d')}")
+        
+        if v < min_past_date:
+            raise ValueError(f"Date cannot be before 2020. Minimum allowed: {min_past_date.strftime('%Y-%m-%d')}")
+        
+        return v
+    
+    def model_post_init(self, __context) -> None:
+        """Validate cross-field constraints after all fields are set"""
+        # Validate loan amount range
+        if self.min_amount is not None and self.max_amount is not None:
+            if self.min_amount > self.max_amount:
+                raise ValueError(f"Minimum loan amount (${self.min_amount}) cannot be greater than maximum loan amount (${self.max_amount})")
+        
+        # Validate days overdue range
+        if self.min_days_overdue is not None and self.max_days_overdue is not None:
+            if self.min_days_overdue > self.max_days_overdue:
+                raise ValueError(f"Minimum days overdue ({self.min_days_overdue}) cannot be greater than maximum days overdue ({self.max_days_overdue})")
+        
+        # Validate pawn date range
+        if self.start_date is not None and self.end_date is not None:
+            if self.start_date > self.end_date:
+                raise ValueError(f"Pawn date 'from' ({self.start_date.strftime('%Y-%m-%d')}) cannot be after 'to' date ({self.end_date.strftime('%Y-%m-%d')})")
+        
+        # Validate maturity date range
+        if self.maturity_date_from is not None and self.maturity_date_to is not None:
+            if self.maturity_date_from > self.maturity_date_to:
+                raise ValueError(f"Maturity date 'from' ({self.maturity_date_from.strftime('%Y-%m-%d')}) cannot be after 'to' date ({self.maturity_date_to.strftime('%Y-%m-%d')})")
 
 
 class BulkStatusUpdateRequest(BaseModel):

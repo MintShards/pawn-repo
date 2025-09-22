@@ -647,6 +647,10 @@ class PawnTransactionService:
             'max_amount': filters.max_amount,
             'start_date': filters.start_date.isoformat() if filters.start_date else None,
             'end_date': filters.end_date.isoformat() if filters.end_date else None,
+            'maturity_date_from': getattr(filters, 'maturity_date_from', None).isoformat() if getattr(filters, 'maturity_date_from', None) else None,
+            'maturity_date_to': getattr(filters, 'maturity_date_to', None).isoformat() if getattr(filters, 'maturity_date_to', None) else None,
+            'min_days_overdue': getattr(filters, 'min_days_overdue', None),
+            'max_days_overdue': getattr(filters, 'max_days_overdue', None),
             'storage_location': filters.storage_location,
             'page': filters.page,
             'page_size': filters.page_size,
@@ -846,6 +850,33 @@ class PawnTransactionService:
                 
             if filters.end_date:
                 query = query.find(PawnTransaction.pawn_date <= filters.end_date)
+                
+            if getattr(filters, 'maturity_date_from', None):
+                query = query.find(PawnTransaction.maturity_date >= filters.maturity_date_from)
+                
+            if getattr(filters, 'maturity_date_to', None):
+                query = query.find(PawnTransaction.maturity_date <= filters.maturity_date_to)
+                
+            # Days overdue filter - requires special handling
+            min_days = getattr(filters, 'min_days_overdue', None)
+            max_days = getattr(filters, 'max_days_overdue', None)
+            if min_days is not None or max_days is not None:
+                from datetime import timedelta
+                current_datetime = get_user_now(client_timezone)
+                
+                if min_days is not None:
+                    # Calculate the maturity date that would result in at least min_days_overdue
+                    # Days overdue starts 1 day after maturity, so we subtract (min_days_overdue + 1)
+                    max_maturity_datetime = current_datetime - timedelta(days=min_days + 1)
+                    query = query.find(PawnTransaction.maturity_date <= max_maturity_datetime)
+                    # Also need to be overdue status
+                    if not filters.status or filters.status != TransactionStatus.OVERDUE:
+                        query = query.find(PawnTransaction.status == TransactionStatus.OVERDUE)
+                
+                if max_days is not None:
+                    # Calculate the maturity date that would result in at most max_days_overdue
+                    min_maturity_datetime = current_datetime - timedelta(days=max_days + 1)
+                    query = query.find(PawnTransaction.maturity_date >= min_maturity_datetime)
                 
             if filters.storage_location:
                 query = query.find(PawnTransaction.storage_location.contains(filters.storage_location, case_insensitive=True))
