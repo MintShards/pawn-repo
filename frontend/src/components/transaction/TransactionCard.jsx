@@ -1,35 +1,22 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { MoreHorizontal, DollarSign, Phone, CreditCard, Eye, Banknote, ArrowRightLeft, Trash2, MapPin } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { DollarSign, CreditCard, Eye, Banknote, ArrowRightLeft, MapPin } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader } from '../ui/card';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '../ui/dropdown-menu';
 import StatusBadge from './components/StatusBadge';
 import transactionService from '../../services/transactionService';
-import customerService from '../../services/customerService';
 import { formatTransactionId, formatStorageLocation, formatCurrency } from '../../utils/transactionUtils';
 import { formatBusinessDate } from '../../utils/timezoneUtils';
 
 const TransactionCard = ({ 
   transaction, 
   onView, 
-  onViewCustomer,
   onPayment, 
   onExtension,
-  onStatusUpdate,
-  onVoidTransaction,
   isSelected = false,
   onSelect,
   refreshTrigger, // Add prop to trigger balance refresh
-  customerData = {}, // Customer data map
   balance: parentBalance // Balance passed from parent
 }) => {
-  const { user } = useAuth();
   const [balance, setBalance] = useState(parentBalance || null);
   const [loading, setLoading] = useState(false);
 
@@ -118,104 +105,53 @@ const TransactionCard = ({
 
   return (
     <Card 
-      className={`border-0 shadow-md bg-gradient-to-br ${getStatusColor(transaction.status)} relative overflow-hidden transition-all duration-200 hover:shadow-lg group cursor-pointer ${
-        isSelected ? 'ring-2 ring-blue-500 shadow-lg' : ''
+      className={`border shadow-sm bg-gradient-to-br ${getStatusColor(transaction.status)} relative overflow-hidden transition-all duration-200 hover:shadow-md hover:border-slate-300 dark:hover:border-slate-600 group cursor-pointer ${
+        isSelected ? 'ring-2 ring-blue-500 shadow-md border-blue-500' : 'border-slate-200 dark:border-slate-700'
       }`}
       onClick={() => onView?.(transaction)}
     >
-      {/* Simplified decorative element */}
-      <div className="absolute top-0 right-0 w-16 h-16 bg-white/5 rounded-full -mr-8 -mt-8"></div>
+      {/* Subtle decorative element */}
+      <div className="absolute top-0 right-0 w-20 h-20 bg-white/5 rounded-full -mr-10 -mt-10"></div>
       
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between">
-          <div className="flex-1">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="font-bold text-lg text-slate-900 dark:text-slate-100">
-                #{formatTransactionId(transaction)}
-              </h3>
-              <StatusBadge status={transaction.status} />
-            </div>
-            
-            {/* Key info row */}
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-600 dark:text-slate-400">
-                {formatBusinessDate(transaction.pawn_date)}
-              </span>
-              {maturityInfo && (
-                <span className={`text-xs font-medium ${maturityInfo.color}`}>
-                  {maturityInfo.text}
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Action Menu */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                className="h-8 w-8 p-0 opacity-60 group-hover:opacity-100 transition-opacity"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => onView?.(transaction)} className="flex items-center gap-2">
-                <Eye className="w-4 h-4" />
-                View Details
-              </DropdownMenuItem>
-              {transaction.status === 'active' || transaction.status === 'overdue' || transaction.status === 'extended' ? (
-                <>
-                  <DropdownMenuItem onClick={() => onPayment?.(transaction)} className="flex items-center gap-2">
-                    <Banknote className="w-4 h-4" />
-                    Process Payment
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => onExtension?.(transaction)} className="flex items-center gap-2">
-                    <ArrowRightLeft className="w-4 h-4" />
-                    Extend Loan
-                  </DropdownMenuItem>
-                </>
-              ) : null}
-              <DropdownMenuItem onClick={() => onStatusUpdate?.(transaction)} className="flex items-center gap-2">
-                <CreditCard className="w-4 h-4" />
-                Update Status
-              </DropdownMenuItem>
-              
-              {/* Admin-only Void Transaction Option */}
-              {user?.role === 'admin' && (
-                <DropdownMenuItem 
-                  onClick={() => onVoidTransaction?.(transaction)} 
-                  className="flex items-center gap-2 text-red-600 focus:text-red-600 focus:bg-red-50"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  Void Transaction
-                </DropdownMenuItem>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+      <CardHeader className="pb-2">
+        <div className="flex items-start justify-between mb-1">
+          <h3 className="font-bold text-lg text-slate-900 dark:text-slate-100">
+            #{formatTransactionId(transaction)}
+          </h3>
+          <StatusBadge status={transaction.status} />
+        </div>
+        
+        {/* Key info row */}
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-slate-600 dark:text-slate-400">
+            {formatBusinessDate(transaction.pawn_date)}
+          </span>
+          {maturityInfo && (
+            <span className={`text-sm font-medium ${maturityInfo.color}`}>
+              {maturityInfo.text}
+            </span>
+          )}
         </div>
       </CardHeader>
       
-      <CardContent className="pt-0">
+      <CardContent className="pt-2 space-y-3">
         {/* Simplified Financial Summary */}
-        <div className="grid grid-cols-2 gap-4 mb-4">
+        <div className="grid grid-cols-2 gap-4">
           <div className="space-y-1">
             <div className="flex items-center space-x-2">
-              <DollarSign className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-              <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Loan Amount</span>
+              <DollarSign className="h-4 w-4 text-slate-500 dark:text-slate-400" />
+              <span className="text-sm font-medium text-slate-500 dark:text-slate-400">Loan</span>
             </div>
-            <p className="text-lg font-bold text-slate-900 dark:text-slate-100">
+            <p className="text-xl font-bold text-slate-900 dark:text-slate-100">
               {transaction.loan_amount ? formatCurrency(transaction.loan_amount) : 'Not Set'}
             </p>
           </div>
           <div className="space-y-1">
             <div className="flex items-center space-x-2">
-              <CreditCard className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-              <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Balance</span>
+              <CreditCard className="h-4 w-4 text-slate-500 dark:text-slate-400" />
+              <span className="text-sm font-medium text-slate-500 dark:text-slate-400">Balance</span>
             </div>
-            <p className="text-lg font-bold text-slate-900 dark:text-slate-100">
+            <p className="text-xl font-bold text-slate-900 dark:text-slate-100">
               {loading ? '...' : balance?.current_balance !== undefined 
                 ? formatCurrency(balance.current_balance) 
                 : 'Loading...'
@@ -224,70 +160,42 @@ const TransactionCard = ({
           </div>
         </div>
 
-        {/* Customer Info */}
-        <div className="mb-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Phone className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-              <span className="text-sm text-slate-600 dark:text-slate-400">Customer:</span>
+        {/* Location Info */}
+        {transaction.storage_location && (
+          <div className="flex items-center justify-between px-3 py-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
+            <div className="flex items-center space-x-2 min-w-0">
+              <MapPin className="h-4 w-4 text-slate-500 dark:text-slate-400 flex-shrink-0" />
+              <span className="text-sm text-slate-600 dark:text-slate-400">Location</span>
             </div>
-            {(transaction.customer_phone || transaction.customer_id) && 
-             (transaction.customer_phone !== 'No Customer' && transaction.customer_id !== 'No Customer') ? (
-              <div className="text-right">
-                {customerData[transaction.customer_phone || transaction.customer_id] ? (
-                  <Button
-                    variant="link"
-                    className="h-auto p-0 text-sm font-medium text-slate-900 dark:text-slate-100 hover:text-blue-700 dark:hover:text-blue-300"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onViewCustomer?.(transaction.customer_phone || transaction.customer_id);
-                    }}
-                  >
-                    {customerService.getCustomerNameFormatted(customerData[transaction.customer_phone || transaction.customer_id])}
-                  </Button>
-                ) : (
-                  <span className="text-sm text-slate-600 dark:text-slate-400">Loading...</span>
-                )}
-              </div>
-            ) : (
-              <span className="text-sm text-slate-400 dark:text-slate-500">No Customer</span>
-            )}
+            <span className="text-sm font-medium text-slate-900 dark:text-slate-100 text-right truncate ml-2">
+              {formatStorageLocation(transaction.storage_location)}
+            </span>
           </div>
-
-          {transaction.storage_location && (
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <MapPin className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                <span className="text-sm text-slate-600 dark:text-slate-400">Location:</span>
-              </div>
-              <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                {formatStorageLocation(transaction.storage_location)}
-              </span>
-            </div>
-          )}
-        </div>
+        )}
 
         {/* Items Preview */}
         {transaction.items && transaction.items.length > 0 && (
-          <div className="mb-4 p-3 bg-white/40 dark:bg-slate-800/40 rounded-lg">
-            <div className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">
-              Items ({transaction.items.length})
+          <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+            <div className="px-3 py-2 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
+              <div className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                Items ({transaction.items.length})
+              </div>
             </div>
-            <div className="space-y-2">
+            <div className="p-3 space-y-2">
               {transaction.items.slice(0, 2).map((item, index) => (
                 <div key={index} className="text-sm">
-                  <div className="text-slate-700 dark:text-slate-300 font-medium">
+                  <div className="text-slate-800 dark:text-slate-200 font-medium">
                     {item.description}
                   </div>
                   {item.serial_number && (
-                    <div className="text-xs text-slate-500 dark:text-slate-400 font-mono">
+                    <div className="text-xs text-slate-500 dark:text-slate-400 font-mono mt-0.5">
                       S/N: {item.serial_number}
                     </div>
                   )}
                 </div>
               ))}
               {transaction.items.length > 2 && (
-                <div className="text-xs text-slate-500 dark:text-slate-400 font-medium pt-1">
+                <div className="text-xs text-slate-600 dark:text-slate-400 font-semibold pt-1">
                   +{transaction.items.length - 2} more item{transaction.items.length - 2 !== 1 ? 's' : ''}
                 </div>
               )}
@@ -296,16 +204,16 @@ const TransactionCard = ({
         )}
 
         {/* Quick Actions */}
-        <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
+        <div className="pt-2" onClick={(e) => e.stopPropagation()}>
           {/* View Button */}
           <Button 
             variant="outline" 
-            size="sm" 
+            size="default" 
             onClick={(e) => {
               e.stopPropagation();
               onView?.(transaction);
             }}
-            className="w-full flex items-center justify-center gap-2 bg-white/50 dark:bg-slate-800/50 hover:bg-white dark:hover:bg-slate-800"
+            className="w-full h-10 flex items-center justify-center gap-2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border-slate-300 dark:border-slate-600 font-medium"
           >
             <Eye className="w-4 h-4" />
             View Details
@@ -313,27 +221,27 @@ const TransactionCard = ({
           
           {/* Action Buttons for Active Loans */}
           {(transaction.status === 'active' || transaction.status === 'overdue' || transaction.status === 'extended') && (
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-2 mt-2">
               <Button 
-                variant="outline" 
-                size="sm"
+                variant="default"
+                size="default"
                 onClick={(e) => {
                   e.stopPropagation();
                   onPayment?.(transaction);
                 }}
-                className="flex items-center justify-center gap-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/50 dark:text-emerald-300 dark:border-emerald-800"
+                className="h-10 flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
               >
                 <Banknote className="w-4 h-4" />
                 Payment
               </Button>
               <Button 
-                variant="outline" 
-                size="sm"
+                variant="default"
+                size="default"
                 onClick={(e) => {
                   e.stopPropagation();
                   onExtension?.(transaction);
                 }}
-                className="flex items-center justify-center gap-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:hover:bg-blue-900/50 dark:text-blue-300 dark:border-blue-800"
+                className="h-10 flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
               >
                 <ArrowRightLeft className="w-4 h-4" />
                 Extend
@@ -344,7 +252,7 @@ const TransactionCard = ({
 
         {/* Select Button */}
         {onSelect && (
-          <div className="mt-4 pt-3 border-t border-white/20 dark:border-slate-700/20">
+          <div className="pt-2 border-t border-slate-200 dark:border-slate-700/50">
             <Button 
               variant={isSelected ? "default" : "outline"} 
               size="sm" 
@@ -352,7 +260,7 @@ const TransactionCard = ({
                 e.stopPropagation();
                 onSelect(transaction);
               }}
-              className="w-full"
+              className="w-full h-9"
             >
               {isSelected ? 'Selected' : 'Select Transaction'}
             </Button>

@@ -29,7 +29,7 @@ import ConfirmationDialog from '../common/ConfirmationDialog';
 import LoadingDialog from '../common/LoadingDialog';
 
 
-const CreatePawnDialogRedesigned = ({ onSuccess, onCancel }) => {
+const CreatePawnDialogRedesigned = ({ onSuccess, onCancel, prefilledCustomer = null }) => {
   // Current active tab
   const [activeTab, setActiveTab] = useState('customer');
   const [completedTabs, setCompletedTabs] = useState(new Set());
@@ -117,6 +117,17 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel }) => {
 
     loadCustomers();
   }, []);
+
+  // Handle prefilled customer
+  useEffect(() => {
+    if (prefilledCustomer) {
+      updateField('customer_id', prefilledCustomer.phone_number);
+      setSelectedCustomer(prefilledCustomer);
+      setCompletedTabs(prev => new Set([...prev, 'customer']));
+      // Skip to items tab since customer is already selected
+      setActiveTab('items');
+    }
+  }, [prefilledCustomer]);
 
   // Filtered customers for search
   const filteredCustomers = useMemo(() => {
