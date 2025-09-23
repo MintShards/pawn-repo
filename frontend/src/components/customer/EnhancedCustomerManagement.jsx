@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { 
   Plus, 
   Filter, 
@@ -21,7 +21,12 @@ import {
   Calendar,
   Loader2,
   DollarSign,
-  FileText
+  FileText,
+  Activity,
+  Package,
+  Clock,
+  X,
+  Trash2
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { StatusBadge } from '../ui/enhanced-badge';
@@ -73,6 +78,10 @@ import {
 } from '../ui/dialog';
 import customerService from '../../services/customerService';
 import serviceAlertService from '../../services/serviceAlertService';
+import transactionService from '../../services/transactionService';
+import paymentService from '../../services/paymentService';
+import extensionService from '../../services/extensionService';
+import authService from '../../services/authService';
 import CustomerDialog from './CustomerDialog';
 import AlertBellAction from './AlertBellAction';
 import ServiceAlertDialog from './ServiceAlertDialog';
@@ -81,10 +90,1244 @@ import { useToast } from '../ui/toast';
 import { useAuth } from '../../context/AuthContext';
 import { useAlertCount } from '../../context/AlertCountContext';
 import { isAdmin as isAdminRole } from '../../utils/roleUtils';
-import { formatBusinessDate } from '../../utils/timezoneUtils';
-import { formatCurrency } from '../../utils/transactionUtils';
+import { formatBusinessDate, formatRedemptionDate, canCancelExtension } from '../../utils/timezoneUtils';
+import { formatCurrency, formatStorageLocation, formatTransactionId } from '../../utils/transactionUtils';
+import { handleError } from '../../utils/errorHandling';
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '../ui/resizable';
+import { ScrollArea } from '../ui/scroll-area';
+import TransactionNotesDisplay from '../transaction/TransactionNotesDisplay';
 import CustomerCard from './CustomerCard';
 import CustomLoanLimitDialog from './CustomLoanLimitDialog';
+import TransactionCard from '../transaction/TransactionCard';
+import CreatePawnDialogRedesigned from '../transaction/CreatePawnDialogRedesigned';
+import PaymentForm from '../transaction/components/PaymentForm';
+import ExtensionForm from '../transaction/components/ExtensionForm';
+import StatusUpdateForm from '../transaction/components/StatusUpdateForm';
+
+// Transactions Tab Content Component
+const TransactionsTabContent = ({ selectedCustomer }) => {
+  const { user } = useAuth(); // Add useAuth hook for user context
+  const [transactions, setTransactions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [selectedTransaction, setSelectedTransaction] = useState(null);
+  
+  // Dialog states
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [showExtensionForm, setShowExtensionForm] = useState(false);
+  const [showStatusUpdateForm, setShowStatusUpdateForm] = useState(false);
+  const [showTransactionDetails, setShowTransactionDetails] = useState(false);
+  const [loadingTransactionDetails, setLoadingTransactionDetails] = useState(false);
+  const [paymentHistory, setPaymentHistory] = useState(null);
+  const [showAllPayments, setShowAllPayments] = useState(false);
+  const [auditEntries, setAuditEntries] = useState([]);
+  const [selectedTransactionCustomer, setSelectedTransactionCustomer] = useState(null);
+
+  // Date formatting helper (exact copy from TransactionHub)
+  const formatDate = (dateString) => {
+    return formatBusinessDate(dateString);
+  };
+
+  // Helper to get transaction field consistently (must be before useMemo)
+  const getTransactionField = (field) => {
+    return selectedTransaction?.transaction?.[field] || selectedTransaction?.[field];
+  };
+
+  // Helper to get transaction status
+  const getTransactionStatus = () => {
+    return getTransactionField('status') || 'Unknown';
+  };
+
+  // Helper to check if status allows actions
+  const canProcessActions = () => {
+    const status = getTransactionStatus();
+    return ['active', 'overdue', 'extended'].includes(status);
+  };
+
+  // Simplified timeline - only payments and extensions (match original clean format)
+  const timelineData = useMemo(() => {
+    const payments = paymentHistory?.payments || [];
+    const extensions = selectedTransaction?.extensions || selectedTransaction?.transaction?.extensions || [];
+    
+    // Build timeline events array - only essential entries
+    const timelineEvents = [];
+    
+    // Add payment events (reverse order for newest first)
+    for (let i = payments.length - 1; i >= 0; i--) {
+      const payment = payments[i];
+      timelineEvents.push({
+        type: 'payment',
+        date: new Date(payment.payment_date || payment.created_at),
+        data: payment,
+        paymentIndex: payments.length - i,  // Fixed: newest gets highest number
+        key: `payment-${payment.payment_id || i}`
+      });
+    }
+    
+    // Add extension events (reverse order for newest first)
+    for (let i = extensions.length - 1; i >= 0; i--) {
+      const extension = extensions[i];
+      timelineEvents.push({
+        type: 'extension',
+        date: new Date(extension.extension_date || extension.created_at),
+        data: extension,
+        extensionIndex: extensions.length - i,  // Fixed: newest gets highest number
+        key: `extension-${extension.extension_id || i}`
+      });
+    }
+    
+    // Skip audit events to keep timeline simple like original
+    
+    // Sort all events by date (newest first) and return
+    return timelineEvents.sort((a, b) => b.date - a.date);
+  }, [paymentHistory, selectedTransaction, getTransactionStatus]);
+
+  // Fetch customer transactions
+  useEffect(() => {
+    const fetchTransactions = async () => {
+      if (!selectedCustomer?.phone_number) return;
+      
+      setLoading(true);
+      setError(null);
+      
+      try {
+        const response = await transactionService.getCustomerTransactions(selectedCustomer.phone_number);
+        
+        // Handle different API response formats
+        let transactionArray = [];
+        if (Array.isArray(response)) {
+          transactionArray = response;
+        } else if (response && Array.isArray(response.transactions)) {
+          transactionArray = response.transactions;
+        } else if (response && Array.isArray(response.data)) {
+          transactionArray = response.data;
+        } else if (response && typeof response === 'object') {
+          // If response is an object but not an array, log it for debugging
+          console.log('Unexpected API response format:', response);
+          transactionArray = [];
+        }
+        
+        setTransactions(transactionArray);
+      } catch (err) {
+        console.error('Failed to fetch customer transactions:', err);
+        setError(err.message || 'Failed to load transactions');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchTransactions();
+  }, [selectedCustomer?.phone_number]);
+
+  if (loading) {
+    return (
+      <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
+        <CardContent className="p-6">
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
+            <span className="ml-3 text-slate-600 dark:text-slate-400">Loading transactions...</span>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
+        <CardContent className="p-6">
+          <div className="text-center py-12">
+            <AlertTriangle className="w-12 h-12 text-red-400 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">Error Loading Transactions</h3>
+            <p className="text-slate-500 dark:text-slate-400">{error}</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!Array.isArray(transactions) || transactions.length === 0) {
+    return (
+      <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
+        <CardContent className="p-6">
+          <div className="text-center py-12">
+            <CreditCard className="w-12 h-12 text-slate-400 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">No Transactions</h3>
+            <p className="text-slate-500 dark:text-slate-400">This customer has no transaction records.</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const handleNewTransaction = () => {
+    setShowCreateForm(true);
+  };
+
+  // Handle viewing transaction details (exact copy from TransactionHub)
+
+  const handleViewTransaction = async (transaction) => {
+    setLoadingTransactionDetails(true);
+    setShowTransactionDetails(true);
+    setSelectedTransaction(null); // Clear any stale data first
+    setSelectedTransactionCustomer(null); // Reset customer data
+    
+    try {
+      // Fetch comprehensive transaction summary with items and balance (with cache busting)
+      const bustCacheUrl = `/api/v1/pawn-transaction/${transaction.transaction_id}/summary?_t=${Date.now()}`;
+      console.log('Fetching transaction summary from:', bustCacheUrl); // Debug log
+      const fullTransaction = await authService.apiRequest(bustCacheUrl, { method: 'GET' });
+      console.log('Received transaction summary:', fullTransaction); // Debug log
+      // Transaction details loaded successfully
+      
+      // Fetch customer details if available
+      const customerPhone = transaction.customer_id || transaction.customer_phone;
+      if (customerPhone && customerPhone !== 'No Customer') {
+        try {
+          const customerData = await customerService.getCustomerByPhone(customerPhone);
+          setSelectedTransactionCustomer(customerData);
+        } catch (error) {
+          console.warn('Could not fetch customer details:', error);
+          // Continue without customer details
+        }
+      }
+      
+      // Fetch extensions separately with cache busting
+      try {
+        const extensions = await extensionService.getExtensionHistory(transaction.transaction_id, true); // bustCache = true
+        // Handle different response formats
+        let extensionArray = [];
+        if (Array.isArray(extensions)) {
+          extensionArray = extensions;
+        } else if (extensions && Array.isArray(extensions.extensions)) {
+          extensionArray = extensions.extensions;
+        } else if (extensions && typeof extensions === 'object') {
+          extensionArray = [extensions];
+        }
+        
+        // Add extensions to the transaction data
+        fullTransaction.extensions = extensionArray;
+        fullTransaction.hasExtensions = extensionArray.length > 0;
+      } catch (extensionError) {
+        // Failed to load extensions - continue without them
+        console.warn('Could not fetch extensions:', extensionError);
+        fullTransaction.extensions = [];
+        fullTransaction.hasExtensions = false;
+      }
+      
+      // Fetch payment history
+      try {
+        const paymentHistoryData = await paymentService.getPaymentHistory(transaction.transaction_id);
+        setPaymentHistory(paymentHistoryData);
+      } catch (paymentError) {
+        console.warn('Could not fetch payment history:', paymentError);
+        setPaymentHistory(null);
+      }
+      
+      // Fetch audit entries for timeline
+      try {
+        const auditData = await transactionService.getAuditEntries(transaction.transaction_id, 50);
+        setAuditEntries(auditData);
+      } catch (auditError) {
+        console.warn('Could not fetch audit entries:', auditError);
+        setAuditEntries([]);
+      }
+      
+      // Set the final transaction data
+      console.log('Setting transaction data:', fullTransaction); // Debug log
+      setSelectedTransaction(fullTransaction);
+    } catch (error) {
+      // Failed to load transaction details - try fallback
+      // If summary fails, try to get basic transaction data
+      try {
+        const basicTransaction = await transactionService.getTransactionById(transaction.transaction_id);
+        setSelectedTransaction(basicTransaction);
+      } catch (fallbackError) {
+        // Failed to load basic transaction data - use original data
+        // Keep the original transaction data as fallback
+        handleError(fallbackError, 'Loading transaction details');
+      }
+    } finally {
+      setLoadingTransactionDetails(false);
+    }
+  };
+
+  // Optimized timeline refresh function for real-time updates (exact copy from TransactionHub)
+  const refreshTimelineData = async (transactionId, skipTransaction = false) => {
+    try {
+      // Clear any browser caches for immediate data fetch
+      if (window.caches) {
+        window.caches.keys().then(names => {
+          names.forEach(name => {
+            if (name.includes('api') || name.includes('transaction')) {
+              window.caches.delete(name);
+            }
+          });
+        }).catch(() => {}); // Ignore cache clearing errors
+      }
+
+      // Smart parallel fetch - skip transaction data if we just optimistically updated it
+      const timestamp = Date.now();
+      const fetchPromises = [
+        paymentService.getPaymentHistory(transactionId).catch(error => {
+          console.warn('Failed to refresh payment history:', error);
+          return paymentHistory; // Keep existing data if fetch fails
+        }),
+        extensionService.getExtensionHistory(transactionId, true).catch(error => {
+          console.warn('Failed to refresh extensions:', error);
+          return selectedTransaction?.extensions || []; // Keep existing data if fetch fails
+        }),
+        transactionService.getAuditEntries(transactionId, 50, true).catch(error => {
+          console.warn('Failed to refresh audit entries:', error);
+          return auditEntries; // Keep existing data if fetch fails
+        })
+      ];
+
+      // Only fetch transaction data if not skipped (for performance)
+      if (!skipTransaction) {
+        fetchPromises.push(
+          authService.apiRequest(`/api/v1/pawn-transaction/${transactionId}/summary?_t=${timestamp}&refresh=true`, { 
+            method: 'GET',
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              'Pragma': 'no-cache',
+              'Expires': '0'
+            }
+          }).catch(error => {
+            console.warn('Failed to refresh transaction:', error);
+            // If 403, user might need to re-authenticate
+            if (error.message && error.message.includes('403')) {
+              console.warn('Permission denied - user may need to re-authenticate');
+              // Could optionally trigger a re-authentication flow here
+              // For now, just gracefully handle the error
+            }
+            return selectedTransaction; // Keep existing data if fetch fails
+          })
+        );
+      }
+
+      const results = await Promise.all(fetchPromises);
+      let paymentHistoryData, extensionsData, auditEntriesData, transactionData;
+      
+      if (skipTransaction) {
+        [paymentHistoryData, extensionsData, auditEntriesData] = results;
+      } else {
+        [paymentHistoryData, extensionsData, auditEntriesData, transactionData] = results;
+      }
+
+      // Update payment history with validation
+      if (paymentHistoryData && paymentHistoryData !== paymentHistory) {
+        // Validate payment history structure
+        if (paymentHistoryData.payments && Array.isArray(paymentHistoryData.payments)) {
+          setPaymentHistory(paymentHistoryData);
+        }
+      }
+      
+      // Update audit entries with validation
+      if (auditEntriesData && Array.isArray(auditEntriesData) && auditEntriesData !== auditEntries) {
+        setAuditEntries(auditEntriesData);
+      }
+
+      // Update extensions with improved validation
+      if (extensionsData) {
+        let extensionArray = [];
+        
+        // Robust extension data parsing
+        try {
+          if (Array.isArray(extensionsData)) {
+            extensionArray = extensionsData.filter(ext => ext && typeof ext === 'object');
+          } else if (extensionsData && Array.isArray(extensionsData.extensions)) {
+            extensionArray = extensionsData.extensions.filter(ext => ext && typeof ext === 'object');
+          }
+        } catch (error) {
+          console.warn('Error processing extension data:', error);
+          extensionArray = [];
+        }
+        
+        // Update transaction with validated extension data
+        const updatedTransaction = transactionData || selectedTransaction;
+        if (updatedTransaction && typeof updatedTransaction === 'object') {
+          updatedTransaction.extensions = extensionArray;
+          updatedTransaction.hasExtensions = extensionArray.length > 0;
+          setSelectedTransaction({...updatedTransaction});
+        }
+      }
+
+      // Immediate list refresh for responsive UI - refresh customer transactions
+      await refreshTransactions();
+      
+    } catch (error) {
+      console.error('Error in refreshTimelineData:', error);
+      // Fallback to full refresh if optimized refresh fails
+      if (selectedTransaction) {
+        await handleViewTransaction(selectedTransaction);
+      }
+    }
+  };
+
+  // Helper functions for transaction details dialog (copied from TransactionHub)
+
+  // const formatDate = (dateString) => {
+  //   return formatBusinessDate(dateString);
+  // };
+
+  const handlePayment = (transaction) => {
+    setSelectedTransaction(transaction);
+    setShowPaymentForm(true);
+  };
+
+  const handleExtension = (transaction) => {
+    setSelectedTransaction(transaction);
+    setShowExtensionForm(true);
+  };
+
+  const handleStatusUpdate = (transaction) => {
+    setSelectedTransaction(transaction);
+    setShowStatusUpdateForm(true);
+  };
+
+  const handleVoidTransaction = (transaction) => {
+    // This should open a void transaction dialog (not implemented yet)
+    console.log('Void transaction:', transaction.transaction_id);
+  };
+
+  const refreshTransactions = async () => {
+    if (!selectedCustomer?.phone_number) return;
+    
+    try {
+      const response = await transactionService.getCustomerTransactions(selectedCustomer.phone_number);
+      
+      // Handle different API response formats
+      let transactionArray = [];
+      if (Array.isArray(response)) {
+        transactionArray = response;
+      } else if (response && Array.isArray(response.transactions)) {
+        transactionArray = response.transactions;
+      } else if (response && Array.isArray(response.data)) {
+        transactionArray = response.data;
+      } else if (response && typeof response === 'object') {
+        console.log('Unexpected API response format:', response);
+        transactionArray = [];
+      }
+      
+      setTransactions(transactionArray);
+    } catch (err) {
+      console.error('Failed to refresh customer transactions:', err);
+    }
+  };
+
+  // Dialog success handlers
+  const handleTransactionCreated = () => {
+    setShowCreateForm(false);
+    refreshTransactions();
+  };
+
+  const handlePaymentSuccess = async () => {
+    setShowPaymentForm(false);
+    
+    // If transaction details dialog is open, refresh the transaction data
+    if (showTransactionDetails && selectedTransaction) {
+      // Use the optimized refresh function for faster updates (skip transaction since we have optimistic update)
+      refreshTimelineData(selectedTransaction.transaction_id, true).catch(error => {
+        console.error('Failed to refresh timeline after payment:', error);
+        // Fallback to full refresh
+        handleViewTransaction(selectedTransaction).catch(console.error);
+      });
+    }
+    
+    // Always refresh the transaction list to show updated balance/status
+    refreshTransactions();
+  };
+
+  const handleExtensionSuccess = async () => {
+    setShowExtensionForm(false);
+    
+    // If transaction details dialog is open, refresh the transaction data
+    if (showTransactionDetails && selectedTransaction) {
+      // Use the optimized refresh function for faster updates (skip transaction since we have optimistic update)
+      refreshTimelineData(selectedTransaction.transaction_id, true).catch(error => {
+        console.error('Failed to refresh timeline after extension:', error);
+        // Fallback to full refresh
+        handleViewTransaction(selectedTransaction).catch(console.error);
+      });
+    }
+    
+    // Always refresh the transaction list to show updated maturity date
+    refreshTransactions();
+  };
+
+  const handleStatusUpdateSuccess = async () => {
+    setShowStatusUpdateForm(false);
+    
+    // If transaction details dialog is open, refresh the timeline
+    if (showTransactionDetails && selectedTransaction) {
+      // Skip transaction fetch to avoid 403 errors, just refresh timeline data
+      refreshTimelineData(selectedTransaction.transaction_id, true).catch(error => {
+        console.error('Failed to refresh timeline after status update:', error);
+        // Don't fallback to full refresh if it's a 403 - the optimistic update already worked
+        if (!error.message || !error.message.includes('403')) {
+          handleViewTransaction(selectedTransaction).catch(console.error);
+        }
+      });
+    }
+    
+    // Refresh transaction list
+    refreshTransactions();
+  };
+
+  return (
+    <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-lg flex items-center gap-3">
+            <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl flex items-center justify-center">
+              <CreditCard className="w-5 h-5 text-white" />
+            </div>
+            Transaction History
+          </CardTitle>
+          <Button
+            size="sm"
+            onClick={handleNewTransaction}
+            className="h-8 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white shadow-lg shadow-emerald-500/25"
+          >
+            <Plus className="w-4 h-4" />
+            <span className="ml-1 hidden sm:inline">New Transaction</span>
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="p-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {Array.isArray(transactions) && transactions.map((transaction) => (
+            <TransactionCard
+              key={transaction.transaction_id}
+              transaction={transaction}
+              onView={() => handleViewTransaction(transaction)}
+              onPayment={() => handlePayment(transaction)}
+              onExtension={() => handleExtension(transaction)}
+              onStatusUpdate={() => handleStatusUpdate(transaction)}
+              customerData={{
+                [transaction.customer_phone]: {
+                  first_name: selectedCustomer.first_name,
+                  last_name: selectedCustomer.last_name,
+                  phone_number: selectedCustomer.phone_number
+                }
+              }}
+            />
+          ))}
+        </div>
+      </CardContent>
+
+      {/* Create Transaction Dialog */}
+      <Dialog open={showCreateForm} onOpenChange={setShowCreateForm}>
+        <DialogContent className="max-w-6xl max-h-[95vh] overflow-y-auto p-0 border-0 bg-transparent" showCloseButton={false}>
+          <DialogHeader className="sr-only">
+            <DialogTitle>Create New Pawn Transaction</DialogTitle>
+            <DialogDescription>Create a new pawn transaction for {selectedCustomer?.first_name} {selectedCustomer?.last_name}</DialogDescription>
+          </DialogHeader>
+          <CreatePawnDialogRedesigned
+            onSuccess={handleTransactionCreated}
+            onCancel={() => setShowCreateForm(false)}
+            prefilledCustomer={selectedCustomer}
+          />
+        </DialogContent>
+      </Dialog>
+
+      {/* Payment Dialog */}
+      <Dialog open={showPaymentForm} onOpenChange={setShowPaymentForm}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0 border-0 bg-transparent" showCloseButton={false}>
+          <DialogHeader className="sr-only">
+            <DialogTitle>Process Payment</DialogTitle>
+            <DialogDescription>Process payment for transaction</DialogDescription>
+          </DialogHeader>
+          {selectedTransaction && (
+            <PaymentForm
+              transaction={selectedTransaction}
+              onSuccess={handlePaymentSuccess}
+              onCancel={() => setShowPaymentForm(false)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Extension Dialog */}
+      <Dialog open={showExtensionForm} onOpenChange={setShowExtensionForm}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0 border-0 bg-transparent" showCloseButton={false}>
+          <DialogHeader className="sr-only">
+            <DialogTitle>Extend Loan</DialogTitle>
+            <DialogDescription>Extend loan period for transaction</DialogDescription>
+          </DialogHeader>
+          {selectedTransaction && (
+            <ExtensionForm
+              transaction={selectedTransaction}
+              onSuccess={handleExtensionSuccess}
+              onCancel={() => setShowExtensionForm(false)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Status Update Dialog */}
+      <Dialog open={showStatusUpdateForm} onOpenChange={setShowStatusUpdateForm}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Update Transaction Status</DialogTitle>
+            <DialogDescription>Change the status of this transaction</DialogDescription>
+          </DialogHeader>
+          {selectedTransaction && (
+            <StatusUpdateForm
+              transaction={selectedTransaction}
+              onSuccess={handleStatusUpdateSuccess}
+              onCancel={() => setShowStatusUpdateForm(false)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Enhanced Three-Panel Transaction Details Dialog (EXACT COPY FROM TRANSACTIONHUB) */}
+      <Dialog open={showTransactionDetails} onOpenChange={(open) => {
+        setShowTransactionDetails(open);
+        if (!open) {
+          setSelectedTransaction(null);
+        }
+      }}>
+        <DialogContent className="max-w-7xl max-h-[95vh] p-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+          <DialogHeader className="px-4 md:px-6 py-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+            <DialogTitle className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg">
+                <FileText className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <div className="text-xl font-bold text-slate-900 dark:text-slate-100">
+                  Transaction #{selectedTransaction ? formatTransactionId(selectedTransaction.transaction || selectedTransaction) : 'Loading...'}
+                </div>
+                <div className="text-sm text-slate-600 dark:text-slate-400">
+                  {loadingTransactionDetails ? 'Loading transaction details...' : 'Three-panel transaction overview'}
+                </div>
+              </div>
+            </DialogTitle>
+          </DialogHeader>
+          
+          {selectedTransaction && (
+            <div className="flex-1 min-h-0 h-[calc(95vh-120px)]">
+              {/* Loading State */}
+              {loadingTransactionDetails && (
+                <div className="flex items-center justify-center py-12">
+                  <div className="flex items-center space-x-3">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                    <span className="text-slate-600 dark:text-slate-400">Loading transaction details...</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Three-Panel Layout */}
+              {!loadingTransactionDetails && (
+                <ResizablePanelGroup 
+                  direction="horizontal" 
+                  className="h-full hidden lg:flex"
+                >
+                  {/* LEFT PANEL - Customer & Financial Info */}
+                  <ResizablePanel defaultSize={25} minSize={20} maxSize={35}>
+                    <div className="p-6 h-full bg-slate-50/70 dark:bg-slate-800/30">
+                      <ScrollArea className="h-full">
+                        <div className="space-y-4 pr-4">
+                          {/* Status Badge */}
+                          <div 
+                            className="p-3 rounded-lg border-l-4"
+                            style={{
+                              backgroundColor: 
+                                getTransactionStatus() === 'redeemed' ? '#4CAF5015' :
+                                getTransactionStatus() === 'active' ? '#2196F315' :
+                                getTransactionStatus() === 'extended' ? '#00BCD415' :
+                                getTransactionStatus() === 'sold' ? '#9C27B015' :
+                                getTransactionStatus() === 'hold' ? '#FFC10715' :
+                                getTransactionStatus() === 'forfeited' ? '#FF572215' :
+                                getTransactionStatus() === 'overdue' ? '#F4433615' :
+                                getTransactionStatus() === 'damaged' ? '#79554815' :
+                                getTransactionStatus() === 'voided' ? '#9E9E9E15' : '#E5E7EB15',
+                              borderLeftColor:
+                                getTransactionStatus() === 'redeemed' ? '#4CAF50' :
+                                getTransactionStatus() === 'active' ? '#2196F3' :
+                                getTransactionStatus() === 'extended' ? '#00BCD4' :
+                                getTransactionStatus() === 'sold' ? '#9C27B0' :
+                                getTransactionStatus() === 'hold' ? '#FFC107' :
+                                getTransactionStatus() === 'forfeited' ? '#FF5722' :
+                                getTransactionStatus() === 'overdue' ? '#F44336' :
+                                getTransactionStatus() === 'damaged' ? '#795548' :
+                                getTransactionStatus() === 'voided' ? '#9E9E9E' : '#E5E7EB'
+                            }}
+                          >
+                            <div className="flex items-center space-x-2">
+                              <div 
+                                className="w-3 h-3 rounded-full"
+                                style={{
+                                  backgroundColor:
+                                    getTransactionStatus() === 'redeemed' ? '#4CAF50' :
+                                    getTransactionStatus() === 'active' ? '#2196F3' :
+                                    getTransactionStatus() === 'extended' ? '#00BCD4' :
+                                    getTransactionStatus() === 'sold' ? '#9C27B0' :
+                                    getTransactionStatus() === 'hold' ? '#FFC107' :
+                                    getTransactionStatus() === 'forfeited' ? '#FF5722' :
+                                    getTransactionStatus() === 'overdue' ? '#F44336' :
+                                    getTransactionStatus() === 'damaged' ? '#795548' :
+                                    getTransactionStatus() === 'voided' ? '#9E9E9E' : '#E5E7EB'
+                                }}
+                              ></div>
+                              <span className="font-bold capitalize text-slate-900 dark:text-slate-100">
+                                {getTransactionStatus()}
+                              </span>
+                              {getTransactionStatus() === 'overdue' && (
+                                <AlertTriangle className="w-4 h-4 text-red-500" />
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Customer Section */}
+                          <Card 
+                            className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950/20 transition-colors"
+                            onClick={() => {
+                              const customerPhone = getTransactionField('customer_phone') || getTransactionField('customer_id');
+                              if (customerPhone && customerPhone !== 'No Customer') {
+                                // In customer management, we're already viewing the customer
+                                // Could potentially switch to overview tab or show customer details
+                              }
+                            }}
+                          >
+                            <CardHeader className="pb-2">
+                              <CardTitle className="flex items-center space-x-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                <Phone className="w-4 h-4 text-blue-600" />
+                                <span>Customer</span>
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent className="pt-0">
+                              {(() => {
+                                const customerPhone = getTransactionField('customer_phone') || getTransactionField('customer_id');
+                                
+                                // Use fetched customer data if available
+                                if (selectedTransactionCustomer && customerPhone && customerPhone !== 'No Customer') {
+                                  const customerName = `${selectedTransactionCustomer.first_name || ''} ${selectedTransactionCustomer.last_name || ''}`.trim().toUpperCase();
+                                  return (
+                                    <div className="space-y-1">
+                                      <div className="text-base font-bold text-slate-900 dark:text-slate-100">
+                                        {customerName}
+                                      </div>
+                                      <div className="text-sm text-slate-600 dark:text-slate-400 font-mono">
+                                        {customerPhone}
+                                      </div>
+                                    </div>
+                                  );
+                                } else if (customerPhone && customerPhone !== 'No Customer') {
+                                  return (
+                                    <div className="space-y-1">
+                                      <div className="text-base font-bold text-slate-900 dark:text-slate-100">
+                                        {customerPhone}
+                                      </div>
+                                      {loadingTransactionDetails && (
+                                        <div className="text-xs text-slate-500 dark:text-slate-400">
+                                          Loading customer details...
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                } else {
+                                  return (
+                                    <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                                      No Customer
+                                    </div>
+                                  );
+                                }
+                              })()}
+                              {(getTransactionField('customer_phone') || getTransactionField('customer_id')) !== 'No Customer' && (
+                                <div className="text-xs text-blue-600 dark:text-blue-400 mt-2">
+                                  Click to view profile
+                                </div>
+                              )}
+                            </CardContent>
+                          </Card>
+
+                          {/* Financial Summary */}
+                          <Card>
+                            <CardHeader className="pb-2">
+                              <CardTitle className="flex items-center space-x-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                <DollarSign className="w-4 h-4 text-green-600" />
+                                <span>Financial</span>
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent className="pt-0 space-y-3">
+                              <div className="p-3 bg-green-50 dark:bg-green-950/20 rounded-lg border border-green-200 dark:border-green-800">
+                                <div className="text-xs text-green-700 dark:text-green-400 font-medium">Loan Amount</div>
+                                <div className="font-bold text-lg text-green-900 dark:text-green-100">
+                                  {getTransactionField('loan_amount') 
+                                    ? formatCurrency(getTransactionField('loan_amount')) 
+                                    : 'Not Set'}
+                                </div>
+                              </div>
+                              <div className="p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                                <div className="text-xs text-blue-700 dark:text-blue-400 font-medium">Monthly Interest</div>
+                                <div className="font-bold text-lg text-blue-900 dark:text-blue-100">
+                                  {getTransactionField('monthly_interest_amount') 
+                                    ? formatCurrency(getTransactionField('monthly_interest_amount')) 
+                                    : 'Not Set'}
+                                </div>
+                              </div>
+                              <div className="space-y-2">
+                                <div className="flex justify-between items-center">
+                                  <div className="text-xs text-slate-600 dark:text-slate-400">Maturity</div>
+                                  <div className="text-xs font-semibold text-slate-900 dark:text-slate-100">
+                                    {formatDate(getTransactionField('maturity_date'))}
+                                  </div>
+                                </div>
+                                {getTransactionField('grace_period_end') && (
+                                  <div className="flex justify-between items-center">
+                                    <div className="text-xs text-slate-600 dark:text-slate-400">Grace End</div>
+                                    <div className="text-xs font-semibold text-slate-900 dark:text-slate-100">
+                                      {formatDate(getTransactionField('grace_period_end'))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </CardContent>
+                          </Card>
+
+                          {/* Transaction Info */}
+                          <Card>
+                            <CardHeader className="pb-2">
+                              <CardTitle className="flex items-center space-x-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                <Activity className="w-4 h-4 text-purple-600" />
+                                <span>Info</span>
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent className="pt-0 space-y-2">
+                              <div className="flex justify-between items-center">
+                                <div className="text-xs text-slate-600 dark:text-slate-400">Created by:</div>
+                                <div className="text-xs font-medium text-slate-900 dark:text-slate-100">
+                                  User #{getTransactionField('created_by_user_id') || 'Unknown'}
+                                </div>
+                              </div>
+                              <div className="flex justify-between items-center">
+                                <div className="text-xs text-slate-600 dark:text-slate-400">Loan Date:</div>
+                                <div className="text-xs font-medium text-slate-900 dark:text-slate-100">
+                                  {formatDate(getTransactionField('pawn_date'))}
+                                </div>
+                              </div>
+                              {getTransactionField('storage_location') && (
+                                <div className="flex justify-between items-center">
+                                  <div className="text-xs text-slate-600 dark:text-slate-400">Storage:</div>
+                                  <div className="text-xs font-mono font-medium text-slate-900 dark:text-slate-100">
+                                    {formatStorageLocation(getTransactionField('storage_location'))}
+                                  </div>
+                                </div>
+                              )}
+                            </CardContent>
+                          </Card>
+
+                          {/* Transaction Notes */}
+                          <TransactionNotesDisplay 
+                            transaction={selectedTransaction?.transaction || selectedTransaction}
+                            onNotesUpdate={() => {
+                              // Refresh timeline when notes are updated
+                              if (selectedTransaction?.transaction_id || selectedTransaction?.transaction?.transaction_id) {
+                                const transactionId = selectedTransaction.transaction_id || selectedTransaction.transaction?.transaction_id;
+                                refreshTimelineData(transactionId).catch(error => {
+                                  console.error('Failed to refresh timeline after notes update:', error);
+                                });
+                              }
+                            }}
+                          />
+                        </div>
+                      </ScrollArea>
+                    </div>
+                  </ResizablePanel>
+
+                  <ResizableHandle withHandle />
+
+                  {/* CENTER PANEL - Pawn Items */}
+                  <ResizablePanel defaultSize={50} minSize={40}>
+                    <div className="p-6 h-full">
+                      <div className="h-full flex flex-col">
+                        <div className="mb-4">
+                          <div className="flex items-center space-x-3 mb-2">
+                            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                              <Package className="w-4 h-4 text-white" />
+                            </div>
+                            <div>
+                              <div className="text-lg font-bold text-slate-900 dark:text-slate-100">Pawn Items</div>
+                              <div className="text-sm text-slate-600 dark:text-slate-400">
+                                {getTransactionField('items')?.length || 0} item(s) in this transaction
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <ScrollArea className="flex-1">
+                          {getTransactionField('items') && getTransactionField('items').length > 0 ? (
+                            <div className="space-y-2 pr-4 pb-6">
+                              {getTransactionField('items').map((item, index) => (
+                                <Card key={index} className="hover:shadow-md transition-shadow min-h-[4rem]">
+                                  <CardContent className="p-2.5">
+                                    <div className="space-y-3">
+                                      <div className="flex items-start justify-between">
+                                        <div className="flex items-center space-x-3 flex-1 min-w-0">
+                                          <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center flex-shrink-0">
+                                            <span className="text-sm font-bold text-blue-600 dark:text-blue-400">#{index + 1}</span>
+                                          </div>
+                                          <div className="font-semibold text-base text-slate-900 dark:text-slate-100 break-words min-w-0">
+                                            {item.description}
+                                          </div>
+                                        </div>
+                                        {item.estimated_value && (
+                                          <div className="bg-green-100 dark:bg-green-900/30 px-3 py-1 rounded-full flex-shrink-0 ml-2">
+                                            <span className="text-sm font-bold text-green-700 dark:text-green-300">
+                                              {formatCurrency(item.estimated_value)}
+                                            </span>
+                                          </div>
+                                        )}
+                                      </div>
+                                      
+                                      <div className="grid grid-cols-1 gap-1">
+                                        {item.serial_number && (
+                                          <div className="p-1.5 bg-slate-100 dark:bg-slate-700/50 rounded">
+                                            <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">Serial Number</div>
+                                            <div className="text-sm font-mono font-medium text-slate-900 dark:text-slate-100 break-all">
+                                              {item.serial_number}
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="flex flex-col items-center justify-center h-full text-center">
+                              <Package className="w-16 h-16 text-slate-300 dark:text-slate-600 mb-4" />
+                              <p className="text-slate-500 dark:text-slate-400 font-medium">No items found</p>
+                              <p className="text-slate-400 dark:text-slate-500 text-sm">This transaction has no associated items</p>
+                            </div>
+                          )}
+                        </ScrollArea>
+                      </div>
+                    </div>
+                  </ResizablePanel>
+
+                  <ResizableHandle withHandle />
+
+                  {/* RIGHT PANEL - Actions & Timeline (EXACT COPY FROM TRANSACTIONHUB) */}
+                  <ResizablePanel defaultSize={25} minSize={20} maxSize={35}>
+                    <div className="p-6 h-full bg-slate-50/70 dark:bg-slate-800/30">
+                      <div className="h-full flex flex-col">
+                        <div className="mb-4">
+                          <div className="text-lg font-bold text-slate-900 dark:text-slate-100 mb-2">Quick Actions</div>
+                        </div>
+                        
+                        <div className="space-y-3 mb-6">
+                          {canProcessActions() && (
+                            <>
+                              <Button 
+                                onClick={() => {
+                                  handlePayment(selectedTransaction?.transaction || selectedTransaction);
+                                }}
+                                className="w-full bg-green-600 hover:bg-green-700 text-white"
+                              >
+                                <DollarSign className="w-4 h-4 mr-2" />
+                                Process Payment
+                              </Button>
+                              <Button 
+                                variant="outline"
+                                onClick={() => {
+                                  handleExtension(selectedTransaction?.transaction || selectedTransaction);
+                                }}
+                                className="w-full border-blue-300 text-blue-700 hover:bg-blue-100 hover:text-blue-800 dark:border-blue-700 dark:text-blue-400 dark:hover:bg-blue-950/20 dark:hover:text-blue-300 transition-colors duration-300"
+                              >
+                                <Calendar className="w-4 h-4 mr-2" />
+                                Extend Loan
+                              </Button>
+                            </>
+                          )}
+                          
+                          <Button 
+                            variant="outline"
+                            onClick={() => {
+                              handleStatusUpdate(selectedTransaction?.transaction || selectedTransaction);
+                            }}
+                            className="w-full"
+                          >
+                            <Activity className="w-4 h-4 mr-2" />
+                            Update Status
+                          </Button>
+                          
+                          {/* Admin-only Void Transaction Button */}
+                          {user?.role === 'admin' && (
+                            <Button 
+                              variant="destructive"
+                              onClick={() => {
+                                handleVoidTransaction(selectedTransaction?.transaction || selectedTransaction);
+                              }}
+                              className="w-full"
+                            >
+                              <Trash2 className="w-4 h-4 mr-2" />
+                              Void Transaction
+                            </Button>
+                          )}
+                        </div>
+
+                        {/* Timeline Section */}
+                        <div className="flex-1 min-h-0 overflow-hidden">
+                          <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-3 flex items-center justify-between">
+                            <span>Timeline</span>
+                            {(() => {
+                              const extensions = selectedTransaction?.extensions || selectedTransaction?.transaction?.extensions || [];
+                              if (extensions.length === 0) return null;
+                              
+                              const activeExtensions = extensions.filter(ext => !ext.is_cancelled);
+                              const cancelledExtensions = extensions.filter(ext => ext.is_cancelled);
+                              
+                              return (
+                                <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center space-x-2">
+                                  {activeExtensions.length > 0 && (
+                                    <span>{activeExtensions.length} active</span>
+                                  )}
+                                  {cancelledExtensions.length > 0 && (
+                                    <span className="text-red-500">
+                                      {cancelledExtensions.length} cancelled
+                                    </span>
+                                  )}
+                                  {activeExtensions.length === 0 && cancelledExtensions.length > 0 && (
+                                    <span className="text-red-500">All extensions cancelled</span>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                          </div>
+                          <ScrollArea className="h-[calc(100%-2rem)]">
+                            <div className="space-y-3 pr-4 pb-4">
+                              {/* Status indicator - Most Recent */}
+                              {getTransactionStatus() !== 'active' && (
+                                <div className="flex space-x-3">
+                                  <div 
+                                    className="w-2 h-2 rounded-full mt-2 flex-shrink-0"
+                                    style={{ 
+                                      backgroundColor: (() => {
+                                        const status = getTransactionStatus();
+                                        switch (status) {
+                                          case 'redeemed': return '#4CAF50';
+                                          case 'active': return '#2196F3';
+                                          case 'extended': return '#00BCD4';
+                                          case 'sold': return '#9C27B0';
+                                          case 'hold': return '#FFC107';
+                                          case 'forfeited': return '#FF5722';
+                                          case 'overdue': return '#F44336';
+                                          case 'damaged': return '#795548';
+                                          case 'voided': return '#9E9E9E';
+                                          default: return '#2196F3';
+                                        }
+                                      })()
+                                    }}
+                                  ></div>
+                                  <div className="flex-1">
+                                    <div className="text-sm font-medium text-slate-900 dark:text-slate-100 capitalize">
+                                      {getTransactionStatus()}
+                                    </div>
+                                    <div className="text-xs text-slate-600 dark:text-slate-400">
+                                      {(() => {
+                                        const status = getTransactionStatus();
+                                        
+                                        if (status === 'redeemed') {
+                                          // Get the raw timestamp
+                                          const rawDate = getTransactionField('redeemed_date') || 
+                                                         getTransactionField('redemption_date') || 
+                                                         getTransactionField('updated_at');
+                                          
+                                          // Use the centralized business timezone utility to prevent timezone bugs
+                                          const displayDate = formatRedemptionDate(rawDate);
+                                          
+                                          const redeemedBy = getTransactionField('redeemed_by_user_id') ||
+                                                            getTransactionField('updated_by_user_id') ||
+                                                            getTransactionField('processed_by_user_id') ||
+                                                            getTransactionField('last_updated_by') ||
+                                                            user?.user_id;
+                                          
+                                          return (
+                                            <div>
+                                              {displayDate && (
+                                                <div>{displayDate}</div>
+                                              )}
+                                              {redeemedBy && (
+                                                <div>by User #{redeemedBy}</div>
+                                              )}
+                                              <div className="text-slate-600 dark:text-slate-400 mt-1">
+                                                All amounts paid in full. Items ready for pickup.
+                                              </div>
+                                            </div>
+                                          );
+                                        }
+                                        
+                                        // For other statuses, show basic info
+                                        return (
+                                          <div>
+                                            Current status
+                                          </div>
+                                        );
+                                      })()}
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                              
+                              {/* Unified Timeline - Most Recent First (Payments + Extensions) - Optimized */}
+                              {(() => {
+                                const displayLimit = 10;
+                                const hasMany = timelineData.length > displayLimit;
+                                const displayEvents = showAllPayments ? timelineData : timelineData.slice(0, displayLimit);
+                                
+                                return (
+                                  <>
+                                    {displayEvents.map((event) => (
+                                      <React.Fragment key={event.key}>
+                                        {event.type === 'payment' ? (
+                                          // Payment Entry - Match Original Format Exactly
+                                          <div className="flex space-x-3">
+                                            <div className="w-2 h-2 rounded-full mt-2 flex-shrink-0 bg-red-500"></div>
+                                            <div className="flex-1">
+                                              <div className="flex items-center justify-between">
+                                                <div className={`text-sm font-medium ${(event.data.is_reversed || event.data.is_voided) ? 'text-red-700 dark:text-red-300 line-through' : 'text-slate-900 dark:text-slate-100'}`}>
+                                                  Payment #{event.paymentIndex}
+                                                  {(event.data.is_reversed || event.data.is_voided) && (
+                                                    <span className="ml-2 px-2 py-0.5 text-xs bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded-full border border-red-200 dark:border-red-800">
+                                                      REVERSED
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              </div>
+                                              <div className="flex items-center justify-between mt-1">
+                                                <div className={`text-xs ${(event.data.is_reversed || event.data.is_voided) ? 'text-red-600 dark:text-red-400' : 'text-slate-600 dark:text-slate-400'}`}>
+                                                  {formatBusinessDate(event.data.payment_date || event.data.created_at)}
+                                                </div>
+                                                <div className={`text-xs ${(event.data.is_reversed || event.data.is_voided) ? 'text-red-600 dark:text-red-400 line-through' : 'text-green-600 dark:text-green-400'} font-medium`}>
+                                                  {formatCurrency(event.data.payment_amount || event.data.amount)}
+                                                </div>
+                                              </div>
+                                              {(event.data.is_reversed || event.data.is_voided) && event.data.void_reason && (
+                                                <div className="text-xs text-red-600 dark:text-red-400 italic mt-1">
+                                                  {event.data.void_reason.replace('REVERSAL: ', '')}
+                                                </div>
+                                              )}
+                                            </div>
+                                          </div>
+                                        ) : event.type === 'extension' ? (
+                                          // Simple Extension Entry  
+                                          <div className="flex space-x-3">
+                                            <div className="w-2 h-2 rounded-full mt-2 flex-shrink-0 bg-cyan-500"></div>
+                                            <div className="flex-1">
+                                              <div className="flex items-center justify-between">
+                                                <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                  {event.data.formatted_id || `EX${String(event.extensionIndex).padStart(6, '0')}`} - Extension #{event.extensionIndex} ({event.data.extension_months || 1}mo)
+                                                </div>
+                                                {canCancelExtension(event.data.extension_date) && (
+                                                  <button
+                                                    className="ml-2 px-2 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-700 rounded transition-colors disabled:opacity-50"
+                                                    title="Cancel extension (admin only, same-day)"
+                                                  >
+                                                    Cancel
+                                                  </button>
+                                                )}
+                                              </div>
+                                              <div className="flex items-center justify-between mt-1">
+                                                <div className="text-xs text-slate-600 dark:text-slate-400">
+                                                  {formatBusinessDate(event.data.extension_date || event.data.created_at)}
+                                                </div>
+                                                <div 
+                                                  className="text-xs font-medium"
+                                                  style={{ color: '#00BCD4' }}
+                                                >
+                                                  Fee: {formatCurrency(
+                                                    event.data.total_extension_fee || 
+                                                    event.data.extension_fee || 
+                                                    event.data.fee || 
+                                                    35
+                                                  )}
+                                                </div>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        ) : null}
+                                      </React.Fragment>
+                                    ))}
+
+                                    {hasMany && !showAllPayments && (
+                                      <button
+                                        onClick={() => setShowAllPayments(true)}
+                                        className="text-xs text-blue-600 dark:text-blue-400 hover:underline w-full text-left"
+                                      >
+                                        Show {timelineData.length - displayLimit} more timeline events
+                                      </button>
+                                    )}
+
+                                    {showAllPayments && hasMany && (
+                                      <button
+                                        onClick={() => setShowAllPayments(false)}
+                                        className="text-xs text-blue-600 dark:text-blue-400 hover:underline w-full text-left"
+                                      >
+                                        Show less
+                                      </button>
+                                    )}
+                                  </>
+                                );
+                              })()}
+                              
+                              {/* Transaction Creation Event - Oldest */}
+                              <div className="flex space-x-3">
+                                <div className="w-2 h-2 bg-blue-600 rounded-full mt-2 flex-shrink-0"></div>
+                                <div>
+                                  <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                    Transaction Created
+                                  </div>
+                                  <div className="text-xs text-slate-600 dark:text-slate-400">
+                                    {formatDate(getTransactionField('pawn_date'))}
+                                  </div>
+                                  <div className="text-xs text-slate-500 dark:text-slate-500">
+                                    by User #{getTransactionField('created_by_user_id') || 'Unknown'}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </ScrollArea>
+                        </div>
+
+                        {/* Close Button */}
+                        <div className="pt-4 border-t border-slate-200 dark:border-slate-700 mt-4">
+                          <Button 
+                            variant="outline"
+                            onClick={() => setShowTransactionDetails(false)}
+                            className="w-full"
+                          >
+                            Close
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </ResizablePanel>
+                </ResizablePanelGroup>
+              )}
+
+              {/* Mobile Layout */}
+              {!loadingTransactionDetails && (
+                <div className="lg:hidden p-6 space-y-6">
+                  <div className="text-center">
+                    <p className="text-slate-500 dark:text-slate-400">
+                      Mobile view - detailed transaction view is optimized for desktop
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+};
 
 const EnhancedCustomerManagement = () => {
   const { toast } = useToast();
@@ -2214,33 +3457,7 @@ const EnhancedCustomerManagement = () => {
 
               {/* Transactions Tab Content */}
               {activeTab === 'transactions' && (
-                <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
-                  <CardHeader>
-                    <CardTitle className="text-lg flex items-center gap-3">
-                      <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl flex items-center justify-center">
-                        <CreditCard className="w-5 h-5 text-white" />
-                      </div>
-                      Transaction History
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-center py-12">
-                      <div className="w-20 h-20 bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-700 dark:to-slate-600 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-inner">
-                        <CreditCard className="w-10 h-10 text-slate-400 dark:text-slate-500" />
-                      </div>
-                      <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">
-                        No Transactions Yet
-                      </h3>
-                      <p className="text-slate-500 dark:text-slate-400 mb-6 max-w-sm mx-auto">
-                        Transaction history will appear here once the customer completes their first pawn transaction.
-                      </p>
-                      <Button className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white shadow-lg shadow-emerald-500/25">
-                        <Plus className="w-4 h-4 mr-2" />
-                        Create First Transaction
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
+                <TransactionsTabContent selectedCustomer={selectedCustomer} />
               )}
 
               {/* Notes Tab Content */}

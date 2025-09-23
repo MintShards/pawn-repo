@@ -115,7 +115,7 @@ const TransactionHub = () => {
         type: 'payment',
         date: new Date(payment.payment_date || payment.created_at),
         data: payment,
-        paymentIndex: i + 1,
+        paymentIndex: payments.length - i,  // Fixed: newest gets highest number
         key: `payment-${payment.payment_id || i}-${payment.is_voided ? 'voided' : 'active'}`
       });
     }
@@ -127,7 +127,7 @@ const TransactionHub = () => {
         type: 'extension',
         date: new Date(extension.extension_date || extension.created_at),
         data: extension,
-        extensionIndex: i + 1,
+        extensionIndex: extensions.length - i,  // Fixed: newest gets highest number
         key: `extension-${extension.extension_id || i}-${extension.is_cancelled ? 'cancelled' : 'active'}`
       });
     }
