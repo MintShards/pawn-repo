@@ -66,8 +66,13 @@ const TransactionCard = ({
   };
 
 
-  // Calculate days until maturity or days overdue
+  // Calculate days until maturity or days overdue (only for non-terminal states)
   const getMaturityInfo = () => {
+    // Don't show maturity info for terminal states
+    if (['redeemed', 'sold', 'voided'].includes(transaction.status)) {
+      return null;
+    }
+    
     if (!transaction.maturity_date) return null;
     
     const now = new Date();

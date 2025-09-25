@@ -18,19 +18,22 @@ import {
   AlertCircle,
   AlertTriangle,
   Archive,
+  DollarSign,
+  Clock,
+  XCircle,
+  RefreshCw,
+  FileText,
   Calendar,
   Loader2,
-  DollarSign,
-  FileText,
   Activity,
   Package,
-  Clock,
   X,
-  Trash2
+  Trash2,
+  Crown
 } from 'lucide-react';
 import { Button } from '../ui/button';
-import { StatusBadge } from '../ui/enhanced-badge';
 import { CustomerTableSkeleton, StatsCardSkeleton, SearchSkeleton } from '../ui/skeleton';
+import { StatusBadge as CustomerStatusBadge } from '../ui/enhanced-badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import {
   Table,
@@ -90,7 +93,7 @@ import { useToast } from '../ui/toast';
 import { useAuth } from '../../context/AuthContext';
 import { useAlertCount } from '../../context/AlertCountContext';
 import { isAdmin as isAdminRole } from '../../utils/roleUtils';
-import { formatBusinessDate, formatRedemptionDate, canCancelExtension } from '../../utils/timezoneUtils';
+import { formatBusinessDate, canCancelExtension } from '../../utils/timezoneUtils';
 import { formatCurrency, formatStorageLocation, formatTransactionId } from '../../utils/transactionUtils';
 import { handleError } from '../../utils/errorHandling';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '../ui/resizable';
@@ -103,10 +106,12 @@ import CreatePawnDialogRedesigned from '../transaction/CreatePawnDialogRedesigne
 import PaymentForm from '../transaction/components/PaymentForm';
 import ExtensionForm from '../transaction/components/ExtensionForm';
 import StatusUpdateForm from '../transaction/components/StatusUpdateForm';
+import StatusBadge from '../transaction/components/StatusBadge';
 
 // Transactions Tab Content Component
 const TransactionsTabContent = ({ selectedCustomer }) => {
   const { user } = useAuth(); // Add useAuth hook for user context
+  const { toast } = useToast();
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -119,6 +124,9 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
   const [showStatusUpdateForm, setShowStatusUpdateForm] = useState(false);
   const [showTransactionDetails, setShowTransactionDetails] = useState(false);
   const [loadingTransactionDetails, setLoadingTransactionDetails] = useState(false);
+  const [showVoidApprovalDialog, setShowVoidApprovalDialog] = useState(false);
+  const [pendingVoidTransaction, setPendingVoidTransaction] = useState(null);
+  const [processingCancel, setProcessingCancel] = useState(null);
   const [paymentHistory, setPaymentHistory] = useState(null);
   const [showAllPayments, setShowAllPayments] = useState(false);
   const [auditEntries, setAuditEntries] = useState([]);
@@ -145,12 +153,13 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
     return ['active', 'overdue', 'extended'].includes(status);
   };
 
-  // Simplified timeline - only payments and extensions (match original clean format)
+  // Timeline with payments, extensions, and audit events (including void events)
   const timelineData = useMemo(() => {
     const payments = paymentHistory?.payments || [];
     const extensions = selectedTransaction?.extensions || selectedTransaction?.transaction?.extensions || [];
+    const audits = auditEntries || [];
     
-    // Build timeline events array - only essential entries
+    // Build timeline events array
     const timelineEvents = [];
     
     // Add payment events (reverse order for newest first)
@@ -177,11 +186,66 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
       });
     }
     
-    // Skip audit events to keep timeline simple like original
+    // Check if there are any voided payments to filter redemption-related audit entries
+    const hasVoidedPayments = payments.some(payment => payment.is_voided);
+    
+    // Find redemption-related audit entries to merge
+    const redemptionAudit = audits.find(audit => 
+      audit.action_summary === 'Transaction redeemed' || 
+      audit.action_type === 'redemption_completed'
+    );
+    
+    // Add audit events with conditional filtering and merging
+    for (let i = 0; i < audits.length; i++) {
+      const audit = audits[i];
+      
+      // Skip if there are voided payments
+      if (hasVoidedPayments && (
+        audit.action_summary === 'Transaction redeemed' ||
+        audit.action_summary === 'Payment processed' ||
+        audit.action_type === 'redemption_completed' ||
+        audit.action_type === 'payment_processed'
+      )) {
+        continue;
+      }
+      
+      // Merge redemption and payment processed entries into one
+      if (audit.action_summary === 'Transaction redeemed' || audit.action_type === 'redemption_completed') {
+        // Use only the redemption details since "all amounts paid in full" already implies $0 balance
+        const details = redemptionAudit?.details || 'All amounts paid in full. Items ready for pickup';
+        
+        timelineEvents.push({
+          type: 'audit',
+          date: new Date(audit.timestamp),
+          data: {
+            ...audit,
+            action_summary: 'Transaction redeemed',
+            details: details
+          },
+          auditIndex: audits.length - i,
+          key: `audit-${audit.related_id || i}-redemption-merged`
+        });
+        continue;
+      }
+      
+      // Skip the separate "Payment processed" entry if we already handled redemption
+      if ((audit.action_summary === 'Payment processed' || audit.action_type === 'payment_processed') && redemptionAudit) {
+        continue;
+      }
+      
+      // Add all other audit events
+      timelineEvents.push({
+        type: 'audit',
+        date: new Date(audit.timestamp),
+        data: audit,
+        auditIndex: audits.length - i,
+        key: `audit-${audit.related_id || i}-${audit.action_type}`
+      });
+    }
     
     // Sort all events by date (newest first) and return
     return timelineEvents.sort((a, b) => b.date - a.date);
-  }, [paymentHistory, selectedTransaction, getTransactionStatus]);
+  }, [paymentHistory, selectedTransaction, auditEntries]);
 
   // Fetch customer transactions
   useEffect(() => {
@@ -204,13 +268,11 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
           transactionArray = response.data;
         } else if (response && typeof response === 'object') {
           // If response is an object but not an array, log it for debugging
-          console.log('Unexpected API response format:', response);
-          transactionArray = [];
+                    transactionArray = [];
         }
         
         setTransactions(transactionArray);
       } catch (err) {
-        console.error('Failed to fetch customer transactions:', err);
         setError(err.message || 'Failed to load transactions');
       } finally {
         setLoading(false);
@@ -276,9 +338,7 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
     try {
       // Fetch comprehensive transaction summary with items and balance (with cache busting)
       const bustCacheUrl = `/api/v1/pawn-transaction/${transaction.transaction_id}/summary?_t=${Date.now()}`;
-      console.log('Fetching transaction summary from:', bustCacheUrl); // Debug log
       const fullTransaction = await authService.apiRequest(bustCacheUrl, { method: 'GET' });
-      console.log('Received transaction summary:', fullTransaction); // Debug log
       // Transaction details loaded successfully
       
       // Fetch customer details if available
@@ -288,7 +348,6 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
           const customerData = await customerService.getCustomerByPhone(customerPhone);
           setSelectedTransactionCustomer(customerData);
         } catch (error) {
-          console.warn('Could not fetch customer details:', error);
           // Continue without customer details
         }
       }
@@ -311,7 +370,6 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
         fullTransaction.hasExtensions = extensionArray.length > 0;
       } catch (extensionError) {
         // Failed to load extensions - continue without them
-        console.warn('Could not fetch extensions:', extensionError);
         fullTransaction.extensions = [];
         fullTransaction.hasExtensions = false;
       }
@@ -321,7 +379,6 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
         const paymentHistoryData = await paymentService.getPaymentHistory(transaction.transaction_id);
         setPaymentHistory(paymentHistoryData);
       } catch (paymentError) {
-        console.warn('Could not fetch payment history:', paymentError);
         setPaymentHistory(null);
       }
       
@@ -330,12 +387,10 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
         const auditData = await transactionService.getAuditEntries(transaction.transaction_id, 50);
         setAuditEntries(auditData);
       } catch (auditError) {
-        console.warn('Could not fetch audit entries:', auditError);
         setAuditEntries([]);
       }
       
       // Set the final transaction data
-      console.log('Setting transaction data:', fullTransaction); // Debug log
       setSelectedTransaction(fullTransaction);
     } catch (error) {
       // Failed to load transaction details - try fallback
@@ -371,15 +426,12 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
       const timestamp = Date.now();
       const fetchPromises = [
         paymentService.getPaymentHistory(transactionId).catch(error => {
-          console.warn('Failed to refresh payment history:', error);
           return paymentHistory; // Keep existing data if fetch fails
         }),
         extensionService.getExtensionHistory(transactionId, true).catch(error => {
-          console.warn('Failed to refresh extensions:', error);
           return selectedTransaction?.extensions || []; // Keep existing data if fetch fails
         }),
         transactionService.getAuditEntries(transactionId, 50, true).catch(error => {
-          console.warn('Failed to refresh audit entries:', error);
           return auditEntries; // Keep existing data if fetch fails
         })
       ];
@@ -395,10 +447,8 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
               'Expires': '0'
             }
           }).catch(error => {
-            console.warn('Failed to refresh transaction:', error);
             // If 403, user might need to re-authenticate
             if (error.message && error.message.includes('403')) {
-              console.warn('Permission denied - user may need to re-authenticate');
               // Could optionally trigger a re-authentication flow here
               // For now, just gracefully handle the error
             }
@@ -441,7 +491,6 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
             extensionArray = extensionsData.extensions.filter(ext => ext && typeof ext === 'object');
           }
         } catch (error) {
-          console.warn('Error processing extension data:', error);
           extensionArray = [];
         }
         
@@ -458,7 +507,6 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
       await refreshTransactions();
       
     } catch (error) {
-      console.error('Error in refreshTimelineData:', error);
       // Fallback to full refresh if optimized refresh fails
       if (selectedTransaction) {
         await handleViewTransaction(selectedTransaction);
@@ -488,8 +536,75 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
   };
 
   const handleVoidTransaction = (transaction) => {
-    // This should open a void transaction dialog (not implemented yet)
-    console.log('Void transaction:', transaction.transaction_id);
+    // Check admin permissions
+    if (!user?.role || user.role !== 'admin') {
+      toast({
+        title: "Permission Denied",
+        description: "Only administrators can void transactions",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // Check if transaction can be voided
+    if (transaction.status === 'voided' || transaction.status === 'redeemed') {
+      toast({
+        title: "Invalid Operation",
+        description: "This transaction cannot be voided",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setPendingVoidTransaction(transaction);
+    setShowVoidApprovalDialog(true);
+  };
+
+  // Handle void transaction approval
+  const handleVoidTransactionApproval = async (approvalData) => {
+    if (!pendingVoidTransaction) return;
+
+    try {
+      setProcessingCancel(`void-${pendingVoidTransaction.transaction_id}`);
+
+      const voidData = {
+        void_reason: approvalData.reason,
+        admin_pin: approvalData.admin_pin
+      };
+
+      await transactionService.voidTransaction(pendingVoidTransaction.transaction_id, voidData);
+      
+      // Clear transaction cache to ensure fresh data
+      transactionService.clearTransactionCache();
+      
+      // Close dialog and clear state
+      setShowVoidApprovalDialog(false);
+      setPendingVoidTransaction(null);
+
+      // If transaction details dialog is open and it's the same transaction, refresh the timeline immediately
+      if (showTransactionDetails && selectedTransaction?.transaction_id === pendingVoidTransaction.transaction_id) {
+        // Small delay to ensure backend audit entry is created
+        setTimeout(() => {
+          refreshTimelineData(selectedTransaction.transaction_id).catch(error => {
+            // Fallback to full refresh
+            handleViewTransaction(selectedTransaction).catch(() => {});
+          });
+        }, 500);
+      }
+
+      // Refresh transactions
+      await refreshTransactions();
+      
+      toast({
+        title: "Transaction Voided",
+        description: `Transaction #${formatTransactionId(pendingVoidTransaction)} has been voided successfully`,
+        variant: "default"
+      });
+    } catch (error) {
+      handleError(error, 'Failed to void transaction');
+    } finally {
+      setProcessingCancel(null);
+    }
   };
 
   const refreshTransactions = async () => {
@@ -507,13 +622,11 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
       } else if (response && Array.isArray(response.data)) {
         transactionArray = response.data;
       } else if (response && typeof response === 'object') {
-        console.log('Unexpected API response format:', response);
-        transactionArray = [];
+                transactionArray = [];
       }
       
       setTransactions(transactionArray);
     } catch (err) {
-      console.error('Failed to refresh customer transactions:', err);
     }
   };
 
@@ -530,9 +643,8 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
     if (showTransactionDetails && selectedTransaction) {
       // Use the optimized refresh function for faster updates (skip transaction since we have optimistic update)
       refreshTimelineData(selectedTransaction.transaction_id, true).catch(error => {
-        console.error('Failed to refresh timeline after payment:', error);
         // Fallback to full refresh
-        handleViewTransaction(selectedTransaction).catch(console.error);
+        handleViewTransaction(selectedTransaction).catch(() => {});
       });
     }
     
@@ -547,9 +659,8 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
     if (showTransactionDetails && selectedTransaction) {
       // Use the optimized refresh function for faster updates (skip transaction since we have optimistic update)
       refreshTimelineData(selectedTransaction.transaction_id, true).catch(error => {
-        console.error('Failed to refresh timeline after extension:', error);
         // Fallback to full refresh
-        handleViewTransaction(selectedTransaction).catch(console.error);
+        handleViewTransaction(selectedTransaction).catch(() => {});
       });
     }
     
@@ -564,10 +675,9 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
     if (showTransactionDetails && selectedTransaction) {
       // Skip transaction fetch to avoid 403 errors, just refresh timeline data
       refreshTimelineData(selectedTransaction.transaction_id, true).catch(error => {
-        console.error('Failed to refresh timeline after status update:', error);
         // Don't fallback to full refresh if it's a 403 - the optimistic update already worked
         if (!error.message || !error.message.includes('403')) {
-          handleViewTransaction(selectedTransaction).catch(console.error);
+          handleViewTransaction(selectedTransaction).catch(() => {});
         }
       });
     }
@@ -606,6 +716,7 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
               onPayment={() => handlePayment(transaction)}
               onExtension={() => handleExtension(transaction)}
               onStatusUpdate={() => handleStatusUpdate(transaction)}
+              onVoidTransaction={() => handleVoidTransaction(transaction)}
               customerData={{
                 [transaction.customer_phone]: {
                   first_name: selectedCustomer.first_name,
@@ -731,56 +842,135 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                     <div className="p-6 h-full bg-slate-50/70 dark:bg-slate-800/30">
                       <ScrollArea className="h-full">
                         <div className="space-y-4 pr-4">
-                          {/* Status Badge */}
-                          <div 
-                            className="p-3 rounded-lg border-l-4"
-                            style={{
-                              backgroundColor: 
-                                getTransactionStatus() === 'redeemed' ? '#4CAF5015' :
-                                getTransactionStatus() === 'active' ? '#2196F315' :
-                                getTransactionStatus() === 'extended' ? '#00BCD415' :
-                                getTransactionStatus() === 'sold' ? '#9C27B015' :
-                                getTransactionStatus() === 'hold' ? '#FFC10715' :
-                                getTransactionStatus() === 'forfeited' ? '#FF572215' :
-                                getTransactionStatus() === 'overdue' ? '#F4433615' :
-                                getTransactionStatus() === 'damaged' ? '#79554815' :
-                                getTransactionStatus() === 'voided' ? '#9E9E9E15' : '#E5E7EB15',
-                              borderLeftColor:
-                                getTransactionStatus() === 'redeemed' ? '#4CAF50' :
-                                getTransactionStatus() === 'active' ? '#2196F3' :
-                                getTransactionStatus() === 'extended' ? '#00BCD4' :
-                                getTransactionStatus() === 'sold' ? '#9C27B0' :
-                                getTransactionStatus() === 'hold' ? '#FFC107' :
-                                getTransactionStatus() === 'forfeited' ? '#FF5722' :
-                                getTransactionStatus() === 'overdue' ? '#F44336' :
-                                getTransactionStatus() === 'damaged' ? '#795548' :
-                                getTransactionStatus() === 'voided' ? '#9E9E9E' : '#E5E7EB'
-                            }}
-                          >
-                            <div className="flex items-center space-x-2">
-                              <div 
-                                className="w-3 h-3 rounded-full"
-                                style={{
-                                  backgroundColor:
-                                    getTransactionStatus() === 'redeemed' ? '#4CAF50' :
-                                    getTransactionStatus() === 'active' ? '#2196F3' :
-                                    getTransactionStatus() === 'extended' ? '#00BCD4' :
-                                    getTransactionStatus() === 'sold' ? '#9C27B0' :
-                                    getTransactionStatus() === 'hold' ? '#FFC107' :
-                                    getTransactionStatus() === 'forfeited' ? '#FF5722' :
-                                    getTransactionStatus() === 'overdue' ? '#F44336' :
-                                    getTransactionStatus() === 'damaged' ? '#795548' :
-                                    getTransactionStatus() === 'voided' ? '#9E9E9E' : '#E5E7EB'
-                                }}
-                              ></div>
-                              <span className="font-bold capitalize text-slate-900 dark:text-slate-100">
-                                {getTransactionStatus()}
-                              </span>
-                              {getTransactionStatus() === 'overdue' && (
-                                <AlertTriangle className="w-4 h-4 text-red-500" />
-                              )}
-                            </div>
-                          </div>
+                          {/* Transaction Status Section */}
+                          <Card className="border-0 shadow-sm">
+                            <CardHeader className="pb-3">
+                              <CardTitle className="flex items-center space-x-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                <Activity className="w-4 h-4 text-slate-600 dark:text-slate-400" />
+                                <span>Status</span>
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent className="pt-0">
+                              {/* Status Display */}
+                              <div className="p-3 rounded-lg bg-slate-50/50 dark:bg-slate-800/50 border border-slate-200/50 dark:border-slate-700/50">
+                                {(() => {
+                                  const currentStatus = getTransactionStatus();
+                                  
+                                  // Status configuration with proper icons and colors
+                                  const statusConfig = {
+                                    'active': {
+                                      icon: Activity,
+                                      bgColor: 'bg-blue-100 dark:bg-blue-900/30',
+                                      iconColor: 'text-blue-600 dark:text-blue-400',
+                                      borderColor: 'border-blue-200 dark:border-blue-800',
+                                      pulse: false
+                                    },
+                                    'overdue': {
+                                      icon: AlertTriangle,
+                                      bgColor: 'bg-red-100 dark:bg-red-900/30',
+                                      iconColor: 'text-red-600 dark:text-red-400',
+                                      borderColor: 'border-red-200 dark:border-red-800',
+                                      pulse: true,
+                                      pulseColor: 'bg-red-500'
+                                    },
+                                    'extended': {
+                                      icon: Calendar,
+                                      bgColor: 'bg-teal-100 dark:bg-teal-900/30',
+                                      iconColor: 'text-teal-600 dark:text-teal-400',
+                                      borderColor: 'border-teal-200 dark:border-teal-800',
+                                      pulse: false
+                                    },
+                                    'redeemed': {
+                                      icon: CheckCircle,
+                                      bgColor: 'bg-green-100 dark:bg-green-900/30',
+                                      iconColor: 'text-green-600 dark:text-green-400',
+                                      borderColor: 'border-green-200 dark:border-green-800',
+                                      pulse: false
+                                    },
+                                    'sold': {
+                                      icon: Crown,
+                                      bgColor: 'bg-purple-100 dark:bg-purple-900/30',
+                                      iconColor: 'text-purple-600 dark:text-purple-400',
+                                      borderColor: 'border-purple-200 dark:border-purple-800',
+                                      pulse: false
+                                    },
+                                    'hold': {
+                                      icon: Clock,
+                                      bgColor: 'bg-amber-100 dark:bg-amber-900/30',
+                                      iconColor: 'text-amber-600 dark:text-amber-400',
+                                      borderColor: 'border-amber-200 dark:border-amber-800',
+                                      pulse: false
+                                    },
+                                    'forfeited': {
+                                      icon: AlertTriangle,
+                                      bgColor: 'bg-orange-100 dark:bg-orange-900/30',
+                                      iconColor: 'text-orange-600 dark:text-orange-400',
+                                      borderColor: 'border-orange-200 dark:border-orange-800',
+                                      pulse: true,
+                                      pulseColor: 'bg-orange-500'
+                                    },
+                                    'damaged': {
+                                      icon: AlertTriangle,
+                                      bgColor: 'bg-amber-100 dark:bg-amber-900/30',
+                                      iconColor: 'text-amber-800 dark:text-amber-600',
+                                      borderColor: 'border-amber-200 dark:border-amber-800',
+                                      pulse: false
+                                    },
+                                    'voided': {
+                                      icon: XCircle,
+                                      bgColor: 'bg-gray-100 dark:bg-gray-900/30',
+                                      iconColor: 'text-gray-600 dark:text-gray-400',
+                                      borderColor: 'border-gray-200 dark:border-gray-800',
+                                      pulse: false
+                                    }
+                                  };
+                                  
+                                  const config = statusConfig[currentStatus] || {
+                                    icon: Activity,
+                                    bgColor: 'bg-slate-100 dark:bg-slate-900/30',
+                                    iconColor: 'text-slate-600 dark:text-slate-400',
+                                    borderColor: 'border-slate-200 dark:border-slate-800',
+                                    pulse: false
+                                  };
+                                  
+                                  const StatusIcon = config.icon;
+                                  
+                                  return (
+                                    <div className="flex items-center gap-3">
+                                      <div className="relative">
+                                        {/* Pulse animation for critical statuses */}
+                                        {config.pulse && (
+                                          <div className={`absolute inset-0 rounded-full animate-ping opacity-25 ${config.pulseColor || ''}`} />
+                                        )}
+                                        <div className={`relative w-10 h-10 rounded-full flex items-center justify-center ${config.bgColor} border ${config.borderColor} transition-all duration-300`}>
+                                          <StatusIcon className={`w-5 h-5 ${config.iconColor}`} />
+                                        </div>
+                                      </div>
+                                      <div className="flex-1">
+                                        <StatusBadge status={currentStatus} />
+                                        <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                                          {(() => {
+                                            switch (currentStatus) {
+                                              case 'active': return 'Transaction is active and current';
+                                              case 'redeemed': return 'All amounts paid, items ready for pickup';
+                                              case 'overdue': return 'Past maturity date, interest accruing';
+                                              case 'extended': return 'Maturity date has been extended';
+                                              case 'hold': return 'Transaction is on administrative hold';
+                                              case 'forfeited': return 'Items forfeited, ready for sale';
+                                              case 'voided': return 'Transaction has been cancelled';
+                                              case 'sold': return 'Forfeited items have been sold';
+                                              case 'damaged': return 'Items damaged, pending assessment';
+                                              default: return 'Status information';
+                                            }
+                                          })()}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+                            </CardContent>
+                          </Card>
 
                           {/* Customer Section */}
                           <Card 
@@ -929,7 +1119,6 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                               if (selectedTransaction?.transaction_id || selectedTransaction?.transaction?.transaction_id) {
                                 const transactionId = selectedTransaction.transaction_id || selectedTransaction.transaction?.transaction_id;
                                 refreshTimelineData(transactionId).catch(error => {
-                                  console.error('Failed to refresh timeline after notes update:', error);
                                 });
                               }
                             }}
@@ -1102,80 +1291,56 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                           </div>
                           <ScrollArea className="h-[calc(100%-2rem)]">
                             <div className="space-y-3 pr-4 pb-4">
-                              {/* Status indicator - Most Recent */}
+                              {/* Current status indicator for non-active statuses */}
                               {getTransactionStatus() !== 'active' && (
-                                <div className="flex space-x-3">
-                                  <div 
-                                    className="w-2 h-2 rounded-full mt-2 flex-shrink-0"
-                                    style={{ 
-                                      backgroundColor: (() => {
-                                        const status = getTransactionStatus();
-                                        switch (status) {
-                                          case 'redeemed': return '#4CAF50';
-                                          case 'active': return '#2196F3';
-                                          case 'extended': return '#00BCD4';
-                                          case 'sold': return '#9C27B0';
-                                          case 'hold': return '#FFC107';
-                                          case 'forfeited': return '#FF5722';
-                                          case 'overdue': return '#F44336';
-                                          case 'damaged': return '#795548';
-                                          case 'voided': return '#9E9E9E';
-                                          default: return '#2196F3';
-                                        }
-                                      })()
-                                    }}
-                                  ></div>
-                                  <div className="flex-1">
-                                    <div className="text-sm font-medium text-slate-900 dark:text-slate-100 capitalize">
-                                      {getTransactionStatus()}
-                                    </div>
-                                    <div className="text-xs text-slate-600 dark:text-slate-400">
+                                <div className="flex space-x-3 group hover:bg-slate-50/50 dark:hover:bg-slate-800/50 rounded-lg p-2 -m-2 transition-colors">
+                                  <div className="flex-shrink-0 mt-1.5">
+                                    <div className={`w-6 h-6 rounded-full flex items-center justify-center ${(() => {
+                                      const status = getTransactionStatus();
+                                      switch (status) {
+                                        case 'redeemed': return 'bg-green-100 dark:bg-green-900/30';
+                                        case 'extended': return 'bg-cyan-100 dark:bg-cyan-900/30';
+                                        case 'sold': return 'bg-purple-100 dark:bg-purple-900/30';
+                                        case 'hold': return 'bg-yellow-100 dark:bg-yellow-900/30';
+                                        case 'forfeited': return 'bg-red-100 dark:bg-red-900/30';
+                                        case 'overdue': return 'bg-red-100 dark:bg-red-900/30';
+                                        case 'damaged': return 'bg-stone-100 dark:bg-stone-900/30';
+                                        case 'voided': return 'bg-slate-100 dark:bg-slate-800';
+                                        default: return 'bg-blue-100 dark:bg-blue-900/30';
+                                      }
+                                    })()}`}>
                                       {(() => {
                                         const status = getTransactionStatus();
-                                        
-                                        if (status === 'redeemed') {
-                                          // Get the raw timestamp
-                                          const rawDate = getTransactionField('redeemed_date') || 
-                                                         getTransactionField('redemption_date') || 
-                                                         getTransactionField('updated_at');
-                                          
-                                          // Use the centralized business timezone utility to prevent timezone bugs
-                                          const displayDate = formatRedemptionDate(rawDate);
-                                          
-                                          const redeemedBy = getTransactionField('redeemed_by_user_id') ||
-                                                            getTransactionField('updated_by_user_id') ||
-                                                            getTransactionField('processed_by_user_id') ||
-                                                            getTransactionField('last_updated_by') ||
-                                                            user?.user_id;
-                                          
-                                          return (
-                                            <div>
-                                              {displayDate && (
-                                                <div>{displayDate}</div>
-                                              )}
-                                              {redeemedBy && (
-                                                <div>by User #{redeemedBy}</div>
-                                              )}
-                                              <div className="text-slate-600 dark:text-slate-400 mt-1">
-                                                All amounts paid in full. Items ready for pickup.
-                                              </div>
-                                            </div>
-                                          );
+                                        switch (status) {
+                                          case 'voided':
+                                            return <XCircle className="w-3 h-3 text-red-600 dark:text-red-400" />;
+                                          case 'redeemed':
+                                            return <CheckCircle className="w-3 h-3 text-green-600 dark:text-green-400" />;
+                                          case 'overdue':
+                                          case 'forfeited':
+                                            return <AlertTriangle className="w-3 h-3 text-red-600 dark:text-red-400" />;
+                                          case 'hold':
+                                            return <Clock className="w-3 h-3 text-yellow-600 dark:text-yellow-400" />;
+                                          default:
+                                            return <FileText className="w-3 h-3 text-slate-600 dark:text-slate-400" />;
                                         }
-                                        
-                                        // For other statuses, show basic info
-                                        return (
-                                          <div>
-                                            Current status
-                                          </div>
-                                        );
                                       })()}
+                                    </div>
+                                  </div>
+                                  <div className="flex-1">
+                                    <div className="flex items-center justify-between">
+                                      <div className="text-sm font-medium text-slate-900 dark:text-slate-100 capitalize">
+                                        {getTransactionStatus()}
+                                      </div>
+                                    </div>
+                                    <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                                      Current status
                                     </div>
                                   </div>
                                 </div>
                               )}
                               
-                              {/* Unified Timeline - Most Recent First (Payments + Extensions) - Optimized */}
+                              {/* Unified Timeline - Most Recent First (Payments + Extensions + Audits) - EXACT COPY FROM TRANSACTIONHUB */}
                               {(() => {
                                 const displayLimit = 10;
                                 const hasMany = timelineData.length > displayLimit;
@@ -1187,14 +1352,18 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                                       <React.Fragment key={event.key}>
                                         {event.type === 'payment' ? (
                                           // Payment Entry - Match Original Format Exactly
-                                          <div className="flex space-x-3">
-                                            <div className="w-2 h-2 rounded-full mt-2 flex-shrink-0 bg-red-500"></div>
+                                          <div className="flex space-x-3 group hover:bg-slate-50/50 dark:hover:bg-slate-800/50 rounded-lg p-2 -m-2 transition-colors">
+                                            <div className="flex-shrink-0 mt-1.5">
+                                              <div className="w-6 h-6 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+                                                <DollarSign className="w-3 h-3 text-red-600 dark:text-red-400" />
+                                              </div>
+                                            </div>
                                             <div className="flex-1">
                                               <div className="flex items-center justify-between">
-                                                <div className={`text-sm font-medium ${(event.data.is_reversed || event.data.is_voided) ? 'text-red-700 dark:text-red-300 line-through' : 'text-slate-900 dark:text-slate-100'}`}>
+                                                <div className={`text-sm font-medium ${(event.data.is_reversed || event.data.is_voided) ? 'text-red-600 dark:text-red-400 line-through' : 'text-slate-900 dark:text-slate-100'}`}>
                                                   Payment #{event.paymentIndex}
                                                   {(event.data.is_reversed || event.data.is_voided) && (
-                                                    <span className="ml-2 px-2 py-0.5 text-xs bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded-full border border-red-200 dark:border-red-800">
+                                                    <span className="ml-2 px-2 py-0.5 text-xs bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-full border border-red-200 dark:border-red-800">
                                                       REVERSED
                                                     </span>
                                                   )}
@@ -1208,25 +1377,51 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                                                   {formatCurrency(event.data.payment_amount || event.data.amount)}
                                                 </div>
                                               </div>
+                                              {(event.data.processed_by_user_id || event.data.created_by_user_id || event.data.user_id) && (
+                                                <div className={`text-xs ${(event.data.is_reversed || event.data.is_voided) ? 'text-red-600 dark:text-red-400' : 'text-slate-600 dark:text-slate-400'}`}>
+                                                  by User #{event.data.processed_by_user_id || event.data.created_by_user_id || event.data.user_id}
+                                                </div>
+                                              )}
                                               {(event.data.is_reversed || event.data.is_voided) && event.data.void_reason && (
                                                 <div className="text-xs text-red-600 dark:text-red-400 italic mt-1">
-                                                  {event.data.void_reason.replace('REVERSAL: ', '')}
+                                                  Reason: {event.data.void_reason.replace('REVERSAL: ', '')}
                                                 </div>
                                               )}
                                             </div>
                                           </div>
                                         ) : event.type === 'extension' ? (
-                                          // Simple Extension Entry  
-                                          <div className="flex space-x-3">
-                                            <div className="w-2 h-2 rounded-full mt-2 flex-shrink-0 bg-cyan-500"></div>
+                                          // Extension Entry with Cancel Support
+                                          <div className="flex space-x-3 group hover:bg-slate-50/50 dark:hover:bg-slate-800/50 rounded-lg p-2 -m-2 transition-colors">
+                                            <div className="flex-shrink-0 mt-1.5">
+                                              <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                                                event.data.is_cancelled 
+                                                  ? 'bg-red-100 dark:bg-red-900/30' 
+                                                  : 'bg-cyan-100 dark:bg-cyan-900/30'
+                                              }`}>
+                                                <Clock className={`w-3 h-3 ${
+                                                  event.data.is_cancelled 
+                                                    ? 'text-red-600 dark:text-red-400' 
+                                                    : 'text-cyan-600 dark:text-cyan-400'
+                                                }`} />
+                                              </div>
+                                            </div>
                                             <div className="flex-1">
                                               <div className="flex items-center justify-between">
-                                                <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                                                  {event.data.formatted_id || `EX${String(event.extensionIndex).padStart(6, '0')}`} - Extension #{event.extensionIndex} ({event.data.extension_months || 1}mo)
+                                                <div className={`text-sm font-medium ${
+                                                  event.data.is_cancelled 
+                                                    ? 'text-red-600 dark:text-red-400 line-through' 
+                                                    : 'text-slate-900 dark:text-slate-100'
+                                                }`}>
+                                                  {event.data.formatted_id ? `${event.data.formatted_id} - ` : ''}Extension #{event.extensionIndex} ({event.data.extension_months}mo)
+                                                  {event.data.is_cancelled && (
+                                                    <span className="ml-2 px-2 py-0.5 text-xs bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-full border border-red-200 dark:border-red-800">
+                                                      CANCELLED
+                                                    </span>
+                                                  )}
                                                 </div>
-                                                {canCancelExtension(event.data.extension_date) && (
+                                                {canCancelExtension(event.data.extension_date) && !event.data.is_cancelled && (
                                                   <button
-                                                    className="ml-2 px-2 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-700 rounded transition-colors disabled:opacity-50"
+                                                    className="ml-2 px-2 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-700 rounded transition-colors"
                                                     title="Cancel extension (admin only, same-day)"
                                                   >
                                                     Cancel
@@ -1234,12 +1429,18 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                                                 )}
                                               </div>
                                               <div className="flex items-center justify-between mt-1">
-                                                <div className="text-xs text-slate-600 dark:text-slate-400">
+                                                <div className={`text-xs ${event.data.is_cancelled ? 'text-red-600 dark:text-red-400' : 'text-slate-600 dark:text-slate-400'}`}>
                                                   {formatBusinessDate(event.data.extension_date || event.data.created_at)}
                                                 </div>
                                                 <div 
-                                                  className="text-xs font-medium"
-                                                  style={{ color: '#00BCD4' }}
+                                                  className={`text-xs font-medium ${
+                                                    event.data.is_cancelled 
+                                                      ? 'text-red-500 dark:text-red-400 line-through' 
+                                                      : ''
+                                                  }`}
+                                                  style={{
+                                                    color: event.data.is_cancelled ? undefined : '#00BCD4'
+                                                  }}
                                                 >
                                                   Fee: {formatCurrency(
                                                     event.data.total_extension_fee || 
@@ -1247,10 +1448,238 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                                                     event.data.fee || 
                                                     35
                                                   )}
+                                                  {event.data.is_cancelled && (
+                                                    <span className="ml-2 text-red-600 dark:text-red-400 font-normal">
+                                                      (Refunded)
+                                                    </span>
+                                                  )}
                                                 </div>
                                               </div>
+                                              {(event.data.processed_by_user_id || event.data.created_by_user_id || event.data.user_id) && (
+                                                <div className={`text-xs ${event.data.is_cancelled ? 'text-red-600 dark:text-red-400' : 'text-slate-600 dark:text-slate-400'}`}>
+                                                  by User #{event.data.processed_by_user_id || event.data.created_by_user_id || event.data.user_id}
+                                                </div>
+                                              )}
+                                              {event.data.is_cancelled && event.data.cancellation_reason && (
+                                                <div className="text-xs text-red-600 dark:text-red-400 italic mt-1">
+                                                  Reason: {event.data.cancellation_reason}
+                                                </div>
+                                              )}
                                             </div>
                                           </div>
+                                        ) : event.type === 'audit' ? (
+                                          // Check if this is a voided or canceled transaction for clean display
+                                          (event.data.new_value === 'voided' || event.data.new_value === 'TransactionStatus.VOIDED' || event.data.new_value?.toLowerCase().includes('voided')) ? (
+                                            // Clean Voided Transaction Display (like extensions)
+                                            <div className="flex space-x-3 group hover:bg-slate-50/50 dark:hover:bg-slate-800/50 rounded-lg p-2 -m-2 transition-colors">
+                                              <div className="flex-shrink-0 mt-1.5">
+                                                <div className="w-6 h-6 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+                                                  <XCircle className="w-3 h-3 text-red-600 dark:text-red-400" />
+                                                </div>
+                                              </div>
+                                              <div className="flex-1">
+                                                <div className="flex items-center justify-between">
+                                                  <div className="text-sm font-medium text-red-600 dark:text-red-400">
+                                                    Transaction VOIDED
+                                                    <span className="ml-2 px-2 py-0.5 text-xs bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-full border border-red-200 dark:border-red-800">
+                                                      VOIDED
+                                                    </span>
+                                                  </div>
+                                                </div>
+                                                <div className="text-xs text-red-600 dark:text-red-400 mt-1">
+                                                  {formatBusinessDate(event.data.timestamp)}
+                                                </div>
+                                                {(event.data.staff_member || event.data.user_id) && (
+                                                  <div className="text-xs text-red-600 dark:text-red-400">
+                                                    by User #{event.data.staff_member || event.data.user_id}
+                                                  </div>
+                                                )}
+                                                {event.data.details && (event.data.details.includes('VOIDED:') || event.data.details.includes('Reason:')) && (
+                                                  <div className="text-xs text-red-600 dark:text-red-400">
+                                                    Reason: {
+                                                      event.data.details.includes('VOIDED:') 
+                                                        ? event.data.details.split('VOIDED:')[1]?.split('|')[0]?.trim()
+                                                        : event.data.details.includes('Reason:')
+                                                        ? event.data.details.split('Reason:')[1]?.trim()
+                                                        : event.data.details
+                                                    }
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                          ) : (event.data.new_value === 'canceled' || event.data.new_value === 'TransactionStatus.CANCELED' || event.data.new_value?.toLowerCase().includes('canceled')) ? (
+                                            // Clean Canceled Transaction Display (like extensions)
+                                            <div className="flex space-x-3 group hover:bg-slate-50/50 dark:hover:bg-slate-800/50 rounded-lg p-2 -m-2 transition-colors">
+                                              <div className="flex-shrink-0 mt-1.5">
+                                                <div className="w-6 h-6 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+                                                  <XCircle className="w-3 h-3 text-red-600 dark:text-red-400" />
+                                                </div>
+                                              </div>
+                                              <div className="flex-1">
+                                                <div className="flex items-center justify-between">
+                                                  <div className="text-sm font-medium text-red-600 dark:text-red-400">
+                                                    Transaction CANCELED
+                                                    <span className="ml-2 px-2 py-0.5 text-xs bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-full border border-red-200 dark:border-red-800">
+                                                      CANCELED
+                                                    </span>
+                                                  </div>
+                                                </div>
+                                                <div className="text-xs text-red-600 dark:text-red-400 mt-1">
+                                                  {formatBusinessDate(event.data.timestamp)}
+                                                </div>
+                                                {(event.data.staff_member || event.data.user_id) && (
+                                                  <div className="text-xs text-red-600 dark:text-red-400">
+                                                    by User #{event.data.staff_member || event.data.user_id}
+                                                  </div>
+                                                )}
+                                                {event.data.details && (event.data.details.includes('CANCELED:') || event.data.details.includes('Reason:')) && (
+                                                  <div className="text-xs text-red-600 dark:text-red-400">
+                                                    Reason: {
+                                                      event.data.details.includes('CANCELED:') 
+                                                        ? event.data.details.split('CANCELED:')[1]?.split('|')[0]?.trim()
+                                                        : event.data.details.includes('Reason:')
+                                                        ? event.data.details.split('Reason:')[1]?.trim()
+                                                        : event.data.details
+                                                    }
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                          ) : event.data.action_type === 'status_changed' ? (
+                                            // Clean Status Change Display
+                                            <div className="flex space-x-3 group hover:bg-slate-50/50 dark:hover:bg-slate-800/50 rounded-lg p-2 -m-2 transition-colors">
+                                              <div className="flex-shrink-0 mt-1.5">
+                                                <div className={`w-6 h-6 rounded-full flex items-center justify-center ${(() => {
+                                                  const status = event.data.new_value?.toLowerCase().replace('transactionstatus.', '');
+                                                  switch (status) {
+                                                    case 'redeemed': return 'bg-green-100 dark:bg-green-900/30';
+                                                    case 'active': return 'bg-blue-100 dark:bg-blue-900/30';
+                                                    case 'extended': return 'bg-cyan-100 dark:bg-cyan-900/30';
+                                                    case 'sold': return 'bg-purple-100 dark:bg-purple-900/30';
+                                                    case 'hold': return 'bg-yellow-100 dark:bg-yellow-900/30';
+                                                    case 'forfeited': return 'bg-red-100 dark:bg-red-900/30';
+                                                    case 'overdue': return 'bg-red-100 dark:bg-red-900/30';
+                                                    case 'damaged': return 'bg-stone-100 dark:bg-stone-900/30';
+                                                    case 'voided': return 'bg-slate-100 dark:bg-slate-800';
+                                                    default: return 'bg-blue-100 dark:bg-blue-900/30';
+                                                  }
+                                                })()}`}>
+                                                  <RefreshCw 
+                                                    className="w-3 h-3"
+                                                    style={{
+                                                      color: (() => {
+                                                        const status = event.data.new_value?.toLowerCase().replace('transactionstatus.', '');
+                                                        switch (status) {
+                                                          case 'redeemed': return '#4CAF50';
+                                                          case 'active': return '#2196F3';
+                                                          case 'extended': return '#00BCD4';
+                                                          case 'sold': return '#9C27B0';
+                                                          case 'hold': return '#FFC107';
+                                                          case 'forfeited': return '#FF5722';
+                                                          case 'overdue': return '#F44336';
+                                                          case 'damaged': return '#795548';
+                                                          case 'voided': return '#9E9E9E';
+                                                          default: return '#2196F3';
+                                                        }
+                                                      })()
+                                                    }}
+                                                  />
+                                                </div>
+                                              </div>
+                                              <div className="flex-1">
+                                                <div className="flex items-center justify-between">
+                                                  <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                    Status Changed
+                                                    <span 
+                                                      className="ml-2 px-2 py-0.5 text-xs rounded-full border text-white"
+                                                      style={{ 
+                                                        backgroundColor: (() => {
+                                                          const status = event.data.new_value?.toLowerCase().replace('transactionstatus.', '');
+                                                          switch (status) {
+                                                            case 'redeemed': return '#4CAF50';
+                                                            case 'active': return '#2196F3';
+                                                            case 'extended': return '#00BCD4';
+                                                            case 'sold': return '#9C27B0';
+                                                            case 'hold': return '#FFC107';
+                                                            case 'forfeited': return '#FF5722';
+                                                            case 'overdue': return '#F44336';
+                                                            case 'damaged': return '#795548';
+                                                            case 'voided': return '#9E9E9E';
+                                                            default: return '#2196F3';
+                                                          }
+                                                        })(),
+                                                        borderColor: (() => {
+                                                          const status = event.data.new_value?.toLowerCase().replace('transactionstatus.', '');
+                                                          switch (status) {
+                                                            case 'redeemed': return '#4CAF50';
+                                                            case 'active': return '#2196F3';
+                                                            case 'extended': return '#00BCD4';
+                                                            case 'sold': return '#9C27B0';
+                                                            case 'hold': return '#FFC107';
+                                                            case 'forfeited': return '#FF5722';
+                                                            case 'overdue': return '#F44336';
+                                                            case 'damaged': return '#795548';
+                                                            case 'voided': return '#9E9E9E';
+                                                            default: return '#2196F3';
+                                                          }
+                                                        })(),
+                                                        color: event.data.new_value?.toLowerCase().replace('transactionstatus.', '') === 'hold' ? '#000' : '#fff'
+                                                      }}
+                                                    >
+                                                      {event.data.new_value?.replace('TransactionStatus.', '').toUpperCase() || 'STATUS CHANGE'}
+                                                    </span>
+                                                  </div>
+                                                </div>
+                                                <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                                                  {formatBusinessDate(event.data.timestamp)}
+                                                </div>
+                                                {(event.data.staff_member || event.data.user_id) && (
+                                                  <div className="text-xs text-slate-600 dark:text-slate-400">
+                                                    by User #{event.data.staff_member || event.data.user_id}
+                                                  </div>
+                                                )}
+                                                {event.data.previous_value && event.data.new_value && (
+                                                  <div className="text-xs text-slate-600 dark:text-slate-400">
+                                                    From: {event.data.previous_value?.replace('TransactionStatus.', '')} → {event.data.new_value?.replace('TransactionStatus.', '')}
+                                                  </div>
+                                                )}
+                                                {event.data.details && event.data.details.includes('Reason:') && (
+                                                  <div className="text-xs text-slate-600 dark:text-slate-400">
+                                                    Reason: {event.data.details.split('Reason:')[1]?.trim()}
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                          ) : (
+                                            // Other Audit Timeline Entries
+                                            <div className="flex space-x-3 group hover:bg-slate-50/50 dark:hover:bg-slate-800/50 rounded-lg p-2 -m-2 transition-colors">
+                                              <div className="flex-shrink-0 mt-1.5">
+                                                <div className="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                                                  <FileText className="w-3 h-3 text-slate-600 dark:text-slate-400" />
+                                                </div>
+                                              </div>
+                                              <div className="flex-1">
+                                                <div className="flex items-center justify-between">
+                                                  <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                    {event.data.action_summary}
+                                                  </div>
+                                                </div>
+                                                <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                                                  {formatBusinessDate(event.data.timestamp || event.data.created_at)}
+                                                </div>
+                                                {(event.data.staff_member || event.data.user_id) && (
+                                                  <div className="text-xs text-slate-600 dark:text-slate-400">
+                                                    by User #{event.data.staff_member || event.data.user_id}
+                                                  </div>
+                                                )}
+                                                {event.data.details && (
+                                                  <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                                                    {event.data.details}
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                          )
                                         ) : null}
                                       </React.Fragment>
                                     ))}
@@ -1277,9 +1706,13 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                               })()}
                               
                               {/* Transaction Creation Event - Oldest */}
-                              <div className="flex space-x-3">
-                                <div className="w-2 h-2 bg-blue-600 rounded-full mt-2 flex-shrink-0"></div>
-                                <div>
+                              <div className="flex space-x-3 group hover:bg-slate-50/50 dark:hover:bg-slate-800/50 rounded-lg p-2 -m-2 transition-colors">
+                                <div className="flex-shrink-0 mt-1.5">
+                                  <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                                    <Plus className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+                                  </div>
+                                </div>
+                                <div className="flex-1">
                                   <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
                                     Transaction Created
                                   </div>
@@ -1321,6 +1754,104 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                   </div>
                 </div>
               )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Transaction Void Dialog */}
+      <Dialog open={showVoidApprovalDialog} onOpenChange={setShowVoidApprovalDialog}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <div className="flex items-center space-x-3">
+              <div className="p-2 rounded-full bg-red-100">
+                <X className="h-5 w-5 text-red-600" />
+              </div>
+              <div>
+                <DialogTitle className="text-xl text-red-800 font-bold">Transaction Void Authorization</DialogTitle>
+                <p className="text-xs text-red-600 font-medium mt-1">PERMANENT ACTION</p>
+              </div>
+            </div>
+            <DialogDescription className="mt-3">
+              This action will permanently void the transaction and mark it as canceled. This action cannot be reversed.
+            </DialogDescription>
+          </DialogHeader>
+          {pendingVoidTransaction && (
+            <div className="space-y-4">
+              {/* Transaction Details */}
+              <div className="bg-red-50 border border-red-200 rounded-md p-3">
+                <h4 className="text-sm font-medium text-red-900 mb-2">Transaction Details</h4>
+                <div className="text-sm text-red-900 space-y-1">
+                  <p><strong>Transaction ID:</strong> {formatTransactionId(pendingVoidTransaction)}</p>
+                  <div><strong>Current Status:</strong> <StatusBadge status={pendingVoidTransaction.status} /></div>
+                  {selectedCustomer && (
+                    <p><strong>Customer:</strong> {`${selectedCustomer.first_name || ''} ${selectedCustomer.last_name || ''}`.trim().toUpperCase()}</p>
+                  )}
+                  {pendingVoidTransaction.loan_amount && (
+                    <p><strong>Loan Amount:</strong> {formatCurrency(pendingVoidTransaction.loan_amount)}</p>
+                  )}
+                </div>
+              </div>
+
+              <form onSubmit={(e) => {
+                e.preventDefault();
+                const formData = new FormData(e.target);
+                const approvalData = {
+                  admin_pin: formData.get('admin-pin'),
+                  reason: formData.get('void-reason')
+                };
+                handleVoidTransactionApproval(approvalData);
+              }} className="space-y-4">
+                {/* Reason */}
+                <div className="space-y-2">
+                  <Label htmlFor="void-reason">Reason for void *</Label>
+                  <Textarea
+                    id="void-reason"
+                    name="void-reason"
+                    placeholder="Describe the specific reason for voiding this transaction (e.g., data entry error, customer request, duplicate entry)..."
+                    rows={3}
+                    required
+                  />
+                </div>
+
+                {/* Admin PIN */}
+                <div className="space-y-2">
+                  <Label htmlFor="admin-pin">Admin PIN *</Label>
+                  <Input
+                    id="admin-pin"
+                    name="admin-pin"
+                    type="password"
+                    placeholder="Enter your admin PIN"
+                    required
+                  />
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex justify-end space-x-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowVoidApprovalDialog(false)}
+                    disabled={processingCancel === `void-${pendingVoidTransaction.transaction_id}`}
+                  >
+                    Cancel
+                  </Button>
+                  <Button 
+                    type="submit"
+                    className="bg-red-600 hover:bg-red-700 text-white"
+                    disabled={processingCancel === `void-${pendingVoidTransaction.transaction_id}`}
+                  >
+                    {processingCancel === `void-${pendingVoidTransaction.transaction_id}` ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Voiding...
+                      </>
+                    ) : (
+                      'Authorize Void'
+                    )}
+                  </Button>
+                </div>
+              </form>
             </div>
           )}
         </DialogContent>
@@ -1427,7 +1958,6 @@ const EnhancedCustomerManagement = () => {
         const currentLimit = await customerService.getCurrentMaxLoans();
         setMaxActiveLoans(currentLimit);
       } catch (error) {
-        console.warn('Failed to fetch loan limit, using default:', error);
         // Keep the default fallback value of 8
       }
     };
@@ -1888,7 +2418,6 @@ const EnhancedCustomerManagement = () => {
         if (customerPhones.length > 0) {
           initializeAlertCounts(customerPhones).catch(error => {
             // Silent error handling - alert counts will show as 0 if failed
-            console.warn('Failed to initialize alert counts:', error);
           });
         }
       } else {
@@ -1984,7 +2513,6 @@ const EnhancedCustomerManagement = () => {
 
 
 
-
   // EMERGENCY FIX: Single consolidated useEffect to prevent rate limit errors
   const hasInitialLoadRef = useRef(false);
   const lastRequestRef = useRef('');
@@ -2059,7 +2587,6 @@ const EnhancedCustomerManagement = () => {
     setCurrentPage(1);
     setSelectedCustomerIds([]); // Clear selections when filters change
   }, [searchQuery, searchFields, statusFilter, alertFilter]);
-
 
   const handleSelectAll = (checked) => {
     if (checked) {
@@ -2307,7 +2834,6 @@ const EnhancedCustomerManagement = () => {
       setSaveNotesLoading(false);
     }
   };
-
 
   const formatDate = (dateString) => {
     return formatBusinessDate(dateString);
@@ -3066,7 +3592,7 @@ const EnhancedCustomerManagement = () => {
                       onClick={() => handleViewCustomer(customer)}
                     >
                       <div className="flex items-center space-x-2">
-                        <StatusBadge status={customer.status} />
+                        <CustomerStatusBadge status={customer.status} />
                       </div>
                     </TableCell>
                     
@@ -3300,7 +3826,7 @@ const EnhancedCustomerManagement = () => {
                     {selectedCustomer && customerService.formatPhoneNumber(selectedCustomer.phone_number)}
                   </SheetDescription>
                   {selectedCustomer && (
-                    <StatusBadge status={selectedCustomer.status} className="shadow-sm" />
+                    <CustomerStatusBadge status={selectedCustomer.status} className="shadow-sm" />
                   )}
                 </div>
               </div>
@@ -3440,7 +3966,7 @@ const EnhancedCustomerManagement = () => {
                           <CheckCircle className="w-4 h-4 text-slate-500 dark:text-slate-400" />
                           <span className="text-slate-600 dark:text-slate-400">Status:</span>
                         </div>
-                        <StatusBadge status={selectedCustomer.status} />
+                        <CustomerStatusBadge status={selectedCustomer.status} />
                       </div>
                     </CardContent>
                   </Card>
