@@ -29,7 +29,11 @@ import {
   Package,
   X,
   Trash2,
-  Crown
+  Crown,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  MessageCircle
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { CustomerTableSkeleton, StatsCardSkeleton, SearchSkeleton } from '../ui/skeleton';
@@ -117,6 +121,10 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
   const [error, setError] = useState(null);
   const [selectedTransaction, setSelectedTransaction] = useState(null);
   
+  // Sorting state
+  const [sortBy, setSortBy] = useState('transaction_date'); // Default to newest first
+  const [sortDirection, setSortDirection] = useState('desc');
+  
   // Dialog states
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
@@ -136,6 +144,111 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
   const formatDate = (dateString) => {
     return formatBusinessDate(dateString);
   };
+
+  // Sorting function for transactions
+  const sortTransactions = (transactionArray, sortField, direction) => {
+    if (!Array.isArray(transactionArray)) return [];
+    if (transactionArray.length === 0) return [];
+    
+    return [...transactionArray].sort((a, b) => {
+      let aValue, bValue;
+      
+      switch (sortField) {
+        case 'transaction_date':
+          // Try multiple possible date fields
+          aValue = new Date(a.pawn_date || a.transaction_date || a.created_at || 0);
+          bValue = new Date(b.pawn_date || b.transaction_date || b.created_at || 0);
+          // Handle invalid dates
+          if (isNaN(aValue.getTime())) aValue = new Date(0);
+          if (isNaN(bValue.getTime())) bValue = new Date(0);
+          break;
+        case 'status_priority':
+          // Priority: active/overdue first, then others
+          const statusPriority = {
+            'active': 1, 'overdue': 2, 'extended': 3,
+            'forfeited': 4, 'hold': 5, 'damaged': 6,
+            'redeemed': 7, 'sold': 8, 'voided': 9
+          };
+          const aStatus = (a.status || '').toLowerCase();
+          const bStatus = (b.status || '').toLowerCase();
+          aValue = statusPriority[aStatus] || 99;
+          bValue = statusPriority[bStatus] || 99;
+          break;
+        case 'balance':
+          // Use fetched balance data if available, otherwise fallback to loan_amount
+          aValue = parseFloat(a._sortBalance || a.current_balance || a.balance || a.outstanding_balance || a.loan_amount || 0) || 0;
+          bValue = parseFloat(b._sortBalance || b.current_balance || b.balance || b.outstanding_balance || b.loan_amount || 0) || 0;
+          break;
+        default:
+          aValue = a[sortField] || '';
+          bValue = b[sortField] || '';
+      }
+      
+      // Handle comparison
+      if (aValue < bValue) return direction === 'asc' ? -1 : 1;
+      if (aValue > bValue) return direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+  };
+
+  // Fetch balances for transactions when balance sorting is needed
+  const fetchBalancesForSorting = async (transactionArray) => {
+    if (!Array.isArray(transactionArray)) return transactionArray;
+    
+    const transactionsWithBalance = await Promise.all(
+      transactionArray.map(async (transaction) => {
+        try {
+          const balance = await transactionService.getTransactionBalance(transaction.transaction_id);
+          return {
+            ...transaction,
+            _sortBalance: balance?.current_balance || balance?.balance || 0
+          };
+        } catch (error) {
+          console.warn(`Failed to fetch balance for transaction ${transaction.transaction_id}:`, error);
+          return {
+            ...transaction,
+            _sortBalance: transaction.loan_amount || 0 // Fallback to loan_amount
+          };
+        }
+      })
+    );
+    
+    return transactionsWithBalance;
+  };
+
+  // Handle sort change
+  const handleSortChange = async (field) => {
+    if (sortBy === field) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(field);
+      setSortDirection('desc'); // Default to descending for new field
+    }
+    
+    // For balance sort, ensure we have balance data before sorting
+    if (field === 'balance' && transactions.length > 0 && !transactions[0]._sortBalance) {
+      try {
+        const transactionsWithBalances = await fetchBalancesForSorting(transactions);
+        const sorted = sortTransactions(transactionsWithBalances, field, 'desc');
+        setTransactions(sorted);
+      } catch (error) {
+        console.error('Failed to fetch balances for sorting:', error);
+        // Continue with existing sort logic using loan_amount fallback
+        const sorted = sortTransactions(transactions, field, 'desc');
+        setTransactions(sorted);
+      }
+    }
+  };
+
+  // Apply sorting when sort parameters change
+  const [initialLoad, setInitialLoad] = useState(true);
+  
+  useEffect(() => {
+    if (transactions.length > 0 && !initialLoad) {
+      const sorted = sortTransactions(transactions, sortBy, sortDirection);
+      setTransactions(sorted);
+    }
+  }, [sortBy, sortDirection]); // Don't include transactions to avoid infinite loop
 
   // Helper to get transaction field consistently (must be before useMemo)
   const getTransactionField = (field) => {
@@ -271,7 +384,10 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                     transactionArray = [];
         }
         
-        setTransactions(transactionArray);
+        // Apply sorting before setting transactions
+        const sortedTransactions = sortTransactions(transactionArray, sortBy, sortDirection);
+        setTransactions(sortedTransactions);
+        setInitialLoad(false); // Mark initial load as complete
       } catch (err) {
         setError(err.message || 'Failed to load transactions');
       } finally {
@@ -688,13 +804,18 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
 
   return (
     <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
-      <CardHeader>
-        <div className="flex items-center justify-between">
+      <CardHeader className="pb-4">
+        <div className="flex items-center justify-between mb-4">
           <CardTitle className="text-lg flex items-center gap-3">
             <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl flex items-center justify-center">
               <CreditCard className="w-5 h-5 text-white" />
             </div>
             Transaction History
+            {Array.isArray(transactions) && transactions.length > 0 && (
+              <span className="ml-2 px-2 py-1 text-xs bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 rounded-full font-semibold">
+                {transactions.length}
+              </span>
+            )}
           </CardTitle>
           <Button
             size="sm"
@@ -705,6 +826,73 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
             <span className="ml-1 hidden sm:inline">New Transaction</span>
           </Button>
         </div>
+        
+        {/* Sorting Controls */}
+        {Array.isArray(transactions) && transactions.length > 1 && (
+          <div className="flex items-center gap-2 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
+            <span className="text-sm font-medium text-slate-700 dark:text-slate-300 mr-2">Sort by:</span>
+            
+            <Button
+              variant={sortBy === 'transaction_date' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => handleSortChange('transaction_date')}
+              className={`h-8 text-xs ${
+                sortBy === 'transaction_date'
+                  ? 'bg-blue-600 text-white hover:bg-blue-700'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100'
+              }`}
+            >
+              <Calendar className="w-3 h-3 mr-1" />
+              Date
+              {sortBy === 'transaction_date' && (
+                sortDirection === 'desc' ? <ArrowDown className="w-3 h-3 ml-1" /> : <ArrowUp className="w-3 h-3 ml-1" />
+              )}
+            </Button>
+            
+            <Button
+              variant={sortBy === 'status_priority' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => handleSortChange('status_priority')}
+              className={`h-8 text-xs ${
+                sortBy === 'status_priority'
+                  ? 'bg-blue-600 text-white hover:bg-blue-700'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100'
+              }`}
+            >
+              <Activity className="w-3 h-3 mr-1" />
+              Status
+              {sortBy === 'status_priority' && (
+                sortDirection === 'desc' ? <ArrowDown className="w-3 h-3 ml-1" /> : <ArrowUp className="w-3 h-3 ml-1" />
+              )}
+            </Button>
+            
+            <Button
+              variant={sortBy === 'balance' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => handleSortChange('balance')}
+              className={`h-8 text-xs ${
+                sortBy === 'balance'
+                  ? 'bg-blue-600 text-white hover:bg-blue-700'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100'
+              }`}
+            >
+              <DollarSign className="w-3 h-3 mr-1" />
+              Balance
+              {sortBy === 'balance' && (
+                sortDirection === 'desc' ? <ArrowDown className="w-3 h-3 ml-1" /> : <ArrowUp className="w-3 h-3 ml-1" />
+              )}
+            </Button>
+            
+            <div className="ml-auto text-xs text-slate-500 dark:text-slate-400">
+              {sortBy === 'transaction_date' 
+                ? (sortDirection === 'desc' ? 'Newest First' : 'Oldest First')
+                : sortBy === 'status_priority'
+                ? (sortDirection === 'desc' ? 'High Priority First' : 'Low Priority First') 
+                : (sortDirection === 'desc' ? 'Highest to Lowest' : 'Lowest to Highest')
+              }
+            </div>
+          </div>
+        )}
       </CardHeader>
       <CardContent className="p-6">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -1899,6 +2087,38 @@ const EnhancedCustomerManagement = () => {
   const [alertFilter, setAlertFilter] = useState(false); // Filter for customers with alerts
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
+  
+  // Overview tab specific state
+  const [overviewTransactions, setOverviewTransactions] = useState([]);
+  const [overviewLoading, setOverviewLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState('overview');
+
+  // Number formatting utility for large counts
+  const formatCount = (count) => {
+    if (count >= 1000000) {
+      return (count / 1000000).toFixed(count % 1000000 === 0 ? 0 : 1) + 'M';
+    } else if (count >= 1000) {
+      return (count / 1000).toFixed(count % 1000 === 0 ? 0 : 1) + 'K';
+    }
+    return count.toString();
+  };
+
+  // Get last activity date from transactions
+  const getLastActivityDate = () => {
+    if (!overviewTransactions || overviewTransactions.length === 0) {
+      return null;
+    }
+    
+    // Find the most recent transaction date
+    const sortedTransactions = [...overviewTransactions].sort((a, b) => {
+      const dateA = new Date(a.pawn_date || a.transaction_date || a.created_at || 0);
+      const dateB = new Date(b.pawn_date || b.transaction_date || b.created_at || 0);
+      return dateB - dateA; // Sort descending (newest first)
+    });
+    
+    const lastTransaction = sortedTransactions[0];
+    return lastTransaction ? (lastTransaction.pawn_date || lastTransaction.transaction_date || lastTransaction.created_at) : null;
+  };
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState(null);
   const [showFilters, setShowFilters] = useState(false);
@@ -1913,7 +2133,6 @@ const EnhancedCustomerManagement = () => {
     creditLimit: 'all',
     paymentHistory: 'all',
   });
-  const [activeTab, setActiveTab] = useState('overview');
   const [showSuspendDialog, setShowSuspendDialog] = useState(false);
   const [showArchiveDialog, setShowArchiveDialog] = useState(false);
   const [archiveConfirmation, setArchiveConfirmation] = useState('');
@@ -2587,6 +2806,37 @@ const EnhancedCustomerManagement = () => {
     setCurrentPage(1);
     setSelectedCustomerIds([]); // Clear selections when filters change
   }, [searchQuery, searchFields, statusFilter, alertFilter]);
+
+  // Load transactions for overview tab
+  useEffect(() => {
+    const fetchOverviewTransactions = async () => {
+      if (!selectedCustomer?.phone_number || activeTab !== 'overview') return;
+      
+      setOverviewLoading(true);
+      try {
+        const response = await transactionService.getCustomerTransactions(selectedCustomer.phone_number);
+        
+        // Handle different API response formats
+        let transactionArray = [];
+        if (Array.isArray(response)) {
+          transactionArray = response;
+        } else if (response && Array.isArray(response.transactions)) {
+          transactionArray = response.transactions;
+        } else if (response && Array.isArray(response.data)) {
+          transactionArray = response.data;
+        }
+        
+        setOverviewTransactions(transactionArray);
+      } catch (error) {
+        console.error('Failed to fetch overview transactions:', error);
+        setOverviewTransactions([]);
+      } finally {
+        setOverviewLoading(false);
+      }
+    };
+
+    fetchOverviewTransactions();
+  }, [selectedCustomer?.phone_number, activeTab]);
 
   const handleSelectAll = (checked) => {
     if (checked) {
@@ -3891,33 +4141,97 @@ const EnhancedCustomerManagement = () => {
               {/* Overview Tab Content */}
               {activeTab === 'overview' && (
                 <div className="space-y-6">
-                  {/* Modern Stats Cards */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <Card className="border-0 shadow-lg bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/50 dark:to-indigo-950/50 relative overflow-hidden">
-                      <div className="absolute top-0 right-0 w-16 h-16 bg-blue-500/10 rounded-full -mr-8 -mt-8"></div>
-                      <CardContent className="p-6">
+                  {/* Transaction Metrics Cards */}
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    {/* Active Transactions */}
+                    <Card className="border-0 shadow-md bg-gradient-to-br from-cyan-50 to-blue-50 dark:from-cyan-950/50 dark:to-blue-950/50 relative overflow-hidden">
+                      <div className="absolute top-0 right-0 w-16 h-16 bg-cyan-500/10 rounded-full -mr-8 -mt-8"></div>
+                      <CardContent className="p-4">
                         <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-medium text-blue-600 dark:text-blue-400">Active Loans</p>
-                            <p className="text-3xl font-bold text-blue-900 dark:text-blue-100">{selectedCustomer.active_loans || 0}</p>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-cyan-600 dark:text-cyan-400 uppercase tracking-wide mb-1">Active</p>
+                            <p className="text-2xl font-bold text-cyan-900 dark:text-cyan-100 leading-none">
+                              {overviewLoading ? '...' : formatCount(overviewTransactions.filter(t => t.status === 'active').length)}
+                            </p>
                           </div>
-                          <div className="w-12 h-12 bg-blue-500/20 rounded-xl flex items-center justify-center">
-                            <CreditCard className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                          <div className="w-8 h-8 bg-cyan-500/20 rounded-lg flex items-center justify-center ml-2 flex-shrink-0">
+                            <CreditCard className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
                           </div>
                         </div>
                       </CardContent>
                     </Card>
 
-                    <Card className="border-0 shadow-lg bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-950/50 dark:to-teal-950/50 relative overflow-hidden">
-                      <div className="absolute top-0 right-0 w-16 h-16 bg-emerald-500/10 rounded-full -mr-8 -mt-8"></div>
-                      <CardContent className="p-6">
+                    {/* Overdue Transactions */}
+                    <Card className="border-0 shadow-md bg-gradient-to-br from-pink-50 to-rose-50 dark:from-pink-950/50 dark:to-rose-950/50 relative overflow-hidden">
+                      <div className="absolute top-0 right-0 w-16 h-16 bg-pink-500/10 rounded-full -mr-8 -mt-8"></div>
+                      <CardContent className="p-4">
                         <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">Total Paid</p>
-                            <p className="text-3xl font-bold text-emerald-900 dark:text-emerald-100">{formatCurrency(selectedCustomer.total_paid || 0)}</p>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-pink-600 dark:text-pink-400 uppercase tracking-wide mb-1">Overdue</p>
+                            <p className="text-2xl font-bold text-pink-900 dark:text-pink-100 leading-none">
+                              {overviewLoading ? '...' : formatCount(overviewTransactions.filter(t => t.status === 'overdue').length)}
+                            </p>
                           </div>
-                          <div className="w-12 h-12 bg-emerald-500/20 rounded-xl flex items-center justify-center">
-                            <DollarSign className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
+                          <div className="w-8 h-8 bg-pink-500/20 rounded-lg flex items-center justify-center ml-2 flex-shrink-0">
+                            <AlertTriangle className="w-4 h-4 text-pink-600 dark:text-pink-400" />
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* Maturity This Week */}
+                    <Card className="border-0 shadow-md bg-gradient-to-br from-orange-50 to-red-50 dark:from-orange-950/50 dark:to-red-950/50 relative overflow-hidden">
+                      <div className="absolute top-0 right-0 w-16 h-16 bg-orange-500/10 rounded-full -mr-8 -mt-8"></div>
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-orange-600 dark:text-orange-400 uppercase tracking-wide mb-1">Maturity</p>
+                            <p className="text-2xl font-bold text-orange-900 dark:text-orange-100 leading-none">
+                              {overviewLoading ? '...' : (() => {
+                                const now = new Date();
+                                const oneWeekFromNow = new Date(now.getTime() + (7 * 24 * 60 * 60 * 1000));
+                                const count = overviewTransactions.filter(t => {
+                                  if (!t.maturity_date) return false;
+                                  const maturityDate = new Date(t.maturity_date);
+                                  return maturityDate >= now && maturityDate <= oneWeekFromNow && ['active', 'overdue'].includes(t.status);
+                                }).length;
+                                return formatCount(count);
+                              })()}
+                            </p>
+                          </div>
+                          <div className="w-8 h-8 bg-orange-500/20 rounded-lg flex items-center justify-center ml-2 flex-shrink-0">
+                            <Calendar className="w-4 h-4 text-orange-600 dark:text-orange-400" />
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* Overall Transactions */}
+                    <Card 
+                      className="border-0 shadow-md relative overflow-hidden"
+                      style={{
+                        background: 'linear-gradient(to bottom right, #F8FAFC, #F1F5F9)',
+                        ...(document.documentElement.classList.contains('dark') && {
+                          background: 'linear-gradient(to bottom right, #111827, #1F2937)'
+                        })
+                      }}
+                    >
+                      <div 
+                        className="absolute top-0 right-0 w-16 h-16 rounded-full -mr-8 -mt-8"
+                        style={{ backgroundColor: 'rgba(17, 24, 39, 0.1)' }}
+                      ></div>
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-slate-700 dark:text-slate-200 uppercase tracking-wide mb-1">
+                              Overall
+                            </p>
+                            <p className="text-2xl font-bold text-slate-900 dark:text-slate-100 leading-none">
+                              {overviewLoading ? '...' : formatCount(overviewTransactions.length)}
+                            </p>
+                          </div>
+                          <div className="w-8 h-8 bg-slate-800/20 dark:bg-slate-200/20 rounded-lg flex items-center justify-center ml-2 flex-shrink-0">
+                            <Archive className="w-4 h-4 text-slate-700 dark:text-slate-200" />
                           </div>
                         </div>
                       </CardContent>
@@ -3925,48 +4239,83 @@ const EnhancedCustomerManagement = () => {
                   </div>
 
                   {/* Contact Information Card */}
-                  <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
-                    <CardHeader>
-                      <CardTitle className="text-lg flex items-center gap-3">
-                        <div className="w-10 h-10 bg-gradient-to-br from-slate-500 to-slate-700 rounded-xl flex items-center justify-center">
-                          <User className="w-5 h-5 text-white" />
-                        </div>
-                        Contact Information
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="flex items-center justify-between p-3 bg-slate-50/50 dark:bg-slate-800/50 rounded-xl">
-                        <div className="flex items-center gap-3 min-w-0 shrink-0">
-                          <Phone className="w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0" />
-                          <span className="text-slate-600 dark:text-slate-400">Phone:</span>
-                        </div>
-                        <span className="font-mono font-medium break-all text-right">{customerService.formatPhoneNumber(selectedCustomer.phone_number)}</span>
-                      </div>
-                      
-                      {selectedCustomer.email && (
-                        <div className="flex items-center justify-between p-3 bg-slate-50/50 dark:bg-slate-800/50 rounded-xl">
-                          <div className="flex items-center gap-3 min-w-0 shrink-0">
-                            <Mail className="w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0" />
-                            <span className="text-slate-600 dark:text-slate-400">Email:</span>
+                  <Card className="border-0 shadow-md bg-gradient-to-br from-slate-50/80 to-gray-50/80 dark:from-slate-900/80 dark:to-slate-800/80 backdrop-blur-sm">
+                    <CardContent className="pt-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Contact Information Group */}
+                        <div className="space-y-4">
+                          <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 mb-4 flex items-center gap-3">
+                            <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg">
+                              <MessageCircle className="w-5 h-5 text-white" />
+                            </div>
+                            Contact Information
+                          </h3>
+                          
+                          {/* Phone */}
+                          <div className="group flex items-center gap-3 p-2.5 rounded-lg hover:bg-blue-50/50 dark:hover:bg-blue-950/30 transition-colors">
+                            <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center group-hover:bg-blue-200 dark:group-hover:bg-blue-900/50 transition-colors">
+                              <Phone className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">Phone Number</div>
+                              <div className="font-mono font-medium text-slate-900 dark:text-slate-100 text-sm">
+                                {customerService.formatPhoneNumber(selectedCustomer.phone_number)}
+                              </div>
+                            </div>
                           </div>
-                          <span className="font-medium break-all text-right min-w-0">{selectedCustomer.email}</span>
+
+                          {/* Email */}
+                          <div className="group flex items-center gap-3 p-2.5 rounded-lg hover:bg-emerald-50/50 dark:hover:bg-emerald-950/30 transition-colors">
+                            <div className="w-8 h-8 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg flex items-center justify-center group-hover:bg-emerald-200 dark:group-hover:bg-emerald-900/50 transition-colors">
+                              <Mail className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">Email Address</div>
+                              <div className="font-medium text-slate-900 dark:text-slate-100 text-sm break-all">
+                                {selectedCustomer.email || 'Not provided'}
+                              </div>
+                            </div>
+                          </div>
                         </div>
-                      )}
-                      
-                      <div className="flex items-center justify-between p-3 bg-slate-50/50 dark:bg-slate-800/50 rounded-xl">
-                        <div className="flex items-center gap-3">
-                          <Calendar className="w-4 h-4 text-slate-500 dark:text-slate-400" />
-                          <span className="text-slate-600 dark:text-slate-400">Member Since:</span>
+
+                        {/* Account Information Group */}
+                        <div className="space-y-4">
+                          <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 mb-4 flex items-center gap-3">
+                            <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl flex items-center justify-center shadow-lg">
+                              <User className="w-5 h-5 text-white" />
+                            </div>
+                            Account Information
+                          </h3>
+                          
+                          {/* Member Since */}
+                          <div className="group flex items-center gap-3 p-2.5 rounded-lg hover:bg-amber-50/50 dark:hover:bg-amber-950/30 transition-colors">
+                            <div className="w-8 h-8 bg-amber-100 dark:bg-amber-900/30 rounded-lg flex items-center justify-center group-hover:bg-amber-200 dark:group-hover:bg-amber-900/50 transition-colors">
+                              <Calendar className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                            </div>
+                            <div className="flex-1">
+                              <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">Member Since</div>
+                              <div className="font-medium text-slate-900 dark:text-slate-100 text-sm">
+                                {formatDate(selectedCustomer.created_at)}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Last Activity */}
+                          <div className="group flex items-center gap-3 p-2.5 rounded-lg hover:bg-blue-50/50 dark:hover:bg-blue-950/30 transition-colors">
+                            <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center group-hover:bg-blue-200 dark:group-hover:bg-blue-900/50 transition-colors">
+                              <Activity className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                            </div>
+                            <div className="flex-1">
+                              <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">Last Activity</div>
+                              <div className="font-medium text-slate-900 dark:text-slate-100 text-sm">
+                                {(() => {
+                                  const lastActivityDate = getLastActivityDate();
+                                  return lastActivityDate ? formatDate(lastActivityDate) : 'No transactions yet';
+                                })()}
+                              </div>
+                            </div>
+                          </div>
                         </div>
-                        <span className="font-medium">{formatDate(selectedCustomer.created_at)}</span>
-                      </div>
-                      
-                      <div className="flex items-center justify-between p-3 bg-slate-50/50 dark:bg-slate-800/50 rounded-xl">
-                        <div className="flex items-center gap-3">
-                          <CheckCircle className="w-4 h-4 text-slate-500 dark:text-slate-400" />
-                          <span className="text-slate-600 dark:text-slate-400">Status:</span>
-                        </div>
-                        <CustomerStatusBadge status={selectedCustomer.status} />
                       </div>
                     </CardContent>
                   </Card>
