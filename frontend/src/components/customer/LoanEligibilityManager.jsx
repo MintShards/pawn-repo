@@ -6,7 +6,6 @@ import {
   AlertTriangle,
   CheckCircle,
   XCircle,
-  Calculator,
   Settings,
   Loader2,
   Info,
@@ -43,19 +42,17 @@ const LoanEligibilityManager = ({ customer, onEligibilityUpdate }) => {
   const { user } = useAuth();
   const [eligibilityData, setEligibilityData] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [loanAmount, setLoanAmount] = useState('');
   const [showCreditLimitDialog, setShowCreditLimitDialog] = useState(false);
   const [newCreditLimit, setNewCreditLimit] = useState('');
   const [showDetailsDialog, setShowDetailsDialog] = useState(false);
 
   const isAdmin = isAdminRole(user);
 
-  const checkEligibility = useCallback(async (testLoanAmount = null, shouldCallCallback = false) => {
+  const checkEligibility = useCallback(async (shouldCallCallback = false) => {
     setLoading(true);
     try {
       const result = await customerService.checkLoanEligibility(
-        customer.phone_number, 
-        testLoanAmount
+        customer.phone_number
       );
       setEligibilityData(result);
       
@@ -82,18 +79,6 @@ const LoanEligibilityManager = ({ customer, onEligibilityUpdate }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customer?.phone_number]); // Only depend on phone number to avoid infinite loops
 
-  const handleLoanAmountCheck = () => {
-    const amount = parseFloat(loanAmount);
-    if (isNaN(amount) || amount <= 0) {
-      toast({
-        title: 'Invalid Amount',
-        description: 'Please enter a valid loan amount',
-        variant: 'destructive'
-      });
-      return;
-    }
-    checkEligibility(amount);
-  };
 
   const updateCreditLimit = async () => {
     const newLimit = parseFloat(newCreditLimit);
@@ -122,7 +107,7 @@ const LoanEligibilityManager = ({ customer, onEligibilityUpdate }) => {
       setNewCreditLimit('');
       
       // Refresh eligibility data and notify parent of change
-      checkEligibility(null, true);
+      checkEligibility(true);
     } catch (error) {
       toast({
         title: 'Error',
@@ -245,53 +230,6 @@ const LoanEligibilityManager = ({ customer, onEligibilityUpdate }) => {
               <p className="text-muted-foreground">Click refresh to check eligibility</p>
             </div>
           )}
-        </CardContent>
-      </Card>
-
-      {/* Loan Amount Calculator */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Calculator className="h-5 w-5" />
-            Loan Amount Calculator
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div className="flex gap-2">
-              <div className="flex-1">
-                <Label htmlFor="loanAmount">Test Loan Amount</Label>
-                <Input
-                  id="loanAmount"
-                  type="number"
-                  placeholder="Enter amount to test"
-                  value={loanAmount}
-                  onChange={(e) => setLoanAmount(e.target.value)}
-                  min="0"
-                  step="0.01"
-                />
-              </div>
-              <div className="flex items-end">
-                <Button 
-                  onClick={handleLoanAmountCheck}
-                  disabled={loading || !loanAmount}
-                >
-                  Check
-                </Button>
-              </div>
-            </div>
-            
-            {loanAmount && eligibilityData && (
-              <div className="p-3 bg-muted rounded-lg">
-                <p className="text-sm">
-                  <strong>Result:</strong> {parseFloat(loanAmount) <= eligibilityData.credit_limit 
-                    ? '✅ Amount is within credit limit' 
-                    : '❌ Amount exceeds credit limit'
-                  }
-                </p>
-              </div>
-            )}
-          </div>
         </CardContent>
       </Card>
 
