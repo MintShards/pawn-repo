@@ -9,6 +9,7 @@ CRUD operations, search functionality, statistics, and status management.
 from datetime import datetime
 from typing import Optional
 from math import ceil
+from decimal import Decimal
 
 from fastapi import HTTPException, status
 from pymongo import ASCENDING, DESCENDING
@@ -90,7 +91,11 @@ class CustomerService:
         updated_by: str,
         is_admin: bool = False
     ) -> Customer:
-        """Update customer information with proper error handling"""
+        """Update customer information with proper validation and audit trail"""
+        from app.models.pawn_transaction_model import PawnTransaction, TransactionStatus
+        from app.models.audit_entry_model import AuditActionType, create_audit_entry
+        from beanie.operators import In
+        
         try:
             # Retrieve customer
             customer = await Customer.find_one(Customer.phone_number == phone_number)
@@ -104,11 +109,91 @@ class CustomerService:
             update_dict = update_data.model_dump(exclude_unset=True)
             
             # Handle admin-only fields based on permissions
-            admin_only_fields = ["status", "credit_limit"]
+            admin_only_fields = ["status", "credit_limit", "custom_loan_limit"]
             if not is_admin:
                 for field in admin_only_fields:
                     if field in update_dict:
                         del update_dict[field]
+            
+            # Track audit entries for changes
+            audit_entries = []
+            
+            # Validate credit limit changes
+            if "credit_limit" in update_dict and is_admin:
+                new_credit_limit = Decimal(str(update_dict["credit_limit"]))
+                
+                # Calculate current credit usage
+                slot_using_statuses = [
+                    TransactionStatus.ACTIVE,
+                    TransactionStatus.EXTENDED,
+                    TransactionStatus.HOLD,
+                    TransactionStatus.OVERDUE,
+                    TransactionStatus.DAMAGED
+                ]
+                
+                active_transactions = await PawnTransaction.find(
+                    PawnTransaction.customer_id == phone_number,
+                    In(PawnTransaction.status, slot_using_statuses)
+                ).to_list()
+                
+                credit_used = sum(transaction.loan_amount for transaction in active_transactions)
+                
+                # Validate new credit limit
+                if new_credit_limit < credit_used:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Cannot set credit limit below current usage (${credit_used:,.2f})"
+                    )
+                
+                # Create audit entry for credit limit change
+                audit_entries.append(create_audit_entry(
+                    action_type=AuditActionType.CUSTOMER_UPDATED,
+                    staff_member=updated_by,
+                    action_summary="Credit limit updated",
+                    details=f"Credit limit changed from ${customer.credit_limit} to ${new_credit_limit}",
+                    previous_value=str(customer.credit_limit),
+                    new_value=str(new_credit_limit),
+                    related_id=phone_number
+                ))
+            
+            # Validate slot limit changes
+            if "custom_loan_limit" in update_dict and is_admin:
+                new_slot_limit = update_dict["custom_loan_limit"]
+                
+                # Calculate current slot usage
+                slot_using_statuses = [
+                    TransactionStatus.ACTIVE,
+                    TransactionStatus.EXTENDED,
+                    TransactionStatus.HOLD,
+                    TransactionStatus.OVERDUE,
+                    TransactionStatus.DAMAGED
+                ]
+                
+                active_transactions = await PawnTransaction.find(
+                    PawnTransaction.customer_id == phone_number,
+                    In(PawnTransaction.status, slot_using_statuses)
+                ).to_list()
+                
+                slots_used = len(active_transactions)
+                
+                # Validate new slot limit
+                if new_slot_limit < slots_used:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Cannot set slot limit below current usage ({slots_used} slots)"
+                    )
+                
+                # Create audit entry for slot limit change
+                old_limit = customer.custom_loan_limit or "system default"
+                audit_entries.append(create_audit_entry(
+                    action_type=AuditActionType.CUSTOMER_UPDATED,
+                    staff_member=updated_by,
+                    action_summary="Loan slot limit updated",
+                    details=f"Slot limit changed from {old_limit} to {new_slot_limit}",
+                    previous_value=str(old_limit),
+                    new_value=str(new_slot_limit),
+                    related_id=phone_number
+                ))
                 
             # Track if any fields are actually being updated
             if not update_dict:
@@ -123,6 +208,14 @@ class CustomerService:
             
             # Use Beanie's update method
             await customer.update({"$set": update_dict})
+            
+            # Store audit entries if any
+            if audit_entries:
+                # If customer had existing audit history, append to it
+                # Otherwise, this could be stored in a separate audit collection
+                # For now, we'll log to the transaction notes system
+                for audit in audit_entries:
+                    logger.info(f"Customer update audit: {audit.to_legacy_string()}")
             
             # Invalidate cache after update
             await BusinessCache.invalidate_customer(phone_number)
@@ -368,15 +461,17 @@ class CustomerService:
     @staticmethod
     async def validate_loan_eligibility(phone_number: str, loan_amount: float = None) -> dict:
         """
-        Comprehensive loan eligibility check
+        Comprehensive loan eligibility check with accurate slot and credit calculations
         
         Args:
             phone_number: Customer's phone number
-            loan_amount: Optional loan amount to validate against credit limit
+            loan_amount: Optional loan amount to validate against available credit
             
         Returns:
             Dict with eligibility status and details
         """
+        from app.models.pawn_transaction_model import PawnTransaction, TransactionStatus
+        
         customer = await Customer.find_one(Customer.phone_number == phone_number)
         if not customer:
             raise HTTPException(
@@ -393,14 +488,45 @@ class CustomerService:
             if max_loans == 8:  # If no database config, use settings
                 max_loans = settings.MAX_ACTIVE_LOANS
         
+        # Define statuses that USE slots and credit
+        slot_using_statuses = [
+            TransactionStatus.ACTIVE,
+            TransactionStatus.EXTENDED, 
+            TransactionStatus.HOLD,
+            TransactionStatus.OVERDUE,
+            TransactionStatus.DAMAGED
+        ]
+        
+        # Get transactions that are using slots
+        from beanie.operators import In
+        active_transactions = await PawnTransaction.find(
+            PawnTransaction.customer_id == phone_number,
+            In(PawnTransaction.status, slot_using_statuses)
+        ).to_list()
+        
+        # Calculate actual slots used and credit used
+        slots_used = len(active_transactions)
+        credit_used = sum(transaction.loan_amount for transaction in active_transactions)
+        
+        # Calculate available amounts
+        slots_available = max_loans - slots_used
+        credit_available = float(customer.credit_limit) - credit_used
+        
+        # Build eligibility response
         eligibility = {
             "eligible": True,
             "reasons": [],
-            "active_loans": customer.active_loans,
+            # Slot information
+            "active_loans": slots_used,  # Actual count from transactions
             "max_loans": max_loans,
+            "slots_used": slots_used,
+            "slots_available": slots_available,
+            # Credit information  
             "credit_limit": float(customer.credit_limit),
-            "max_loan_amount": float(customer.credit_limit),  # For backward compatibility
-            "available_credit": float(customer.can_borrow_amount)
+            "credit_used": credit_used,
+            "available_credit": credit_available,
+            # Backward compatibility
+            "max_loan_amount": float(customer.credit_limit)
         }
         
         # Check account status
@@ -408,17 +534,24 @@ class CustomerService:
             eligibility["eligible"] = False
             eligibility["reasons"].append(f"Account status is {customer.status.value}")
         
-        # Check loan count limit
-        if customer.active_loans >= max_loans:
+        # Check slot availability
+        if slots_available <= 0:
             eligibility["eligible"] = False
             eligibility["reasons"].append(f"Maximum active loan limit reached ({max_loans})")
         
-        # Check loan amount against credit limit
-        if loan_amount is not None:
-            if loan_amount > float(customer.credit_limit):
-                eligibility["eligible"] = False
-                eligibility["reasons"].append(f"Loan amount exceeds credit limit of ${customer.credit_limit}")
+        # Check credit availability
+        if credit_available <= 0:
+            eligibility["eligible"] = False
+            eligibility["reasons"].append("No available credit remaining")
         
+        # Check specific loan amount if provided
+        if loan_amount is not None:
+            if loan_amount > credit_available:
+                eligibility["eligible"] = False
+                if credit_available <= 0:
+                    eligibility["reasons"].append("No available credit remaining")
+                else:
+                    eligibility["reasons"].append(f"Loan amount ${loan_amount:,.2f} exceeds available credit of ${credit_available:,.2f}")
         
         return eligibility
     

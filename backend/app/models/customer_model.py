@@ -206,7 +206,9 @@ class Customer(Document):
     @property
     def can_borrow_amount(self) -> Decimal:
         """Get available borrowing amount based on active loans and credit limit"""
-        # For now, return full credit limit - in future integrate with active loan totals
+        # Note: This is a synchronous property, so it returns the simplified calculation
+        # For accurate real-time calculations, use CustomerService.validate_loan_eligibility()
+        # which performs async database queries for precise slot/credit calculations
         return self.credit_limit
     
     def suspend(self, reason: str, suspended_by: str):
