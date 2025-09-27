@@ -33,7 +33,14 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  MessageCircle
+  MessageCircle,
+  Shield,
+  Settings,
+  UserCog,
+  Lock,
+  Info,
+  Database,
+  UserCheck
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { CustomerTableSkeleton, StatsCardSkeleton, SearchSkeleton } from '../ui/skeleton';
@@ -806,17 +813,19 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
     <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
       <CardHeader className="pb-4">
         <div className="flex items-center justify-between mb-4">
-          <CardTitle className="text-lg flex items-center gap-3">
+          <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl flex items-center justify-center">
               <CreditCard className="w-5 h-5 text-white" />
             </div>
-            Transaction History
-            {Array.isArray(transactions) && transactions.length > 0 && (
-              <span className="ml-2 px-2 py-1 text-xs bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 rounded-full font-semibold">
-                {transactions.length}
-              </span>
-            )}
-          </CardTitle>
+            <CardTitle className="text-lg">Transaction History</CardTitle>
+          </div>
+          
+          {Array.isArray(transactions) && transactions.length > 0 && (
+            <span className="px-3 py-1 text-sm bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 rounded-full font-semibold">
+              {transactions.length}
+            </span>
+          )}
+          
           <Button
             size="sm"
             onClick={handleNewTransaction}
@@ -1106,9 +1115,9 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                                     },
                                     'voided': {
                                       icon: XCircle,
-                                      bgColor: 'bg-gray-100 dark:bg-gray-900/30',
-                                      iconColor: 'text-gray-600 dark:text-gray-400',
-                                      borderColor: 'border-gray-200 dark:border-gray-800',
+                                      bgColor: 'bg-slate-100 dark:bg-slate-900/30',
+                                      iconColor: 'text-slate-600 dark:text-slate-400',
+                                      borderColor: 'border-slate-200 dark:border-slate-800',
                                       pulse: false
                                     }
                                   };
@@ -4207,19 +4216,8 @@ const EnhancedCustomerManagement = () => {
                     </Card>
 
                     {/* Overall Transactions */}
-                    <Card 
-                      className="border-0 shadow-md relative overflow-hidden"
-                      style={{
-                        background: 'linear-gradient(to bottom right, #F8FAFC, #F1F5F9)',
-                        ...(document.documentElement.classList.contains('dark') && {
-                          background: 'linear-gradient(to bottom right, #111827, #1F2937)'
-                        })
-                      }}
-                    >
-                      <div 
-                        className="absolute top-0 right-0 w-16 h-16 rounded-full -mr-8 -mt-8"
-                        style={{ backgroundColor: 'rgba(17, 24, 39, 0.1)' }}
-                      ></div>
+                    <Card className="border-0 shadow-md bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950/50 dark:to-slate-900/50 relative overflow-hidden">
+                      <div className="absolute top-0 right-0 w-16 h-16 bg-slate-500/10 rounded-full -mr-8 -mt-8"></div>
                       <CardContent className="p-4">
                         <div className="flex items-center justify-between">
                           <div className="flex-1 min-w-0">
@@ -4429,200 +4427,215 @@ const EnhancedCustomerManagement = () => {
 
               {/* Admin Tab Content */}
               {activeTab === 'admin' && isAdmin && (
-                <div className="space-y-6">
-                  {/* Admin Header */}
-                  <div className="p-5 bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-2xl border border-amber-200/50 dark:border-amber-700/50 shadow-lg">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-12 h-12 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl flex items-center justify-center shadow-lg">
-                        <Gauge className="w-6 h-6 text-white" />
-                      </div>
-                      <div>
-                        <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100">Admin Controls</h3>
-                        <p className="text-sm text-amber-600 dark:text-amber-400">Administrative actions and customer management</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Customer Management Section */}
-                  <div className="p-5 bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-2xl border border-blue-200/50 dark:border-blue-700/50 shadow-lg">
-                    <div className="flex items-center space-x-3 mb-4">
-                      <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center">
-                        <Edit2 className="w-4 h-4 text-white" />
-                      </div>
-                      <h4 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Customer Management</h4>
-                    </div>
-                    
-                    <div className="grid grid-cols-1 gap-3">
-                      <Button 
-                        variant="outline" 
-                        className="justify-start h-auto py-3 px-4 bg-blue-50/50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/30 text-blue-700 dark:text-blue-300"
-                        onClick={() => {
-                          setEditingCustomer(selectedCustomer);
-                          setShowAddDialog(true);
-                        }}
-                      >
-                        <Edit2 className="w-4 h-4 mr-3 shrink-0" />
-                        <div className="text-left min-w-0 flex-1">
-                          <p className="font-medium break-words">Edit Customer Details</p>
-                          <p className="text-xs text-blue-600/70 dark:text-blue-400/70 break-words leading-relaxed">Modify personal information and contact details</p>
+                <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-lg flex items-center gap-3">
+                        <div className="w-10 h-10 bg-gradient-to-br from-slate-500 to-slate-600 rounded-xl flex items-center justify-center">
+                          <Settings className="w-5 h-5 text-white" />
                         </div>
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* Account Status Actions */}
-                  <div className="p-5 bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-2xl border border-amber-200/50 dark:border-amber-700/50 shadow-lg">
-                    <div className="flex items-center space-x-3 mb-4">
-                      <div className="w-8 h-8 bg-gradient-to-br from-amber-500 to-orange-600 rounded-lg flex items-center justify-center">
-                        <User className="w-4 h-4 text-white" />
+                        Admin Controls
+                      </CardTitle>
+                      <div className="text-xs text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md">
+                        Administrative Actions
                       </div>
-                      <h4 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Account Status</h4>
                     </div>
-                    
-                    <div className="space-y-3">
-                      <Button 
-                        variant="outline" 
-                        className="justify-start h-auto py-3 px-4 w-full bg-amber-50/50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/30 text-amber-700 dark:text-amber-300"
-                        onClick={() => setShowSuspendDialog(true)}
-                      >
-                        <AlertTriangle className="w-4 h-4 mr-3 shrink-0" />
-                        <div className="text-left min-w-0 flex-1">
-                          <p className="font-medium break-words">Suspend Customer</p>
-                          <p className="text-xs text-amber-600/70 dark:text-amber-400/70 break-words leading-relaxed">Temporarily restrict account access (reversible)</p>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    {/* Customer Management Section */}
+                    <Card className="border-0 shadow-md bg-gradient-to-br from-blue-50/80 to-indigo-50/80 dark:from-blue-950/50 dark:to-indigo-950/50 relative overflow-hidden">
+                      <div className="absolute top-0 right-0 w-16 h-16 bg-blue-500/10 rounded-full -mr-8 -mt-8"></div>
+                      <CardContent className="p-6">
+                        <div className="flex items-center gap-3 mb-4">
+                          <div className="w-8 h-8 bg-blue-500/20 rounded-lg flex items-center justify-center">
+                            <UserCog className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                          </div>
+                          <h3 className="text-lg font-semibold text-blue-900 dark:text-blue-100">Customer Management</h3>
                         </div>
-                      </Button>
-                      
-                      {selectedCustomer?.status === 'suspended' && (
+                        
                         <Button 
                           variant="outline" 
-                          className="justify-start h-auto py-3 px-4 w-full bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"
-                          onClick={async () => {
-                            try {
-                              const updatedCustomer = await customerService.updateCustomer(selectedCustomer.phone_number, {
-                                status: 'active'
-                              });
-                              
-                              // Update the selected customer
-                              setSelectedCustomer(updatedCustomer);
-                              
-                              // Update customer in the list
-                              setCustomers(prevCustomers => 
-                                prevCustomers.map(customer => 
-                                  customer.phone_number === selectedCustomer.phone_number 
-                                    ? updatedCustomer 
-                                    : customer
-                                )
-                              );
-                              
-                              toast({
-                                title: 'Customer Reactivated',
-                                description: 'Customer account has been reactivated and can now access all services'
-                              });
-                              
-                              // Refresh stats to reflect status change
-                              await loadCustomerStats();
-                              
-                            } catch (error) {
-                              toast({
-                                title: 'Error',
-                                description: 'Failed to reactivate customer. Please try again.',
-                                variant: 'destructive'
-                              });
-                            }
+                          className="justify-start h-auto py-4 px-4 w-full hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors border-blue-200 dark:border-blue-700 bg-white/50 dark:bg-slate-800/50"
+                          onClick={() => {
+                            setEditingCustomer(selectedCustomer);
+                            setShowAddDialog(true);
                           }}
                         >
-                          <CheckCircle className="w-4 h-4 mr-3 shrink-0" />
+                          <Edit2 className="w-4 h-4 mr-3 shrink-0 text-blue-600 dark:text-blue-400" />
                           <div className="text-left min-w-0 flex-1">
-                            <p className="font-medium break-words">Reactivate Customer</p>
-                            <p className="text-xs text-emerald-600/70 dark:text-emerald-400/70 break-words leading-relaxed">Remove suspension and restore full access</p>
+                            <p className="font-medium text-blue-900 dark:text-blue-100">Edit Customer Details</p>
+                            <p className="text-xs text-blue-600/70 dark:text-blue-400/70 mt-1">Modify personal information and contact details</p>
                           </div>
                         </Button>
-                      )}
-                    </div>
-                  </div>
+                      </CardContent>
+                    </Card>
 
-                  {/* Dangerous Actions Section */}
-                  <div className="p-5 bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-2xl border border-red-200/50 dark:border-red-700/50 shadow-lg">
-                    <div className="flex items-center space-x-3 mb-4">
-                      <div className="w-8 h-8 bg-gradient-to-br from-red-500 to-rose-600 rounded-lg flex items-center justify-center">
-                        <AlertTriangle className="w-4 h-4 text-white" />
-                      </div>
-                      <h4 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Dangerous Actions</h4>
-                    </div>
-                    
-                    <div className="p-4 bg-red-50/50 dark:bg-red-950/20 rounded-xl border border-red-200 dark:border-red-800 mb-4">
-                      <div className="flex items-start space-x-2">
-                        <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400 mt-0.5 shrink-0" />
-                        <p className="text-xs text-red-700 dark:text-red-300 break-words leading-relaxed">
-                          These actions have permanent consequences. Use with extreme caution and ensure proper authorization.
-                        </p>
-                      </div>
-                    </div>
-                    
-                    <div className="space-y-3">
-                      <Button 
-                        variant="outline" 
-                        className="justify-start h-auto py-3 px-4 w-full bg-red-50/50 dark:bg-red-950/20 border-red-200 dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-700 dark:text-red-300"
-                        onClick={() => setShowArchiveDialog(true)}
-                      >
-                        <Archive className="w-4 h-4 mr-3 shrink-0" />
-                        <div className="text-left min-w-0 flex-1">
-                          <p className="font-medium break-words">Archive Customer</p>
-                          <p className="text-xs text-red-600/70 dark:text-red-400/70 break-words leading-relaxed">Permanently move to archived records (cannot be undone)</p>
+                    {/* Account Status Section */}
+                    <Card className="border-0 shadow-md bg-gradient-to-br from-amber-50/80 to-orange-50/80 dark:from-amber-950/50 dark:to-orange-950/50 relative overflow-hidden">
+                      <div className="absolute top-0 right-0 w-16 h-16 bg-amber-500/10 rounded-full -mr-8 -mt-8"></div>
+                      <CardContent className="p-6">
+                        <div className="flex items-center gap-3 mb-4">
+                          <div className="w-8 h-8 bg-amber-500/20 rounded-lg flex items-center justify-center">
+                            <UserCheck className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                          </div>
+                          <h3 className="text-lg font-semibold text-amber-900 dark:text-amber-100">Account Status</h3>
                         </div>
-                      </Button>
-                    </div>
-                  </div>
+                        
+                        <div className="space-y-3">
+                          <Button 
+                            variant="outline" 
+                            className="justify-start h-auto py-4 px-4 w-full hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-colors border-amber-200 dark:border-amber-700 bg-white/50 dark:bg-slate-800/50"
+                            onClick={() => setShowSuspendDialog(true)}
+                          >
+                            <Lock className="w-4 h-4 mr-3 shrink-0 text-amber-600 dark:text-amber-400" />
+                            <div className="text-left min-w-0 flex-1">
+                              <p className="font-medium text-amber-900 dark:text-amber-100">Suspend Customer</p>
+                              <p className="text-xs text-amber-600/70 dark:text-amber-400/70 mt-1">Temporarily restrict account access (reversible)</p>
+                            </div>
+                          </Button>
+                          
+                          {selectedCustomer?.status === 'suspended' && (
+                            <Button 
+                              variant="outline" 
+                              className="justify-start h-auto py-4 px-4 w-full hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors border-emerald-200 dark:border-emerald-700 bg-white/50 dark:bg-slate-800/50"
+                              onClick={async () => {
+                                try {
+                                  const updatedCustomer = await customerService.updateCustomer(selectedCustomer.phone_number, {
+                                    status: 'active'
+                                  });
+                                  
+                                  // Update the selected customer
+                                  setSelectedCustomer(updatedCustomer);
+                                  
+                                  // Update customer in the list
+                                  setCustomers(prevCustomers => 
+                                    prevCustomers.map(customer => 
+                                      customer.phone_number === selectedCustomer.phone_number 
+                                        ? updatedCustomer 
+                                        : customer
+                                    )
+                                  );
+                                  
+                                  toast({
+                                    title: 'Customer Reactivated',
+                                    description: 'Customer account has been reactivated and can now access all services'
+                                  });
+                                  
+                                  // Refresh stats to reflect status change
+                                  await loadCustomerStats();
+                                  
+                                } catch (error) {
+                                  toast({
+                                    title: 'Error',
+                                    description: 'Failed to reactivate customer. Please try again.',
+                                    variant: 'destructive'
+                                  });
+                                }
+                              }}
+                            >
+                              <CheckCircle className="w-4 h-4 mr-3 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                              <div className="text-left min-w-0 flex-1">
+                                <p className="font-medium text-emerald-900 dark:text-emerald-100">Reactivate Customer</p>
+                                <p className="text-xs text-emerald-600/70 dark:text-emerald-400/70 mt-1">Remove suspension and restore full access</p>
+                              </div>
+                            </Button>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
 
-                  {/* System Information */}
-                  <div className="p-5 bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-2xl border border-slate-200/50 dark:border-slate-700/50 shadow-lg">
-                    <div className="flex items-center space-x-3 mb-4">
-                      <div className="w-8 h-8 bg-gradient-to-br from-slate-500 to-slate-600 rounded-lg flex items-center justify-center">
-                        <FileText className="w-4 h-4 text-white" />
-                      </div>
-                      <h4 className="text-lg font-semibold text-slate-900 dark:text-slate-100">System Information</h4>
-                    </div>
-                    
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                      <div className="min-w-0">
-                        <p className="text-slate-500 dark:text-slate-400 break-words">Customer ID</p>
-                        <p className="font-mono text-slate-900 dark:text-slate-100 break-all">{selectedCustomer?.phone_number}</p>
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-slate-500 dark:text-slate-400 break-words">Account Status</p>
-                        <p className="font-semibold text-slate-900 dark:text-slate-100 capitalize break-words">{selectedCustomer?.status}</p>
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-slate-500 dark:text-slate-400 break-words">Created Date</p>
-                        <p className="text-slate-900 dark:text-slate-100 break-words">
-                          {selectedCustomer?.created_at ? formatBusinessDate(selectedCustomer.created_at) : 'N/A'}
-                        </p>
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-slate-500 dark:text-slate-400 break-words">Last Updated</p>
-                        <p className="text-slate-900 dark:text-slate-100 break-words">
-                          {selectedCustomer?.updated_at ? formatBusinessDate(selectedCustomer.updated_at) : 'N/A'}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
+                    {/* Dangerous Actions Section */}
+                    <Card className="border-0 shadow-md bg-gradient-to-br from-red-50/80 to-rose-50/80 dark:from-red-950/50 dark:to-rose-950/50 relative overflow-hidden">
+                      <div className="absolute top-0 right-0 w-16 h-16 bg-red-500/10 rounded-full -mr-8 -mt-8"></div>
+                      <CardContent className="p-6">
+                        <div className="flex items-center gap-3 mb-4">
+                          <div className="w-8 h-8 bg-red-500/20 rounded-lg flex items-center justify-center">
+                            <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400" />
+                          </div>
+                          <h3 className="text-lg font-semibold text-red-900 dark:text-red-100">Dangerous Actions</h3>
+                        </div>
+                        
+                        <div className="p-3 bg-red-100/50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800 mb-4">
+                          <div className="flex items-start gap-2">
+                            <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400 mt-0.5 shrink-0" />
+                            <p className="text-xs text-red-700 dark:text-red-300">
+                              These actions have permanent consequences. Use with extreme caution and ensure proper authorization.
+                            </p>
+                          </div>
+                        </div>
+                        
+                        <Button 
+                          variant="destructive" 
+                          className="justify-start h-auto py-4 px-4 w-full bg-white/50 hover:bg-red-100 dark:bg-slate-800/50 dark:hover:bg-red-900/30 text-red-700 dark:text-red-300 border-red-200 dark:border-red-700"
+                          onClick={() => setShowArchiveDialog(true)}
+                        >
+                          <Archive className="w-4 h-4 mr-3 shrink-0" />
+                          <div className="text-left min-w-0 flex-1">
+                            <p className="font-medium text-red-900 dark:text-red-100">Archive Customer</p>
+                            <p className="text-xs text-red-600/70 dark:text-red-400/70 mt-1">Permanently move to archived records (cannot be undone)</p>
+                          </div>
+                        </Button>
+                      </CardContent>
+                    </Card>
 
-                  {/* Audit Trail Notice */}
-                  <div className="p-4 bg-slate-100/50 dark:bg-slate-800/30 rounded-xl border border-slate-300 dark:border-slate-600">
-                    <div className="flex items-start space-x-3">
-                      <Gauge className="w-4 h-4 text-slate-500 dark:text-slate-400 mt-0.5 shrink-0" />
-                      <div>
-                        <p className="text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                          🔒 Security Notice
-                        </p>
-                        <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed break-words">
-                          All administrative actions are logged with your user ID and timestamp for audit compliance. 
-                          Customer data modifications are subject to regulatory oversight and data protection policies.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                    {/* System Information Section */}
+                    <Card className="border-0 shadow-md bg-gradient-to-br from-slate-50/80 to-gray-50/80 dark:from-slate-900/80 dark:to-slate-800/80 relative overflow-hidden">
+                      <div className="absolute top-0 right-0 w-16 h-16 bg-slate-500/10 rounded-full -mr-8 -mt-8"></div>
+                      <CardContent className="p-6">
+                        <div className="flex items-center gap-3 mb-4">
+                          <div className="w-8 h-8 bg-slate-500/20 rounded-lg flex items-center justify-center">
+                            <Info className="w-4 h-4 text-slate-600 dark:text-slate-400" />
+                          </div>
+                          <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">System Information</h3>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Customer ID</p>
+                            <p className="font-mono text-sm text-slate-900 dark:text-slate-100">{selectedCustomer?.phone_number}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Account Status</p>
+                            <p className="text-sm font-semibold capitalize text-slate-900 dark:text-slate-100">{selectedCustomer?.status}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Created Date</p>
+                            <p className="text-sm text-slate-900 dark:text-slate-100">
+                              {selectedCustomer?.created_at ? formatBusinessDate(selectedCustomer.created_at) : 'N/A'}
+                            </p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Last Updated</p>
+                            <p className="text-sm text-slate-900 dark:text-slate-100">
+                              {selectedCustomer?.updated_at ? formatBusinessDate(selectedCustomer.updated_at) : 'N/A'}
+                            </p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* Security Notice */}
+                    <Card className="border-0 shadow-md bg-gradient-to-br from-blue-50/80 to-cyan-50/80 dark:from-blue-950/50 dark:to-cyan-950/50 relative overflow-hidden">
+                      <div className="absolute top-0 right-0 w-16 h-16 bg-blue-500/10 rounded-full -mr-8 -mt-8"></div>
+                      <CardContent className="p-6">
+                        <div className="flex items-start gap-3">
+                          <div className="w-8 h-8 bg-blue-500/20 rounded-lg flex items-center justify-center">
+                            <Shield className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                          </div>
+                          <div>
+                            <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-2">
+                              🔒 Security Notice
+                            </h3>
+                            <p className="text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
+                              All administrative actions are logged with your user ID and timestamp for audit compliance. 
+                              Customer data modifications are subject to regulatory oversight and data protection policies.
+                            </p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </CardContent>
+                </Card>
               )}
             </div>
           )}
@@ -4633,227 +4646,163 @@ const EnhancedCustomerManagement = () => {
 
       {/* Suspend Customer Confirmation Dialog */}
       <Dialog open={showSuspendDialog} onOpenChange={setShowSuspendDialog}>
-        <DialogContent className="sm:max-w-[550px] bg-gradient-to-br from-slate-50/95 via-amber-50/30 to-orange-50/40 dark:from-slate-950/95 dark:via-amber-950/30 dark:to-orange-950/40 backdrop-blur-xl border-0 shadow-2xl">
-          {/* Warning accent */}
-          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-500 via-yellow-500 to-orange-500"></div>
-          
-          <DialogHeader className="pb-6 pt-4">
-            <div className="flex items-center space-x-4 mb-4">
-              {/* Warning Icon with Vault-style border */}
-              <div className="w-14 h-14 rounded-full border-3 border-amber-500 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950 dark:to-orange-950 shadow-lg flex items-center justify-center relative">
-                <AlertTriangle className="w-7 h-7 text-amber-600 dark:text-amber-400" />
-                <div className="absolute -top-1 -right-1 w-4 h-4 bg-amber-500 rounded-full border-2 border-white dark:border-slate-900 flex items-center justify-center">
-                  <span className="text-xs text-white font-bold">!</span>
-                </div>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3 text-lg">
+              <div className="w-10 h-10 bg-amber-100 dark:bg-amber-900/30 rounded-xl flex items-center justify-center">
+                <Lock className="w-5 h-5 text-amber-600 dark:text-amber-400" />
               </div>
-              <div>
-                <DialogTitle className="text-xl font-bold text-amber-900 dark:text-amber-100 mb-1">
-                  Suspend Customer Account
-                </DialogTitle>
-                <DialogDescription className="text-amber-700 dark:text-amber-300">
-                  Temporarily restrict account access and transaction privileges
-                </DialogDescription>
-              </div>
-            </div>
+              Suspend Customer Account
+            </DialogTitle>
+            <DialogDescription>
+              Temporarily restrict account access and transaction privileges
+            </DialogDescription>
           </DialogHeader>
           
-          <div className="space-y-6">
-            {/* Customer Information Card */}
-            <div className="p-5 bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-2xl border border-amber-200/50 dark:border-amber-700/50 shadow-lg">
-              <div className="flex items-center space-x-3 mb-4">
-                <div className="w-8 h-8 bg-gradient-to-br from-amber-500 to-orange-600 rounded-lg flex items-center justify-center">
-                  <User className="w-4 h-4 text-white" />
-                </div>
-                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Customer Details</h3>
-              </div>
-              
-              <div className="bg-amber-50/50 dark:bg-amber-950/20 rounded-xl p-4 border border-amber-200 dark:border-amber-800">
-                <p className="text-slate-700 dark:text-slate-300 mb-2">
-                  <span className="font-medium text-amber-900 dark:text-amber-100">
-                    {selectedCustomer?.first_name} {selectedCustomer?.last_name}
-                  </span> will be temporarily suspended from the PawnRepo system.
-                </p>
-                <div className="text-sm text-slate-600 dark:text-slate-400 space-y-1">
-                  <p>• Account access will be restricted</p>
-                  <p>• New pawn transactions will be prevented</p>
-                  <p>• Existing active loans remain unaffected</p>
-                  <p>• Suspension can be reversed by administrators</p>
-                </div>
-              </div>
+          <div className="space-y-4">
+            <div className="p-4 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200 dark:border-amber-800">
+              <p className="text-sm text-foreground mb-3">
+                <span className="font-medium">
+                  {selectedCustomer?.first_name} {selectedCustomer?.last_name}
+                </span> will be temporarily suspended from the system.
+              </p>
+              <ul className="text-xs text-muted-foreground space-y-1">
+                <li>• Account access will be restricted</li>
+                <li>• New pawn transactions will be prevented</li>
+                <li>• Existing active loans remain unaffected</li>
+                <li>• Suspension can be reversed by administrators</li>
+              </ul>
             </div>
 
-            {/* Security Notice */}
-            <div className="p-4 bg-amber-100/50 dark:bg-amber-900/20 rounded-xl border border-amber-300 dark:border-amber-700">
-              <div className="flex items-start space-x-3">
-                <Gauge className="w-5 h-5 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+            <div className="p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800">
+              <div className="flex items-start gap-2">
+                <Shield className="w-4 h-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
                 <div>
-                  <p className="text-sm font-medium text-amber-900 dark:text-amber-100 mb-1">
-                    Security & Audit Trail
-                  </p>
-                  <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
-                    This action will be logged with your admin ID and timestamp for compliance and audit purposes. 
-                    Customer will receive automatic system notification.
+                  <p className="text-xs font-medium text-blue-900 dark:text-blue-100 mb-1">Security Notice</p>
+                  <p className="text-xs text-blue-700 dark:text-blue-300">
+                    This action will be logged with your admin ID and timestamp for audit compliance.
                   </p>
                 </div>
               </div>
             </div>
+          </div>
 
-            {/* Action Buttons */}
-            <div className="flex justify-end space-x-3 pt-2">
-              <Button 
-                variant="outline" 
-                onClick={() => setShowSuspendDialog(false)}
-                className="px-6 py-2 bg-white/70 dark:bg-slate-700/70 border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600 backdrop-blur-sm"
-              >
-                Cancel
-              </Button>
-              <Button 
-                onClick={handleSuspendCustomer}
-                className="px-6 py-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white shadow-lg shadow-amber-500/25"
-              >
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4" />
-                  <span>Suspend Customer</span>
-                </div>
-              </Button>
-            </div>
+          <div className="flex justify-end gap-3 mt-6">
+            <Button 
+              variant="outline" 
+              onClick={() => setShowSuspendDialog(false)}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleSuspendCustomer}
+              className="bg-amber-600 hover:bg-amber-700"
+            >
+              <Lock className="w-4 h-4 mr-2" />
+              Suspend Customer
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
 
       {/* Archive Customer Confirmation Dialog */}
       <Dialog open={showArchiveDialog} onOpenChange={setShowArchiveDialog}>
-        <DialogContent className="sm:max-w-[550px] bg-gradient-to-br from-slate-50/95 via-red-50/30 to-rose-50/40 dark:from-slate-950/95 dark:via-red-950/30 dark:to-rose-950/40 backdrop-blur-xl border-0 shadow-2xl">
-          {/* Danger accent */}
-          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-500 via-rose-500 to-red-600"></div>
-          
-          <DialogHeader className="pb-6 pt-4">
-            <div className="flex items-center space-x-4 mb-4">
-              {/* Danger Icon with Vault-style border */}
-              <div className="w-14 h-14 rounded-full border-3 border-red-500 bg-gradient-to-br from-red-50 to-rose-50 dark:from-red-950 dark:to-rose-950 shadow-lg flex items-center justify-center relative">
-                <Archive className="w-7 h-7 text-red-600 dark:text-red-400" />
-                <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border-2 border-white dark:border-slate-900 flex items-center justify-center">
-                  <AlertTriangle className="w-2 h-2 text-white" />
-                </div>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3 text-lg">
+              <div className="w-10 h-10 bg-red-100 dark:bg-red-900/30 rounded-xl flex items-center justify-center">
+                <Archive className="w-5 h-5 text-red-600 dark:text-red-400" />
               </div>
-              <div>
-                <DialogTitle className="text-xl font-bold text-red-900 dark:text-red-100 mb-1">
-                  Archive Customer Account
-                </DialogTitle>
-                <DialogDescription className="text-red-700 dark:text-red-300">
-                  Permanently move customer to archived records
-                </DialogDescription>
-              </div>
-            </div>
+              Archive Customer Account
+            </DialogTitle>
+            <DialogDescription>
+              Permanently move customer to archived records
+            </DialogDescription>
           </DialogHeader>
           
-          <div className="space-y-6">
-            {/* Customer Information Card */}
-            <div className="p-5 bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm rounded-2xl border border-red-200/50 dark:border-red-700/50 shadow-lg">
-              <div className="flex items-center space-x-3 mb-4">
-                <div className="w-8 h-8 bg-gradient-to-br from-red-500 to-rose-600 rounded-lg flex items-center justify-center">
-                  <User className="w-4 h-4 text-white" />
+          <div className="space-y-4">
+            <div className="p-4 bg-red-50 dark:bg-red-950/20 rounded-lg border border-red-200 dark:border-red-800">
+              <p className="text-sm text-foreground mb-3">
+                <span className="font-medium">
+                  {selectedCustomer?.first_name} {selectedCustomer?.last_name}
+                </span> will be permanently archived from the system.
+              </p>
+              <ul className="text-xs text-muted-foreground space-y-1">
+                <li>• Customer account will be moved to archived records</li>
+                <li>• All transaction history will be preserved</li>
+                <li>• Customer will no longer appear in active listings</li>
+                <li className="text-red-600 dark:text-red-400 font-medium">• This action cannot be undone</li>
+              </ul>
+            </div>
+
+            <div className="p-3 bg-red-100 dark:bg-red-900/20 rounded-lg border-2 border-red-300 dark:border-red-700">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-xs font-medium text-red-900 dark:text-red-100 mb-1">⚠️ Permanent Action Warning</p>
+                  <p className="text-xs text-red-700 dark:text-red-300">
+                    This action cannot be reversed. All audit logs will be maintained for compliance.
+                  </p>
                 </div>
-                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Customer Details</h3>
               </div>
-              
-              <div className="bg-red-50/50 dark:bg-red-950/20 rounded-xl p-4 border border-red-200 dark:border-red-800">
-                <p className="text-slate-700 dark:text-slate-300 mb-2">
-                  <span className="font-medium text-red-900 dark:text-red-100">
-                    {selectedCustomer?.first_name} {selectedCustomer?.last_name}
-                  </span> will be permanently archived from the PawnRepo system.
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400" />
+                <p className="text-sm font-medium text-red-900 dark:text-red-100">
+                  Confirmation Required
                 </p>
-                <div className="text-sm text-slate-600 dark:text-slate-400 space-y-1">
-                  <p>• Customer account will be moved to archived records</p>
-                  <p>• All transaction history will be preserved</p>
-                  <p>• Customer will no longer appear in active listings</p>
-                  <p className="text-red-600 dark:text-red-400 font-medium">• This action cannot be undone</p>
-                </div>
+              </div>
+              <div>
+                <Label htmlFor="archiveConfirmation" className="text-sm text-muted-foreground">
+                  Type <strong className="text-foreground">"ARCHIVE"</strong> to confirm this permanent action:
+                </Label>
+                <Input
+                  id="archiveConfirmation"
+                  type="text"
+                  value={archiveConfirmation}
+                  onChange={(e) => setArchiveConfirmation(e.target.value)}
+                  placeholder="Type ARCHIVE to confirm"
+                  className="mt-2 border-red-300 dark:border-red-700 focus:border-red-500 dark:focus:border-red-400 focus:ring-red-500/20"
+                />
+                {archiveConfirmation && archiveConfirmation !== 'ARCHIVE' && (
+                  <p className="text-xs text-red-600 dark:text-red-400 mt-1">
+                    Please type "ARCHIVE" exactly as shown
+                  </p>
+                )}
               </div>
             </div>
 
-            {/* Permanent Action Warning */}
-            <div className="p-4 bg-red-100/60 dark:bg-red-900/20 rounded-xl border-2 border-red-300 dark:border-red-700">
-              <div className="flex items-start space-x-3">
-                <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5 shrink-0" />
+            <div className="p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800">
+              <div className="flex items-start gap-2">
+                <Shield className="w-4 h-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
                 <div>
-                  <p className="text-sm font-bold text-red-900 dark:text-red-100 mb-1">
-                    ⚠️ PERMANENT ACTION WARNING
-                  </p>
-                  <p className="text-xs text-red-700 dark:text-red-300 leading-relaxed">
-                    This is a permanent action that cannot be reversed. The customer account will be moved to archived 
-                    records and cannot be restored to active status. All audit logs will be maintained for compliance.
+                  <p className="text-xs font-medium text-blue-900 dark:text-blue-100 mb-1">Security Notice</p>
+                  <p className="text-xs text-blue-700 dark:text-blue-300">
+                    Archive action will be logged with admin credentials for audit compliance.
                   </p>
                 </div>
               </div>
             </div>
+          </div>
 
-            {/* Confirmation Required */}
-            <div className="p-4 bg-slate-100/50 dark:bg-slate-800/20 rounded-xl border border-slate-300 dark:border-slate-600">
-              <div className="flex items-start space-x-3">
-                <Gauge className="w-5 h-5 text-slate-600 dark:text-slate-400 mt-0.5 shrink-0" />
-                <div>
-                  <p className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-1">
-                    Security & Compliance
-                  </p>
-                  <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                    Archive action will be logged with admin credentials. Customer data retention follows regulatory 
-                    compliance requirements. All transaction history preserved for audit purposes.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Confirmation Required Input */}
-            <div className="p-4 bg-red-50/50 dark:bg-red-950/20 rounded-xl border-2 border-red-200 dark:border-red-800">
-              <div className="space-y-3">
-                <div className="flex items-center space-x-2">
-                  <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400" />
-                  <p className="text-sm font-medium text-red-900 dark:text-red-100">
-                    Confirmation Required
-                  </p>
-                </div>
-                <div>
-                  <Label htmlFor="archiveConfirmation" className="text-sm text-red-700 dark:text-red-300">
-                    Type <strong>"ARCHIVE"</strong> to confirm this permanent action:
-                  </Label>
-                  <Input
-                    id="archiveConfirmation"
-                    type="text"
-                    value={archiveConfirmation}
-                    onChange={(e) => setArchiveConfirmation(e.target.value)}
-                    placeholder="Type ARCHIVE to confirm"
-                    className="mt-2 bg-white/70 dark:bg-slate-800/70 border-red-300 dark:border-red-700 focus:border-red-500 dark:focus:border-red-400 focus:ring-red-500/20"
-                  />
-                  {archiveConfirmation && archiveConfirmation !== 'ARCHIVE' && (
-                    <p className="text-xs text-red-600 dark:text-red-400 mt-1">
-                      Please type "ARCHIVE" exactly as shown
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex justify-end space-x-3 pt-2">
-              <Button 
-                variant="outline" 
-                onClick={() => setShowArchiveDialog(false)}
-                className="px-6 py-2 bg-white/70 dark:bg-slate-700/70 border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600 backdrop-blur-sm"
-              >
-                Cancel
-              </Button>
-              <Button 
-                onClick={handleArchiveCustomer}
-                disabled={archiveConfirmation !== 'ARCHIVE'}
-                className="px-6 py-2 bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed text-white shadow-lg shadow-red-500/25 disabled:shadow-gray-500/25"
-              >
-                <div className="flex items-center gap-2">
-                  <Archive className="w-4 h-4" />
-                  <span>Archive Customer</span>
-                </div>
-              </Button>
-            </div>
+          <div className="flex justify-end gap-3 mt-6">
+            <Button 
+              variant="outline" 
+              onClick={() => setShowArchiveDialog(false)}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleArchiveCustomer}
+              disabled={archiveConfirmation !== 'ARCHIVE'}
+              variant="destructive"
+              className="bg-red-600 hover:bg-red-700 disabled:bg-slate-400 dark:disabled:bg-slate-600"
+            >
+              <Archive className="w-4 h-4 mr-2" />
+              Archive Customer
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

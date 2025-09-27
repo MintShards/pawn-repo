@@ -155,16 +155,16 @@ const LoanEligibilityManager = ({ customer, onEligibilityUpdate }) => {
                     <div className="flex-1">
                       <p className={`font-semibold text-lg ${
                         eligibilityData.eligible 
-                          ? 'text-white' 
-                          : 'text-white'
+                          ? 'text-green-800 dark:text-green-100' 
+                          : 'text-red-800 dark:text-red-100'
                       }`}>
                         {eligibilityData.eligible ? 'Eligible for New Loan' : 'Not Eligible'}
                       </p>
                       {eligibilityData.reasons && eligibilityData.reasons.length > 0 && (
                         <p className={`text-sm mt-1 ${
                           eligibilityData.eligible 
-                            ? 'text-green-100' 
-                            : 'text-red-100'
+                            ? 'text-green-700 dark:text-green-200' 
+                            : 'text-red-700 dark:text-red-200'
                         }`}>
                           {eligibilityData.reasons.join(' • ')}
                         </p>
