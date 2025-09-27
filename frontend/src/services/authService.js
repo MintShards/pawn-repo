@@ -233,6 +233,19 @@ class AuthService {
     // Clear all customer-related cache entries immediately
     this.clearCache('/api/v1/customer');
     this.clearCache('/api/v1/user');
+    
+    // Also clear eligibility checks and related data
+    this.clearCache('/api/v1/loan-eligibility');
+    this.clearCache('/api/v1/stats');
+  }
+  
+  // Targeted cache invalidation for specific customer data
+  invalidateCustomerCache(phoneNumber) {
+    if (phoneNumber) {
+      this.clearCache(`/api/v1/customer/${phoneNumber}`);
+      this.clearCache(`/api/v1/customer/${phoneNumber}/eligibility`);
+      this.clearCache(`/api/v1/customer/${phoneNumber}/transactions`);
+    }
   }
   
   getCacheStats() {
@@ -321,7 +334,7 @@ class AuthService {
       const retryAfter = response.headers.get('Retry-After');
       const delay = retryAfter ? parseInt(retryAfter) * 1000 : Math.min(this.rateLimitRetryDelay * 2, 10000);
       
-      console.warn(`Rate limited. Retrying after ${Math.ceil(delay / 1000)} seconds...`);
+      // Rate limited, retrying after delay
       await new Promise(resolve => setTimeout(resolve, delay));
       
       // Increase retry delay for future requests to back off more aggressively
@@ -357,6 +370,18 @@ class AuthService {
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       
+      
+      // Create enhanced error with response details
+      const error = new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+      error.response = {
+        status: response.status,
+        statusText: response.statusText,
+        data: errorData,
+        headers: Object.fromEntries(response.headers.entries()),
+        url
+      };
+      error.status = response.status;
+      
       // For 422 validation errors, provide more detailed error information
       if (response.status === 422) {
         let errorMessage = 'Validation failed';
@@ -373,11 +398,10 @@ class AuthService {
           }
         }
         
-        console.error('❌ 422 VALIDATION ERROR DETAILS:', errorData);
-        throw new Error(errorMessage);
+        error.message = errorMessage;
       }
       
-      throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+      throw error;
     }
 
     const data = await response.json();
@@ -391,6 +415,12 @@ class AuthService {
     } else if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
       // For data modification, immediately invalidate related cache
       this.invalidateDataCache();
+      
+      // Extract customer phone from URL for targeted invalidation
+      const customerMatch = url.match(/\/customer\/([\d]+)/);
+      if (customerMatch) {
+        this.invalidateCustomerCache(customerMatch[1]);
+      }
     }
     
     return data;

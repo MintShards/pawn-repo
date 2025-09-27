@@ -29,19 +29,23 @@ import customerService from '../../services/customerService';
 import { useToast } from '../ui/toast';
 import { useAuth } from '../../context/AuthContext';
 import { isAdmin as isAdminRole } from '../../utils/roleUtils';
+import CustomLoanLimitDialog from './CustomLoanLimitDialog';
+import CustomCreditLimitDialog from './CustomCreditLimitDialog';
 
 const LoanEligibilityManager = ({ customer, onEligibilityUpdate }) => {
   const { toast } = useToast();
   const { user } = useAuth();
   const [eligibilityData, setEligibilityData] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [showCreditLimitDialog, setShowCreditLimitDialog] = useState(false);
-  const [newCreditLimit, setNewCreditLimit] = useState('');
+  const [showCustomCreditDialog, setShowCustomCreditDialog] = useState(false);
   const [showDetailsDialog, setShowDetailsDialog] = useState(false);
-  const [showSlotLimitDialog, setShowSlotLimitDialog] = useState(false);
-  const [newSlotLimit, setNewSlotLimit] = useState('');
+  const [showCustomLimitDialog, setShowCustomLimitDialog] = useState(false);
+  const [showConfirmation, setShowConfirmation] = useState(false);
+  const [pendingUpdate, setPendingUpdate] = useState(null);
 
   const isAdmin = isAdminRole(user);
+
+
 
   const checkEligibility = useCallback(async (shouldCallCallback = false) => {
     setLoading(true);
@@ -73,103 +77,31 @@ const LoanEligibilityManager = ({ customer, onEligibilityUpdate }) => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customer?.phone_number]); // Only depend on phone number to avoid infinite loops
-
-
-  const updateCreditLimit = async () => {
-    const newLimit = parseFloat(newCreditLimit);
-    if (isNaN(newLimit) || newLimit < 0) {
-      toast({
-        title: 'Invalid Credit Limit',
-        description: 'Please enter a valid credit limit',
-        variant: 'destructive'
-      });
-      return;
-    }
-
-    // Validate against current usage
-    const currentUsed = eligibilityData?.credit_used || 0;
-    if (newLimit < currentUsed) {
-      toast({
-        title: 'Invalid Credit Limit',
-        description: `Cannot set credit limit below current usage ($${currentUsed.toLocaleString()})`,
-        variant: 'destructive'
-      });
-      return;
-    }
-
-    try {
-      // Update customer credit limit
-      await customerService.updateCustomer(customer.phone_number, {
-        ...customer,
-        credit_limit: newLimit.toString()
-      });
-
-      toast({
-        title: 'Credit Limit Updated',
-        description: `Credit limit updated to $${newLimit.toLocaleString()}`
-      });
-
-      setShowCreditLimitDialog(false);
-      setNewCreditLimit('');
+  
+  // Real-time update listener for customer data changes
+  useEffect(() => {
+    const handleCustomerDataUpdate = (event) => {
+      const { customer: updatedCustomer, type } = event.detail;
       
-      // Refresh eligibility data and notify parent of change
-      checkEligibility(true);
-    } catch (error) {
-      toast({
-        title: 'Error',
-        description: error.response?.data?.detail || 'Failed to update credit limit',
-        variant: 'destructive'
-      });
-    }
-  };
+      // Only refresh if this is the same customer
+      if (updatedCustomer?.phone_number === customer?.phone_number) {
+        
+        // Refresh eligibility data with callback to update parent
+        checkEligibility(true);
+      }
+    };
+    
+    // Add event listener for real-time updates
+    window.addEventListener('customer-data-updated', handleCustomerDataUpdate);
+    
+    // Cleanup event listener
+    return () => {
+      window.removeEventListener('customer-data-updated', handleCustomerDataUpdate);
+    };
+  }, [customer?.phone_number, checkEligibility]);
 
-  const updateSlotLimit = async () => {
-    const newLimit = parseInt(newSlotLimit);
-    if (isNaN(newLimit) || newLimit < 1 || newLimit > 50) {
-      toast({
-        title: 'Invalid Slot Limit',
-        description: 'Please enter a valid slot limit (1-50)',
-        variant: 'destructive'
-      });
-      return;
-    }
 
-    // Validate against current usage
-    const currentUsed = eligibilityData?.slots_used || eligibilityData?.active_loans || 0;
-    if (newLimit < currentUsed) {
-      toast({
-        title: 'Invalid Slot Limit',
-        description: `Cannot set slot limit below current usage (${currentUsed} slots)`,
-        variant: 'destructive'
-      });
-      return;
-    }
 
-    try {
-      // Update customer slot limit
-      await customerService.updateCustomer(customer.phone_number, {
-        ...customer,
-        custom_loan_limit: newLimit
-      });
-
-      toast({
-        title: 'Slot Limit Updated',
-        description: `Loan slots updated to ${newLimit}`
-      });
-
-      setShowSlotLimitDialog(false);
-      setNewSlotLimit('');
-      
-      // Refresh eligibility data
-      checkEligibility(true);
-    } catch (error) {
-      toast({
-        title: 'Error',
-        description: error.response?.data?.detail || 'Failed to update slot limit',
-        variant: 'destructive'
-      });
-    }
-  };
 
 
   if (!customer) {
@@ -328,135 +260,54 @@ const LoanEligibilityManager = ({ customer, onEligibilityUpdate }) => {
     <div className="space-y-4">
       {/* Admin Controls */}
       {isAdmin && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Settings className="h-5 w-5" />
+        <Card className="border-0 shadow-md bg-gradient-to-br from-slate-50/80 to-gray-50/80 dark:from-slate-900/80 dark:to-slate-800/80 backdrop-blur-sm">
+          <CardContent className="pt-6">
+            <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 mb-4 flex items-center gap-3">
+              <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-red-600 rounded-xl flex items-center justify-center shadow-lg">
+                <Settings className="w-5 h-5 text-white" />
+              </div>
               Admin Controls
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+            </h3>
             <div className="space-y-3">
-              {/* Update Credit Limit */}
-              <Dialog open={showCreditLimitDialog} onOpenChange={setShowCreditLimitDialog}>
-                <DialogTrigger asChild>
-                  <Button variant="outline" className="w-full justify-start">
-                    <CreditCard className="mr-2 h-4 w-4" />
-                    Update Credit Limit
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Update Credit Limit</DialogTitle>
-                    <DialogDescription>
-                      Set a new credit limit for {customerService.getCustomerFullName(customer)}
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4">
-                    <div>
-                      <Label htmlFor="newCreditLimit">New Credit Limit</Label>
-                      <Input
-                        id="newCreditLimit"
-                        type="number"
-                        placeholder="Enter new credit limit"
-                        value={newCreditLimit}
-                        onChange={(e) => setNewCreditLimit(e.target.value)}
-                        min="0"
-                        step="0.01"
-                      />
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Current: ${eligibilityData?.credit_limit?.toLocaleString()}
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        In use: ${eligibilityData?.credit_used?.toLocaleString() || 0}
-                      </p>
-                    </div>
-                    {eligibilityData?.credit_used > 0 && (
-                      <div className="rounded-lg border border-yellow-200 bg-yellow-50 dark:bg-yellow-900/20 dark:border-yellow-800 p-3">
-                        <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                          <Info className="h-4 w-4 inline mr-1" />
-                          Customer is currently using ${eligibilityData?.credit_used?.toLocaleString()} of credit
-                        </p>
-                      </div>
-                    )}
-                    <div className="flex gap-2">
-                      <Button onClick={updateCreditLimit} disabled={!newCreditLimit}>
-                        Update Limit
-                      </Button>
-                      <Button 
-                        variant="outline" 
-                        onClick={() => setShowCreditLimitDialog(false)}
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                  </div>
-                </DialogContent>
-              </Dialog>
+              {/* Set Custom Credit Limit */}
+              <Button 
+                variant="outline" 
+                className="w-full justify-start bg-white/60 dark:bg-slate-800/60 hover:bg-white/80 dark:hover:bg-slate-800/80 border-slate-200/50 dark:border-slate-700/50 shadow-sm"
+                onClick={() => {
+                  // Refresh eligibility data before opening dialog
+                  checkEligibility();
+                  setShowCustomCreditDialog(true);
+                }}
+              >
+                <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center mr-3">
+                  <CreditCard className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                </div>
+                Set Custom Credit Limit
+              </Button>
 
-              {/* Update Slot Limit */}
-              <Dialog open={showSlotLimitDialog} onOpenChange={setShowSlotLimitDialog}>
-                <DialogTrigger asChild>
-                  <Button variant="outline" className="w-full justify-start">
-                    <Target className="mr-2 h-4 w-4" />
-                    Update Slot Limit
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Update Loan Slot Limit</DialogTitle>
-                    <DialogDescription>
-                      Set a custom loan slot limit for {customerService.getCustomerFullName(customer)}
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4">
-                    <div>
-                      <Label htmlFor="newSlotLimit">Maximum Loan Slots</Label>
-                      <Input
-                        id="newSlotLimit"
-                        type="number"
-                        placeholder="Enter new slot limit"
-                        value={newSlotLimit}
-                        onChange={(e) => setNewSlotLimit(e.target.value)}
-                        min="1"
-                        max="50"
-                        step="1"
-                      />
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Current: {eligibilityData?.max_loans || 8} slots
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        In use: {eligibilityData?.slots_used || eligibilityData?.active_loans || 0} slots
-                      </p>
-                    </div>
-                    {eligibilityData?.credit_used > 0 && (
-                      <div className="rounded-lg border border-yellow-200 bg-yellow-50 dark:bg-yellow-900/20 dark:border-yellow-800 p-3">
-                        <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                          <Info className="h-4 w-4 inline mr-1" />
-                          Customer is currently using {eligibilityData?.slots_used || eligibilityData?.active_loans || 0} slots
-                        </p>
-                      </div>
-                    )}
-                    <div className="flex gap-2">
-                      <Button onClick={updateSlotLimit} disabled={!newSlotLimit}>
-                        Update Slots
-                      </Button>
-                      <Button 
-                        variant="outline" 
-                        onClick={() => setShowSlotLimitDialog(false)}
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                  </div>
-                </DialogContent>
-              </Dialog>
+              {/* Set Custom Loan Limit */}
+              <Button 
+                variant="outline" 
+                className="w-full justify-start bg-white/60 dark:bg-slate-800/60 hover:bg-white/80 dark:hover:bg-slate-800/80 border-slate-200/50 dark:border-slate-700/50 shadow-sm"
+                onClick={() => {
+                  // Refresh eligibility data before opening dialog
+                  checkEligibility();
+                  setShowCustomLimitDialog(true);
+                }}
+              >
+                <div className="w-8 h-8 bg-purple-100 dark:bg-purple-900/30 rounded-lg flex items-center justify-center mr-3">
+                  <Target className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                </div>
+                Set Custom Loan Limit
+              </Button>
 
               {/* View Detailed Info */}
               <Dialog open={showDetailsDialog} onOpenChange={setShowDetailsDialog}>
                 <DialogTrigger asChild>
-                  <Button variant="outline" className="w-full justify-start">
-                    <Info className="mr-2 h-4 w-4" />
+                  <Button variant="outline" className="w-full justify-start bg-white/60 dark:bg-slate-800/60 hover:bg-white/80 dark:hover:bg-slate-800/80 border-slate-200/50 dark:border-slate-700/50 shadow-sm">
+                    <div className="w-8 h-8 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center mr-3">
+                      <Info className="w-4 h-4 text-green-600 dark:text-green-400" />
+                    </div>
                     View Detailed Information
                   </Button>
                 </DialogTrigger>
@@ -554,6 +405,68 @@ const LoanEligibilityManager = ({ customer, onEligibilityUpdate }) => {
         </Card>
       )}
     </div>
+
+      {/* Custom Credit Limit Dialog */}
+      <CustomCreditLimitDialog
+        open={showCustomCreditDialog}
+        onOpenChange={setShowCustomCreditDialog}
+        customer={customer}
+        eligibilityData={eligibilityData}
+        onCustomerUpdate={(updatedCustomer) => {
+          // Immediate local state update with optimistic UI
+          if (updatedCustomer) {
+            setEligibilityData(prev => prev ? {
+              ...prev,
+              // Update credit-related fields immediately for instant feedback
+              credit_limit: parseFloat(updatedCustomer.credit_limit) || prev.credit_limit,
+              available_credit: parseFloat(updatedCustomer.credit_limit) - (prev.credit_used || 0)
+            } : null);
+          }
+          
+          // Force refresh and call callback for complete accuracy
+          checkEligibility(true);
+          if (onEligibilityUpdate) {
+            onEligibilityUpdate();
+          }
+        }}
+        onEligibilityUpdate={(newEligibilityData) => {
+          // Update eligibility data in real-time
+          if (newEligibilityData) {
+            setEligibilityData(newEligibilityData);
+          }
+        }}
+      />
+
+      {/* Custom Loan Limit Dialog */}
+      <CustomLoanLimitDialog
+        open={showCustomLimitDialog}
+        onOpenChange={setShowCustomLimitDialog}
+        customer={customer}
+        eligibilityData={eligibilityData}
+        onCustomerUpdate={(updatedCustomer) => {
+          // Immediate local state update with optimistic UI
+          if (updatedCustomer) {
+            setEligibilityData(prev => prev ? {
+              ...prev,
+              // Update loan-related fields immediately for instant feedback
+              max_loans: updatedCustomer.custom_loan_limit || prev.max_loans,
+              slots_available: (updatedCustomer.custom_loan_limit || prev.max_loans) - (prev.slots_used || 0)
+            } : null);
+          }
+          
+          // Force refresh and call callback for complete accuracy
+          checkEligibility(true);
+          if (onEligibilityUpdate) {
+            onEligibilityUpdate();
+          }
+        }}
+        onEligibilityUpdate={(newEligibilityData) => {
+          // Update eligibility data in real-time
+          if (newEligibilityData) {
+            setEligibilityData(newEligibilityData);
+          }
+        }}
+      />
     </div>
   );
 };

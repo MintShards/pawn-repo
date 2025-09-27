@@ -34,7 +34,7 @@ import { Badge } from '../ui/badge';
 import { Separator } from '../ui/separator';
 import { Progress } from '../ui/progress';
 import customerService from '../../services/customerService';
-import { useToast } from '../ui/toast';
+import { toast } from 'sonner';
 import { useAuth } from '../../context/AuthContext';
 import { isAdmin as isAdminRole } from '../../utils/roleUtils';
 
@@ -42,15 +42,18 @@ const CustomLoanLimitDialog = ({
   open, 
   onOpenChange, 
   customer, 
-  onCustomerUpdate 
+  eligibilityData,
+  onCustomerUpdate,
+  onEligibilityUpdate 
 }) => {
-  const { toast } = useToast();
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [customLimit, setCustomLimit] = useState('');
   const [reason, setReason] = useState('');
-  const [systemDefault, setSystemDefault] = useState(8);
+  const [systemDefault, setSystemDefault] = useState(8); // Still used for calculations
   const [selectedUseCase, setSelectedUseCase] = useState(null);
+  const [hasUserInput, setHasUserInput] = useState(false);
+  const [localEligibilityData, setLocalEligibilityData] = useState(eligibilityData);
 
   const isAdmin = isAdminRole(user);
 
@@ -96,15 +99,24 @@ const CustomLoanLimitDialog = ({
 
   useEffect(() => {
     if (open && customer) {
-      // Initialize with customer's current custom limit or empty
-      setCustomLimit(customer.custom_loan_limit?.toString() || '');
+      // Start with empty field to show placeholder text
+      setCustomLimit('');
       setReason('');
       setSelectedUseCase(null);
+      setHasUserInput(false); // Reset user input flag when dialog opens
       
-      // Load system default
+      // Load system default for calculations (not display)
       loadSystemDefault();
+      
+      // Ensure we have the latest eligibility data when dialog opens
+      setLocalEligibilityData(eligibilityData);
     }
-  }, [open, customer]);
+  }, [open, customer?.custom_loan_limit, eligibilityData]); // Re-initialize when dialog opens or when customer loan limit changes
+  
+  // Sync local eligibility data when prop changes
+  useEffect(() => {
+    setLocalEligibilityData(eligibilityData);
+  }, [eligibilityData]);
 
   const loadSystemDefault = async () => {
     try {
@@ -145,75 +157,195 @@ const CustomLoanLimitDialog = ({
 
   const handleSave = async () => {
     if (!isAdmin) {
-      toast({
-        title: "Access Denied",
-        description: "Only admin users can modify loan limits.",
-        variant: "destructive",
-      });
+      toast.error("Only admin users can modify loan limits.");
       return;
     }
 
     if (!reason.trim()) {
-      toast({
-        title: "Validation Error",
-        description: "Please provide a reason for this change.",
-        variant: "destructive",
-      });
+      toast.error("Please provide a reason for this change.");
+      return;
+    }
+
+    // Validate custom limit input
+    if (customLimit !== '' && customLimit.trim() === '') {
+      toast.error("Please enter a valid loan limit number.");
       return;
     }
 
     const limitNumber = customLimit === '' ? null : parseInt(customLimit);
     
-    if (limitNumber !== null && (isNaN(limitNumber) || limitNumber < 1 || limitNumber > 50)) {
-      toast({
-        title: "Invalid Limit",
-        description: "Loan limit must be between 1 and 50, or leave empty to use system default.",
-        variant: "destructive",
-      });
+    // Check for invalid number conversion
+    if (customLimit !== '' && (limitNumber === null || isNaN(limitNumber))) {
+      toast.error("Please enter a valid number for the loan limit.");
+      return;
+    }
+    
+    // Check range validation
+    if (limitNumber !== null && (limitNumber < 1 || limitNumber > 50)) {
+      toast.error("Loan limit must be between 1 and 50, or leave empty to use system default.");
+      return;
+    }
+
+    // Check if trying to set the same value as current
+    if (limitNumber === currentEffectiveLimit) {
+      toast.error(`The limit is already set to ${limitNumber}. No change needed.`);
+      return;
+    }
+
+    // Check if new limit is below current usage
+    if (limitNumber !== null && limitNumber < currentSlotsUsed) {
+      const slotsText = currentSlotsUsed === 1 ? 'slot' : 'slots';
+      const transactionText = currentSlotsUsed === 1 ? 'transaction' : 'transactions';
+      
+      toast.error(`Customer currently has ${currentSlotsUsed} ${slotsText} in use with active ${transactionText}. You must wait for ${transactionText} to be completed or redeemed before reducing the limit to ${limitNumber}.`);
       return;
     }
 
     setLoading(true);
     try {
+      // Send custom_loan_limit as integer (backend expects int type)
       const updateData = {
-        custom_loan_limit: limitNumber,
-        // Add reason to notes for audit trail
-        notes: customer.notes ? 
-          `${customer.notes}\n\n[${new Date().toISOString()}] Loan limit ${limitNumber ? `set to ${limitNumber}` : 'reset to system default'} by ${user.user_id}: ${reason.trim()}` :
-          `[${new Date().toISOString()}] Loan limit ${limitNumber ? `set to ${limitNumber}` : 'reset to system default'} by ${user.user_id}: ${reason.trim()}`
+        custom_loan_limit: limitNumber
       };
+
 
       const updatedCustomer = await customerService.updateCustomer(customer.phone_number, updateData);
       
+      // Immediate optimistic UI update for Current Utilization
+      const newLoanLimit = limitNumber !== null ? limitNumber : systemDefault;
+      const updatedEligibilityData = {
+        ...localEligibilityData,
+        max_loans: newLoanLimit,
+        slots_available: newLoanLimit - (localEligibilityData?.slots_used || 0)
+      };
+      setLocalEligibilityData(updatedEligibilityData);
+      
+      // Notify parent component of eligibility data change
+      if (onEligibilityUpdate) {
+        onEligibilityUpdate(updatedEligibilityData);
+      }
+      
+      // Immediate UI updates with real-time data refresh
       if (onCustomerUpdate) {
         onCustomerUpdate(updatedCustomer);
       }
       
       onOpenChange(false);
       
-      toast({
-        title: "Loan Limit Updated",
-        description: limitNumber ? 
-          `Custom loan limit set to ${limitNumber} for ${customer.first_name} ${customer.last_name}.` :
-          `Loan limit reset to system default (${systemDefault}) for ${customer.first_name} ${customer.last_name}.`,
-      });
+      toast.success(limitNumber ? 
+        `Custom loan limit set to ${limitNumber} for ${customer.first_name} ${customer.last_name}.` :
+        `Loan limit reset to system default (${systemDefault}) for ${customer.first_name} ${customer.last_name}.`
+      );
 
-      // Force refresh customer data
-      await customerService.forceRefresh();
+      // Allow parent component update to complete first, then refresh cache
+      setTimeout(async () => {
+        await customerService.forceRefresh();
+        
+        // Trigger real-time update for other components after parent is updated
+        if (window.dispatchEvent) {
+          window.dispatchEvent(new CustomEvent('customer-data-updated', {
+            detail: { customer: updatedCustomer, type: 'loan_limit' }
+          }));
+        }
+      }, 100);
       
     } catch (error) {
-      console.error('Failed to update loan limit:', error);
-      toast({
-        title: "Update Failed",
-        description: error.message || "Failed to update loan limit.",
-        variant: "destructive",
-      });
+      
+      // Check if update actually succeeded despite 500 error
+      const is500Error = error.response?.status === 500 || error.status === 500;
+      const hasErrorData = error.response?.data;
+      
+      if (is500Error && hasErrorData && hasErrorData.request_id) {
+        
+        // Auto-refresh data after potential successful 500 error
+        try {
+          setTimeout(async () => {
+            // Force refresh customer data
+            await customerService.forceRefresh();
+            
+            // Attempt to get updated customer and trigger callbacks
+            if (onCustomerUpdate) {
+              try {
+                const refreshedCustomer = await customerService.getCustomer(customer.phone_number);
+                if (refreshedCustomer) {
+                  onCustomerUpdate(refreshedCustomer);
+                  
+                  // Trigger real-time update event
+                  window.dispatchEvent(new CustomEvent('customer-data-updated', {
+                    detail: { customer: refreshedCustomer, type: 'loan_limit_retry' }
+                  }));
+                }
+              } catch (retryError) {
+                // Refresh failed, but user was already notified
+              }
+            }
+          }, 1500); // Slightly longer delay for backend processing
+        } catch (refreshError) {
+          // Could not refresh data
+        }
+      }
+      
+      // Extract user-friendly error message
+      let errorMessage = "Failed to update loan limit. Please try again.";
+      
+      // Check for different error response structures
+      const status = error.response?.status || error.status;
+      const errorDetail = error.response?.data?.detail || error.data?.detail;
+      const errorData = error.response?.data;
+      
+      // Special handling for 500 errors that might have succeeded
+      if (status === 500 && errorData && errorData.request_id) {
+        errorMessage = "The server encountered an error while processing your request. The loan limit may have been updated successfully. Please check the customer information to verify if the change was applied.";
+      } else if (errorDetail) {
+        // Using server error detail for user display
+        errorMessage = errorDetail;
+      } else if (status === 500) {
+        errorMessage = "Server error occurred. Please contact support if this continues.";
+      } else if (status === 403) {
+        errorMessage = "You don't have permission to perform this action.";
+      } else if (status === 404) {
+        errorMessage = "Customer not found. Please refresh and try again.";
+      } else if (status === 422) {
+        errorMessage = "Invalid data format. Please check your input and try again.";
+      } else if (error.message && error.message.includes('500')) {
+        errorMessage = "Server error occurred. Please contact support if this continues.";
+      } else if (error.message && !error.message.includes('HTTP error')) {
+        errorMessage = error.message;
+      }
+      
+      // Display error message to user with appropriate severity
+      if (status === 500 && errorData && errorData.request_id) {
+        toast.error(errorMessage, {
+          duration: 8000, // Longer duration for important message
+          action: {
+            label: 'Check Status',
+            onClick: () => {
+              // Force refresh eligibility data to check current status
+              if (onEligibilityUpdate) {
+                setTimeout(() => {
+                  window.location.reload();
+                }, 500);
+              }
+            }
+          }
+        });
+      } else {
+        toast.error(errorMessage);
+      }
     } finally {
       setLoading(false);
     }
   };
 
   const handleReset = () => {
+    // Check if customer has active loans that would prevent reset
+    if (currentSlotsUsed > systemDefault) {
+      const slotsText = currentSlotsUsed === 1 ? 'slot' : 'slots';
+      const transactionText = currentSlotsUsed === 1 ? 'transaction' : 'transactions';
+      toast.error(`Cannot reset to system default (${systemDefault} slots) because customer currently has ${currentSlotsUsed} ${slotsText} in use with active ${transactionText}. Please wait for ${transactionText} to be completed or set a higher custom limit.`);
+      return;
+    }
+    
     setCustomLimit('');
     setReason('Reset to system default');
     setSelectedUseCase(null);
@@ -221,12 +353,17 @@ const CustomLoanLimitDialog = ({
 
   if (!customer) return null;
 
-  const currentEffectiveLimit = customer.custom_loan_limit || systemDefault;
-  const isUsingCustomLimit = customer.custom_loan_limit !== null && customer.custom_loan_limit !== undefined;
-  const loanUtilization = (customer.active_loans / currentEffectiveLimit) * 100;
-  const limitValue = customLimit ? parseInt(customLimit) : systemDefault;
-  const isIncrease = limitValue > currentEffectiveLimit;
-  const isDecrease = limitValue < currentEffectiveLimit;
+  // Use eligibility data for real-time updates, fallback to customer data
+  const currentEffectiveLimit = localEligibilityData?.max_loans || customer.custom_loan_limit || systemDefault;
+  const isUsingCustomLimit = (localEligibilityData?.max_loans || customer.custom_loan_limit) !== null && currentEffectiveLimit !== systemDefault;
+  const currentSlotsUsed = localEligibilityData?.slots_used || localEligibilityData?.active_loans || customer.active_loans || 0;
+  const loanUtilization = (currentSlotsUsed / currentEffectiveLimit) * 100;
+  
+  // Fix: Handle empty input and ensure proper number comparison
+  const limitValue = customLimit && customLimit.trim() !== '' ? parseInt(customLimit) : null;
+  const effectiveLimitValue = limitValue !== null ? limitValue : systemDefault;
+  const isIncrease = limitValue !== null && limitValue > currentEffectiveLimit;
+  const isDecrease = limitValue !== null && limitValue < currentEffectiveLimit;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -289,13 +426,13 @@ const CustomLoanLimitDialog = ({
                   <div className="flex justify-between items-baseline">
                     <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Current Utilization</span>
                     <span className="text-2xl font-bold text-slate-900 dark:text-slate-100">
-                      {customer.active_loans} / {currentEffectiveLimit}
+                      {currentSlotsUsed} / {currentEffectiveLimit}
                     </span>
                   </div>
                   <Progress value={loanUtilization} className="h-2" />
                   <div className="flex justify-between text-xs text-slate-500">
                     <span>{loanUtilization.toFixed(0)}% utilized</span>
-                    <span>{currentEffectiveLimit - customer.active_loans} slots available</span>
+                    <span>{currentEffectiveLimit - currentSlotsUsed} slots available</span>
                   </div>
                 </div>
               </div>
@@ -359,8 +496,9 @@ const CustomLoanLimitDialog = ({
                       onChange={(e) => {
                         setCustomLimit(e.target.value);
                         setSelectedUseCase(null);
+                        setHasUserInput(true); // Mark that user has started typing
                       }}
-                      placeholder={`Default: ${systemDefault}`}
+                      placeholder="Enter custom limit or leave empty for default"
                       className="pr-20 pl-12 h-12 text-lg font-medium border-2 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
                     />
                     <div className="absolute left-3 top-1/2 -translate-y-1/2">
@@ -381,6 +519,23 @@ const CustomLoanLimitDialog = ({
                     Reset
                   </Button>
                 </div>
+                
+                {/* Warning for invalid limit */}
+                {customLimit && parseInt(customLimit) < currentSlotsUsed && (
+                  <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400 mt-0.5 shrink-0" />
+                      <div className="text-sm">
+                        <p className="font-medium text-red-800 dark:text-red-300">
+                          Invalid Limit
+                        </p>
+                        <p className="text-red-700 dark:text-red-400 mt-1">
+                          Cannot set limit to {customLimit} - customer currently has {currentSlotsUsed} {currentSlotsUsed === 1 ? 'slot' : 'slots'} in use.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Reason Input */}
@@ -428,12 +583,12 @@ const CustomLoanLimitDialog = ({
                       }`}>
                         {isIncrease ? `Increasing limit by ${limitValue - currentEffectiveLimit}` :
                          isDecrease ? `Decreasing limit by ${currentEffectiveLimit - limitValue}` :
-                         'No change from current limit'}
+                         'Reset to system default'}
                       </p>
                       <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-                        {customLimit === '' ? 
-                          `Customer will use system default of ${systemDefault} active loans` :
-                          `Customer can have up to ${limitValue} active loans simultaneously`
+                        {customLimit === '' || limitValue === null ? 
+                          `Customer will use system default of ${systemDefault} loan slots` :
+                          `Customer can have up to ${limitValue} loan slots`
                         }
                       </p>
                     </div>

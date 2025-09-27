@@ -4323,8 +4323,9 @@ const EnhancedCustomerManagement = () => {
                   {/* Loan Eligibility Section */}
                   <LoanEligibilityManager 
                     customer={selectedCustomer}
-                    onEligibilityUpdate={(eligibility) => {
-                      // Handle eligibility updates if needed
+                    onEligibilityUpdate={async (eligibility) => {
+                      // Customer data is already updated via dialog callbacks and real-time events
+                      // No need to manually refresh here to avoid race conditions
                     }}
                   />
                 </div>

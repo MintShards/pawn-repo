@@ -13,6 +13,7 @@ from decimal import Decimal
 
 from fastapi import HTTPException, status
 from pymongo import ASCENDING, DESCENDING
+import structlog
 
 from app.models.customer_model import Customer, CustomerStatus
 from app.schemas.customer_schema import (
@@ -26,6 +27,9 @@ from app.core.redis_cache import BusinessCache, CacheConfig
 
 class CustomerService:
     """Service class for customer business logic"""
+    
+    # Initialize logger for this service
+    logger = structlog.get_logger(__name__)
 
     @staticmethod
     async def create_customer(customer_data: CustomerCreate, created_by: str) -> Customer:
@@ -211,17 +215,18 @@ class CustomerService:
             
             # Store audit entries if any
             if audit_entries:
-                # If customer had existing audit history, append to it
-                # Otherwise, this could be stored in a separate audit collection
-                # For now, we'll log to the transaction notes system
                 for audit in audit_entries:
-                    logger.info(f"Customer update audit: {audit.to_legacy_string()}")
+                    CustomerService.logger.info(f"Customer update audit: {audit.to_legacy_string()}")
             
-            # Invalidate cache after update
+            # Immediate cache invalidation and refresh for real-time updates
             await BusinessCache.invalidate_customer(phone_number)
             
             # Reload the customer from database to get updated data
             updated_customer = await Customer.find_one(Customer.phone_number == phone_number)
+            
+            # Proactively update cache with fresh data for faster subsequent requests
+            if updated_customer:
+                await BusinessCache.set_customer(phone_number, updated_customer.model_dump())
             
             return updated_customer
             

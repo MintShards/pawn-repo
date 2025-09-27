@@ -297,6 +297,43 @@ class CustomerService {
     this._clearLocalCache();
     authService.invalidateDataCache();
   }
+  
+  // Get customer data with automatic real-time refresh
+  async getCustomer(phoneNumber) {
+    try {
+      const customer = await this.getCustomerByPhone(phoneNumber);
+      
+      // Trigger real-time update event for listening components
+      if (customer && window.dispatchEvent) {
+        window.dispatchEvent(new CustomEvent('customer-data-refreshed', {
+          detail: { customer, type: 'fetch' }
+        }));
+      }
+      
+      return customer;
+    } catch (error) {
+      throw error;
+    }
+  }
+  
+  // Enhanced update with immediate real-time feedback
+  async updateCustomerWithRealtime(phoneNumber, customerData) {
+    try {
+      // Perform update
+      const result = await this.updateCustomer(phoneNumber, customerData);
+      
+      // Trigger immediate real-time update event
+      if (result && window.dispatchEvent) {
+        window.dispatchEvent(new CustomEvent('customer-data-updated', {
+          detail: { customer: result, type: 'update', phoneNumber }
+        }));
+      }
+      
+      return result;
+    } catch (error) {
+      throw error;
+    }
+  }
 
   // Clear local cache
   _clearLocalCache() {
