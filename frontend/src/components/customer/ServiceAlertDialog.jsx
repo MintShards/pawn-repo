@@ -262,7 +262,7 @@ const ServiceAlertDialog = ({
             </div>
           </DialogHeader>
 
-        <div className="max-h-[70vh] overflow-y-auto px-1 scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-600 scrollbar-track-transparent">
+        <div className="max-h-[70vh] overflow-y-auto px-2 py-1 scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-600 scrollbar-track-transparent hover:scrollbar-thumb-slate-400 dark:hover:scrollbar-thumb-slate-500 transition-colors">
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 p-1">
             {/* Create Alert Form */}
             <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-xl transition-all duration-300 hover:shadow-2xl">
@@ -353,24 +353,50 @@ const ServiceAlertDialog = ({
                         name="item_reference"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Related Item (Optional)</FormLabel>
+                            <FormLabel>Related Transaction (Optional)</FormLabel>
                             <Select onValueChange={field.onChange} value={field.value}>
                               <FormControl>
                                 <SelectTrigger>
-                                  <SelectValue placeholder="Select related item (optional)" />
+                                  <SelectValue placeholder="Select related transaction (optional)">
+                                    {field.value && field.value !== "none" ? (
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-medium text-blue-600 dark:text-blue-400">{field.value}</span>
+                                        <span className="text-xs text-slate-500 dark:text-slate-400">
+                                          {customerItems.find(t => t.transaction_id === field.value)?.status}
+                                        </span>
+                                      </div>
+                                    ) : field.value === "none" ? (
+                                      <span className="text-slate-500 dark:text-slate-400">No specific transaction</span>
+                                    ) : (
+                                      <span className="text-slate-500 dark:text-slate-400">Select related transaction (optional)</span>
+                                    )}
+                                  </SelectValue>
                                 </SelectTrigger>
                               </FormControl>
-                              <SelectContent>
-                                <SelectItem value="">No specific item</SelectItem>
-                                {customerItems.map((item) => (
-                                  <SelectItem key={item.id} value={item.description}>
-                                    {item.description} - {item.category} ({item.status})
+                              <SelectContent className="max-h-[200px] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-600 scrollbar-track-transparent">
+                                <SelectItem value="none">No specific transaction</SelectItem>
+                                {customerItems.map((transaction) => (
+                                  <SelectItem key={transaction.id} value={transaction.transaction_id} className="focus:bg-blue-50 dark:focus:bg-blue-950/50">
+                                    <div className="flex flex-col py-1">
+                                      <div className="flex items-center gap-2 mb-1">
+                                        <span className="font-bold text-blue-600 dark:text-blue-400">{transaction.transaction_id}</span>
+                                        <span className="text-xs px-2 py-0.5 bg-slate-100 dark:bg-slate-700 rounded-full text-slate-600 dark:text-slate-300">
+                                          {transaction.status}
+                                        </span>
+                                      </div>
+                                      <span className="font-medium text-slate-900 dark:text-slate-100 line-clamp-2">
+                                        {transaction.description}
+                                      </span>
+                                      <span className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                                        Loan Date: {new Date(transaction.loan_date).toLocaleDateString()}
+                                      </span>
+                                    </div>
                                   </SelectItem>
                                 ))}
                               </SelectContent>
                             </Select>
                             <FormDescription>
-                              Link this alert to a specific pawn item
+                              Link this alert to a specific pawn transaction
                             </FormDescription>
                             <FormMessage />
                           </FormItem>

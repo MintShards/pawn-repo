@@ -114,11 +114,10 @@ class ServiceAlertCountResponse(BaseModel):
 class CustomerItemResponse(BaseModel):
     """Schema for customer pawn item responses (for alert item selection)"""
     
-    id: str = Field(..., description="Item ID")
-    description: str = Field(..., description="Item description")
-    category: str = Field(..., description="Item category")
-    condition: str = Field(..., description="Item condition")
-    status: str = Field(..., description="Item status")
+    id: str = Field(..., description="Transaction ID")
+    description: str = Field(..., description="Combined item descriptions")
+    status: str = Field(..., description="Transaction status")
+    transaction_id: str = Field(..., description="Formatted transaction ID (e.g., PW000123)")
     loan_date: datetime = Field(..., description="Loan date")
     maturity_date: datetime = Field(..., description="Maturity date")
     

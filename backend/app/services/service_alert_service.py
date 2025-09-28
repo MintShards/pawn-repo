@@ -320,30 +320,40 @@ class ServiceAlertService:
         Returns:
             List of customer pawn items
         """
-        # Find active transactions for customer
+        # Find transactions for customer (all statuses for comprehensive view)
         transactions = await PawnTransaction.find(
             PawnTransaction.customer_id == customer_phone
-        ).to_list()
+        ).sort(-PawnTransaction.pawn_date).to_list()  # Most recent first
         
-        items = []
+        transaction_items = []
         for transaction in transactions:
             # Find items for this transaction
-            transaction_items = await PawnItem.find(
+            pawn_items = await PawnItem.find(
                 PawnItem.transaction_id == transaction.transaction_id
-            ).to_list()
+            ).sort(PawnItem.item_number).to_list()
             
-            for item in transaction_items:
-                items.append(CustomerItemResponse(
-                    id=str(item.item_id),
-                    description=item.description,
-                    category="other",  # Default category since PawnItem doesn't have this field
-                    condition="good",  # Default condition since PawnItem doesn't have this field
-                    status=transaction.status.value if hasattr(transaction.status, 'value') else str(transaction.status),
-                    loan_date=transaction.pawn_date,
-                    maturity_date=transaction.maturity_date
-                ))
+            if not pawn_items:
+                continue  # Skip transactions with no items
+            
+            # Create a summary description of all items in the transaction
+            item_descriptions = [item.description for item in pawn_items]
+            if len(item_descriptions) == 1:
+                combined_description = item_descriptions[0]
+            elif len(item_descriptions) <= 3:
+                combined_description = ", ".join(item_descriptions)
+            else:
+                combined_description = f"{', '.join(item_descriptions[:2])}, and {len(item_descriptions) - 2} more items"
+            
+            transaction_items.append(CustomerItemResponse(
+                id=str(transaction.transaction_id),  # Use transaction ID as the identifier
+                description=combined_description,
+                status=transaction.status.value if hasattr(transaction.status, 'value') else str(transaction.status),
+                transaction_id=transaction.formatted_id or f"PW{str(transaction.transaction_id)[:6].upper()}",
+                loan_date=transaction.pawn_date,
+                maturity_date=transaction.maturity_date
+            ))
         
-        return items
+        return transaction_items
     
     @staticmethod
     async def delete_alert(alert_id: str) -> bool:
