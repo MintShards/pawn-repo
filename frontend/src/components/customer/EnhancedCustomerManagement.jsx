@@ -2101,6 +2101,10 @@ const EnhancedCustomerManagement = () => {
   const [overviewTransactions, setOverviewTransactions] = useState([]);
   const [overviewLoading, setOverviewLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
+  
+  // Customer list transaction data for last activity calculation
+  const [customerTransactionsMap, setCustomerTransactionsMap] = useState({});
+  const [loadingCustomerActivities, setLoadingCustomerActivities] = useState(false);
 
   // Number formatting utility for large counts
   const formatCount = (count) => {
@@ -2112,22 +2116,71 @@ const EnhancedCustomerManagement = () => {
     return count.toString();
   };
 
-  // Get last activity date from transactions
-  const getLastActivityDate = () => {
-    if (!overviewTransactions || overviewTransactions.length === 0) {
+  // Calculate last activity date from transaction data
+  const calculateLastActivityFromTransactions = (transactions) => {
+    if (!transactions || transactions.length === 0) {
       return null;
     }
     
-    // Find the most recent transaction date
-    const sortedTransactions = [...overviewTransactions].sort((a, b) => {
-      const dateA = new Date(a.pawn_date || a.transaction_date || a.created_at || 0);
-      const dateB = new Date(b.pawn_date || b.transaction_date || b.created_at || 0);
-      return dateB - dateA; // Sort descending (newest first)
+    // Collect all activity dates from transactions and their updates
+    const activityDates = [];
+    
+    transactions.forEach(transaction => {
+      // Transaction creation date (loan origination)
+      if (transaction.pawn_date) {
+        activityDates.push(new Date(transaction.pawn_date));
+      } else if (transaction.transaction_date) {
+        activityDates.push(new Date(transaction.transaction_date));
+      } else if (transaction.created_at) {
+        activityDates.push(new Date(transaction.created_at));
+      }
+      
+      // Transaction update date (captures payments, extensions, status changes)
+      // This is the most reliable indicator of recent customer activity
+      if (transaction.updated_at) {
+        const updatedDate = new Date(transaction.updated_at);
+        const createdDate = new Date(transaction.created_at || transaction.pawn_date || transaction.transaction_date);
+        
+        // Only include update date if it's meaningfully different from creation (>1 minute)
+        if (Math.abs(updatedDate - createdDate) > 60000) {
+          activityDates.push(updatedDate);
+        }
+      }
+      
+      // Future enhancement: Include payment and extension dates when API provides them
+      // These would be fetched from separate endpoints or enriched transaction data
+      if (transaction.payments && Array.isArray(transaction.payments)) {
+        transaction.payments.forEach(payment => {
+          if (payment.payment_date && !payment.is_voided) {
+            activityDates.push(new Date(payment.payment_date));
+          }
+        });
+      }
+      
+      if (transaction.extensions && Array.isArray(transaction.extensions)) {
+        transaction.extensions.forEach(extension => {
+          if (extension.extension_date && !extension.is_cancelled) {
+            activityDates.push(new Date(extension.extension_date));
+          }
+        });
+      }
     });
     
-    const lastTransaction = sortedTransactions[0];
-    return lastTransaction ? (lastTransaction.pawn_date || lastTransaction.transaction_date || lastTransaction.created_at) : null;
+    // Find the most recent activity date
+    if (activityDates.length === 0) {
+      return null;
+    }
+    
+    // Sort dates descending and get the most recent
+    activityDates.sort((a, b) => b - a);
+    return activityDates[0].toISOString();
   };
+
+  // Get last activity date for overview tab (uses overviewTransactions)
+  const getLastActivityDate = () => {
+    return calculateLastActivityFromTransactions(overviewTransactions);
+  };
+
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState(null);
   const [showFilters, setShowFilters] = useState(false);
@@ -2816,36 +2869,127 @@ const EnhancedCustomerManagement = () => {
     setSelectedCustomerIds([]); // Clear selections when filters change
   }, [searchQuery, searchFields, statusFilter, alertFilter]);
 
+  // Refresh overview transactions (called by activity triggers)
+  const refreshOverviewTransactions = useCallback(async () => {
+    if (!selectedCustomer?.phone_number) return;
+    
+    setOverviewLoading(true);
+    try {
+      const response = await transactionService.getCustomerTransactions(selectedCustomer.phone_number);
+      
+      // Handle different API response formats
+      let transactionArray = [];
+      if (Array.isArray(response)) {
+        transactionArray = response;
+      } else if (response && Array.isArray(response.transactions)) {
+        transactionArray = response.transactions;
+      } else if (response && Array.isArray(response.data)) {
+        transactionArray = response.data;
+      }
+      
+      setOverviewTransactions(transactionArray);
+    } catch (error) {
+      console.error('Failed to fetch overview transactions:', error);
+      setOverviewTransactions([]);
+    } finally {
+      setOverviewLoading(false);
+    }
+  }, [selectedCustomer?.phone_number]);
+
+  // Load transaction data for customers in the list to calculate last activity
+  const loadCustomerActivities = useCallback(async (customers) => {
+    if (!customers || customers.length === 0) return;
+    
+    setLoadingCustomerActivities(true);
+    const newTransactionsMap = {};
+    
+    try {
+      // Load transactions for each customer in parallel (limit to avoid overwhelming the server)
+      const batchSize = 5;
+      for (let i = 0; i < customers.length; i += batchSize) {
+        const batch = customers.slice(i, i + batchSize);
+        const promises = batch.map(async (customer) => {
+          try {
+            const response = await transactionService.getCustomerTransactions(customer.phone_number);
+            let transactionArray = [];
+            if (Array.isArray(response)) {
+              transactionArray = response;
+            } else if (response && Array.isArray(response.transactions)) {
+              transactionArray = response.transactions;
+            } else if (response && Array.isArray(response.data)) {
+              transactionArray = response.data;
+            }
+            return { phone: customer.phone_number, transactions: transactionArray };
+          } catch (error) {
+            console.error(`Failed to fetch transactions for ${customer.phone_number}:`, error);
+            return { phone: customer.phone_number, transactions: [] };
+          }
+        });
+        
+        const results = await Promise.all(promises);
+        results.forEach(({ phone, transactions }) => {
+          newTransactionsMap[phone] = transactions;
+        });
+      }
+      
+      setCustomerTransactionsMap(newTransactionsMap);
+    } catch (error) {
+      console.error('Failed to load customer activities:', error);
+    } finally {
+      setLoadingCustomerActivities(false);
+    }
+  }, []);
+
+  // Load customer activities when customer list changes
+  useEffect(() => {
+    if (currentCustomers && currentCustomers.length > 0) {
+      loadCustomerActivities(currentCustomers);
+    }
+  }, [currentCustomers, loadCustomerActivities]);
+
   // Load transactions for overview tab
   useEffect(() => {
-    const fetchOverviewTransactions = async () => {
-      if (!selectedCustomer?.phone_number || activeTab !== 'overview') return;
+    if (activeTab === 'overview') {
+      refreshOverviewTransactions();
+    }
+  }, [selectedCustomer?.phone_number, activeTab, refreshOverviewTransactions]);
+
+  // Listen for transaction activity updates to refresh last activity
+  useEffect(() => {
+    const handleTransactionUpdate = (event) => {
+      const { customer_phone, type } = event.detail || {};
       
-      setOverviewLoading(true);
-      try {
-        const response = await transactionService.getCustomerTransactions(selectedCustomer.phone_number);
-        
-        // Handle different API response formats
-        let transactionArray = [];
-        if (Array.isArray(response)) {
-          transactionArray = response;
-        } else if (response && Array.isArray(response.transactions)) {
-          transactionArray = response.transactions;
-        } else if (response && Array.isArray(response.data)) {
-          transactionArray = response.data;
-        }
-        
-        setOverviewTransactions(transactionArray);
-      } catch (error) {
-        console.error('Failed to fetch overview transactions:', error);
-        setOverviewTransactions([]);
-      } finally {
-        setOverviewLoading(false);
+      // Refresh overview if this update is for the currently selected customer
+      if (customer_phone === selectedCustomer?.phone_number && activeTab === 'overview') {
+        refreshOverviewTransactions();
       }
+      
+      // Also refresh customer list to update last transaction dates
+      // Use a small delay to avoid multiple rapid refreshes
+      clearTimeout(window.customerListRefreshTimeout);
+      window.customerListRefreshTimeout = setTimeout(() => {
+        loadCustomerList(currentPage, getCurrentSearchTerm(), statusFilter, alertFilter);
+        // Also refresh activity data for better accuracy
+        if (currentCustomers && currentCustomers.length > 0) {
+          loadCustomerActivities(currentCustomers);
+        }
+      }, 1000);
     };
 
-    fetchOverviewTransactions();
-  }, [selectedCustomer?.phone_number, activeTab]);
+    // Listen for various transaction activities
+    window.addEventListener('transaction-updated', handleTransactionUpdate);
+    window.addEventListener('payment-processed', handleTransactionUpdate);
+    window.addEventListener('extension-applied', handleTransactionUpdate);
+    window.addEventListener('transaction-created', handleTransactionUpdate);
+    
+    return () => {
+      window.removeEventListener('transaction-updated', handleTransactionUpdate);
+      window.removeEventListener('payment-processed', handleTransactionUpdate);
+      window.removeEventListener('extension-applied', handleTransactionUpdate);
+      window.removeEventListener('transaction-created', handleTransactionUpdate);
+      clearTimeout(window.customerListRefreshTimeout);
+    };
+  }, [selectedCustomer?.phone_number, activeTab, refreshOverviewTransactions, currentPage, statusFilter, alertFilter, loadCustomerList, getCurrentSearchTerm]);
 
   const handleSelectAll = (checked) => {
     if (checked) {
@@ -3689,7 +3833,6 @@ const EnhancedCustomerManagement = () => {
                       handleViewCustomer(customer);
                       setTimeout(() => setActiveTab('overview'), 100);
                     }}
-                    onSetCustomLimit={handleSetCustomLimit}
                     maxActiveLoans={maxActiveLoans}
                   />
                 ))}
@@ -3742,13 +3885,14 @@ const EnhancedCustomerManagement = () => {
                       className="flex items-center gap-2 hover:text-amber-600 dark:hover:text-amber-400 transition-colors font-medium"
                       onClick={() => handleSort('loan_activity')}
                     >
-                      Activity {getSortIcon('loan_activity')}
+                      Loans {getSortIcon('loan_activity')}
                     </button>
                   </TableHead>
                   <TableHead className="pt-6">
                     <button 
                       className="flex items-center gap-2 hover:text-amber-600 dark:hover:text-amber-400 transition-colors font-medium"
                       onClick={() => handleSort('last_visit')}
+                      title="Sort by last customer activity"
                     >
                       Last Visit {getSortIcon('last_visit')}
                     </button>
@@ -3857,27 +4001,83 @@ const EnhancedCustomerManagement = () => {
                     
                     <TableCell>
                       <div className="space-y-1">
-                        <div className="flex items-center justify-between text-sm">
-                          <span>Active: {customer.active_loans || 0}</span>
-                        </div>
-                        <Progress 
-                          value={Math.min(((customer.active_loans || 0) / maxActiveLoans) * 100, 100)} 
-                          className="h-1"
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          {customer.total_transactions || 0} total loans
-                        </p>
+                        {(() => {
+                          // Calculate accurate counts from transaction data if available
+                          const customerTransactions = customerTransactionsMap[customer.phone_number] || [];
+                          const activeLoans = customerTransactions.filter(t => 
+                            t.status === 'active' || t.status === 'overdue' || t.status === 'extended'
+                          ).length;
+                          const totalLoans = customerTransactions.length;
+                          
+                          // Use calculated values if available, otherwise fall back to customer data
+                          const displayActiveLoans = customerTransactions.length > 0 ? activeLoans : (customer.active_loans || 0);
+                          const displayTotalLoans = customerTransactions.length > 0 ? totalLoans : (customer.total_transactions || 0);
+                          
+                          if (loadingCustomerActivities && customerTransactions.length === 0) {
+                            return (
+                              <>
+                                <div className="flex items-center justify-between text-sm">
+                                  <span className="flex items-center gap-1">
+                                    <Loader2 className="w-3 h-3 animate-spin text-slate-400" />
+                                    <span className="text-slate-400">Loading...</span>
+                                  </span>
+                                </div>
+                                <Progress value={0} className="h-1" />
+                                <p className="text-xs text-muted-foreground">-</p>
+                              </>
+                            );
+                          }
+                          
+                          return (
+                            <>
+                              <div className="flex items-center justify-between text-sm">
+                                <span>Active: {displayActiveLoans}</span>
+                              </div>
+                              <Progress 
+                                value={Math.min((displayActiveLoans / maxActiveLoans) * 100, 100)} 
+                                className="h-1"
+                              />
+                              <p className="text-xs text-muted-foreground">
+                                {displayTotalLoans} total loans
+                              </p>
+                            </>
+                          );
+                        })()}
                       </div>
                     </TableCell>
                     
                     <TableCell className="text-muted-foreground">
-                      <div>
-                        <p className="text-sm">
-                          {customer.last_visit ? formatDate(customer.last_visit) : 'Never'}
-                        </p>
-                        {customer.last_visit && (
-                          <p className="text-xs">{getRelativeTime(customer.last_visit)}</p>
-                        )}
+                      <div title="Most recent transaction activity (loans, payments, extensions, status changes)">
+                        {(() => {
+                          // Calculate last activity from transaction data if available
+                          const customerTransactions = customerTransactionsMap[customer.phone_number];
+                          const calculatedLastActivity = calculateLastActivityFromTransactions(customerTransactions);
+                          
+                          // Use calculated activity if available, otherwise fall back to last_transaction_date
+                          const lastActivity = calculatedLastActivity || customer.last_transaction_date;
+                          
+                          if (loadingCustomerActivities && !calculatedLastActivity) {
+                            return (
+                              <div className="flex items-center gap-1">
+                                <Loader2 className="w-3 h-3 animate-spin text-slate-400" />
+                                <span className="text-slate-400 dark:text-slate-500 text-xs">Loading...</span>
+                              </div>
+                            );
+                          }
+                          
+                          if (lastActivity) {
+                            return (
+                              <>
+                                <p className="text-sm">{formatDate(lastActivity)}</p>
+                                <p className="text-xs text-slate-400 dark:text-slate-500">{getRelativeTime(lastActivity)}</p>
+                              </>
+                            );
+                          }
+                          
+                          return (
+                            <p className="text-xs text-slate-400 dark:text-slate-500 italic">No activity</p>
+                          );
+                        })()}
                       </div>
                     </TableCell>
                     
@@ -3909,20 +4109,6 @@ const EnhancedCustomerManagement = () => {
                           customerPhone={customer.phone_number}
                           onBellClick={handleBellClick}
                         />
-                        {isAdmin && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              handleSetCustomLimit(customer);
-                            }}
-                            title="Set Custom Loan Limit (Admin Only)"
-                          >
-                            <Gauge className="h-4 w-4" />
-                          </Button>
-                        )}
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button 
@@ -3959,30 +4145,26 @@ const EnhancedCustomerManagement = () => {
                               <CreditCard className="h-4 w-4 mr-2" />
                               View Transactions
                             </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                handleViewCustomer(customer);
-                                
-                                // Auto-switch to overview tab for loan eligibility management
-                                setTimeout(() => {
-                                  setActiveTab('overview');
-                                  toast({
-                                    title: 'Loan Eligibility Management',
-                                    description: 'Switched to Overview tab for comprehensive loan eligibility tools.',
-                                    duration: 3000
-                                  });
-                                }, 100);
-                              }}
-                            >
-                              <TrendingUp className="h-4 w-4 mr-2" />
-                              Manage Eligibility
-                            </DropdownMenuItem>
                             {isAdmin && (
-                              <DropdownMenuItem onClick={() => handleSetCustomLimit(customer)}>
-                                <Gauge className="h-4 w-4 mr-2" />
-                                Set Loan Limit
+                              <DropdownMenuItem
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  handleViewCustomer(customer);
+                                  
+                                  // Auto-switch to overview tab for loan eligibility management
+                                  setTimeout(() => {
+                                    setActiveTab('overview');
+                                    toast({
+                                      title: 'Loan Eligibility Management',
+                                      description: 'Switched to Overview tab for comprehensive loan eligibility tools.',
+                                      duration: 3000
+                                    });
+                                  }, 100);
+                                }}
+                              >
+                                <TrendingUp className="h-4 w-4 mr-2" />
+                                Manage Eligibility
                               </DropdownMenuItem>
                             )}
                           </DropdownMenuContent>
@@ -4299,7 +4481,7 @@ const EnhancedCustomerManagement = () => {
                           </div>
 
                           {/* Last Activity */}
-                          <div className="group flex items-center gap-3 p-2.5 rounded-lg hover:bg-blue-50/50 dark:hover:bg-blue-950/30 transition-colors">
+                          <div className="group flex items-center gap-3 p-2.5 rounded-lg hover:bg-blue-50/50 dark:hover:bg-blue-950/30 transition-colors" title="Most recent transaction activity (loans, payments, extensions, status changes)">
                             <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center group-hover:bg-blue-200 dark:group-hover:bg-blue-900/50 transition-colors">
                               <Activity className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                             </div>
@@ -4310,6 +4492,9 @@ const EnhancedCustomerManagement = () => {
                                   const lastActivityDate = getLastActivityDate();
                                   return lastActivityDate ? formatDate(lastActivityDate) : 'No transactions yet';
                                 })()}
+                              </div>
+                              <div className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+                                Loans, payments, extensions
                               </div>
                             </div>
                           </div>
