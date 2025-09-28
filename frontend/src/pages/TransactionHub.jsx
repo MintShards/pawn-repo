@@ -1835,16 +1835,19 @@ const TransactionHub = () => {
                               </Button>
                             </>
                           )}
-                          <Button 
-                            variant="outline"
-                            onClick={() => {
-                              handleStatusUpdate(selectedTransaction?.transaction || selectedTransaction);
-                            }}
-                            className="w-full"
-                          >
-                            <Activity className="w-4 h-4 mr-2" />
-                            Update Status
-                          </Button>
+                          {/* Admin-only Update Status Button */}
+                          {user?.role === 'admin' && (
+                            <Button 
+                              variant="outline"
+                              onClick={() => {
+                                handleStatusUpdate(selectedTransaction?.transaction || selectedTransaction);
+                              }}
+                              className="w-full"
+                            >
+                              <Activity className="w-4 h-4 mr-2" />
+                              Update Status
+                            </Button>
+                          )}
                           
                           {/* Admin-only Void Transaction Button */}
                           {user?.role === 'admin' && (
@@ -2493,17 +2496,20 @@ const TransactionHub = () => {
                           </Button>
                         </>
                       )}
-                      <Button 
-                        variant="outline"
-                        onClick={() => {
-                          setShowTransactionDetails(false);
-                          handleStatusUpdate(selectedTransaction?.transaction || selectedTransaction);
-                        }}
-                        className="w-full"
-                      >
-                        <Activity className="w-4 h-4 mr-2" />
-                        Update Status
-                      </Button>
+                      {/* Admin-only Update Status Button */}
+                      {user?.role === 'admin' && (
+                        <Button 
+                          variant="outline"
+                          onClick={() => {
+                            setShowTransactionDetails(false);
+                            handleStatusUpdate(selectedTransaction?.transaction || selectedTransaction);
+                          }}
+                          className="w-full"
+                        >
+                          <Activity className="w-4 h-4 mr-2" />
+                          Update Status
+                        </Button>
+                      )}
                       
                       {/* Admin-only Void Transaction Button */}
                       {user?.role === 'admin' && (
