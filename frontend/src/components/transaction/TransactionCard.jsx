@@ -54,7 +54,7 @@ const TransactionCard = ({
     switch (status) {
       case 'active': return 'from-blue-50 to-blue-100 dark:from-blue-950/50 dark:to-blue-900/50';
       case 'overdue': return 'from-red-50 to-red-100 dark:from-red-950/50 dark:to-red-900/50';
-      case 'extended': return 'from-teal-50 to-teal-100 dark:from-teal-950/50 dark:to-teal-900/50';
+      case 'extended': return 'from-cyan-50 to-cyan-100 dark:from-cyan-950/50 dark:to-cyan-900/50';
       case 'redeemed': return 'from-green-50 to-green-100 dark:from-green-950/50 dark:to-green-900/50';
       case 'sold': return 'from-purple-50 to-purple-100 dark:from-purple-950/50 dark:to-purple-900/50';
       case 'hold': return 'from-amber-50 to-amber-100 dark:from-amber-950/50 dark:to-amber-900/50';

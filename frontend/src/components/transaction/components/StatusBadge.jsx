@@ -14,8 +14,8 @@ const StatusBadge = ({ status }) => {
         return 'bg-blue-500 dark:bg-blue-600 text-white hover:bg-blue-600 dark:hover:bg-blue-700';
       
       case 'extended':
-        // Teal - Informational/Extended
-        return 'bg-teal-500 dark:bg-teal-600 text-white hover:bg-teal-600 dark:hover:bg-teal-700';
+        // Cyan - Informational/Extended
+        return 'bg-cyan-500 dark:bg-cyan-600 text-white hover:bg-cyan-600 dark:hover:bg-cyan-700';
       
       case 'sold':
         // Purple - Completed Transaction

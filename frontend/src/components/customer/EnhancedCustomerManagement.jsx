@@ -30,6 +30,8 @@ import {
   X,
   Trash2,
   Crown,
+  Circle,
+  ShoppingBag,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
@@ -1056,7 +1058,7 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                                   // Status configuration with proper icons and colors
                                   const statusConfig = {
                                     'active': {
-                                      icon: Activity,
+                                      icon: Circle,
                                       bgColor: 'bg-blue-100 dark:bg-blue-900/30',
                                       iconColor: 'text-blue-600 dark:text-blue-400',
                                       borderColor: 'border-blue-200 dark:border-blue-800',
@@ -1072,9 +1074,9 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                                     },
                                     'extended': {
                                       icon: Calendar,
-                                      bgColor: 'bg-teal-100 dark:bg-teal-900/30',
-                                      iconColor: 'text-teal-600 dark:text-teal-400',
-                                      borderColor: 'border-teal-200 dark:border-teal-800',
+                                      bgColor: 'bg-cyan-100 dark:bg-cyan-900/30',
+                                      iconColor: 'text-cyan-600 dark:text-cyan-400',
+                                      borderColor: 'border-cyan-200 dark:border-cyan-800',
                                       pulse: false
                                     },
                                     'redeemed': {
@@ -1085,7 +1087,7 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                                       pulse: false
                                     },
                                     'sold': {
-                                      icon: Crown,
+                                      icon: ShoppingBag,
                                       bgColor: 'bg-purple-100 dark:bg-purple-900/30',
                                       iconColor: 'text-purple-600 dark:text-purple-400',
                                       borderColor: 'border-purple-200 dark:border-purple-800',
@@ -1099,7 +1101,7 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                                       pulse: false
                                     },
                                     'forfeited': {
-                                      icon: AlertTriangle,
+                                      icon: XCircle,
                                       bgColor: 'bg-orange-100 dark:bg-orange-900/30',
                                       iconColor: 'text-orange-600 dark:text-orange-400',
                                       borderColor: 'border-orange-200 dark:border-orange-800',
@@ -1107,7 +1109,7 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                                       pulseColor: 'bg-orange-500'
                                     },
                                     'damaged': {
-                                      icon: AlertTriangle,
+                                      icon: AlertCircle,
                                       bgColor: 'bg-amber-100 dark:bg-amber-900/30',
                                       iconColor: 'text-amber-800 dark:text-amber-600',
                                       borderColor: 'border-amber-200 dark:border-amber-800',
@@ -1115,15 +1117,15 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                                     },
                                     'voided': {
                                       icon: XCircle,
-                                      bgColor: 'bg-slate-100 dark:bg-slate-900/30',
-                                      iconColor: 'text-slate-600 dark:text-slate-400',
-                                      borderColor: 'border-slate-200 dark:border-slate-800',
+                                      bgColor: 'bg-gray-100 dark:bg-gray-900/30',
+                                      iconColor: 'text-gray-600 dark:text-gray-400',
+                                      borderColor: 'border-gray-200 dark:border-gray-800',
                                       pulse: false
                                     }
                                   };
                                   
                                   const config = statusConfig[currentStatus] || {
-                                    icon: Activity,
+                                    icon: Circle,
                                     bgColor: 'bg-slate-100 dark:bg-slate-900/30',
                                     iconColor: 'text-slate-600 dark:text-slate-400',
                                     borderColor: 'border-slate-200 dark:border-slate-800',
@@ -1492,53 +1494,106 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                           <ScrollArea className="h-[calc(100%-2rem)]">
                             <div className="space-y-3 pr-4 pb-4">
                               {/* Current status indicator for non-active statuses */}
-                              {getTransactionStatus() !== 'active' && (
-                                <div className="flex space-x-3 group hover:bg-slate-50/50 dark:hover:bg-slate-800/50 rounded-lg p-2 -m-2 transition-colors">
-                                  <div className="flex-shrink-0 mt-1.5">
-                                    <div className={`w-6 h-6 rounded-full flex items-center justify-center ${(() => {
-                                      const status = getTransactionStatus();
-                                      switch (status) {
-                                        case 'redeemed': return 'bg-green-100 dark:bg-green-900/30';
-                                        case 'extended': return 'bg-cyan-100 dark:bg-cyan-900/30';
-                                        case 'sold': return 'bg-purple-100 dark:bg-purple-900/30';
-                                        case 'hold': return 'bg-yellow-100 dark:bg-yellow-900/30';
-                                        case 'forfeited': return 'bg-red-100 dark:bg-red-900/30';
-                                        case 'overdue': return 'bg-red-100 dark:bg-red-900/30';
-                                        case 'damaged': return 'bg-stone-100 dark:bg-stone-900/30';
-                                        case 'voided': return 'bg-slate-100 dark:bg-slate-800';
-                                        default: return 'bg-blue-100 dark:bg-blue-900/30';
-                                      }
-                                    })()}`}>
-                                      {(() => {
-                                        const status = getTransactionStatus();
-                                        switch (status) {
-                                          case 'voided':
-                                            return <XCircle className="w-3 h-3 text-red-600 dark:text-red-400" />;
-                                          case 'redeemed':
-                                            return <CheckCircle className="w-3 h-3 text-green-600 dark:text-green-400" />;
-                                          case 'overdue':
-                                          case 'forfeited':
-                                            return <AlertTriangle className="w-3 h-3 text-red-600 dark:text-red-400" />;
-                                          case 'hold':
-                                            return <Clock className="w-3 h-3 text-yellow-600 dark:text-yellow-400" />;
-                                          default:
-                                            return <FileText className="w-3 h-3 text-slate-600 dark:text-slate-400" />;
-                                        }
-                                      })()}
-                                    </div>
-                                  </div>
-                                  <div className="flex-1">
-                                    <div className="flex items-center justify-between">
-                                      <div className="text-sm font-medium text-slate-900 dark:text-slate-100 capitalize">
-                                        {getTransactionStatus()}
+                              {getTransactionStatus() !== 'active' && (() => {
+                                const currentStatus = getTransactionStatus();
+                                
+                                // Use the same status configuration as the main status display
+                                const statusConfig = {
+                                  'active': {
+                                    icon: Circle,
+                                    bgColor: 'bg-blue-100 dark:bg-blue-900/30',
+                                    iconColor: 'text-blue-600 dark:text-blue-400',
+                                    borderColor: 'border-blue-200 dark:border-blue-800',
+                                    pulse: false
+                                  },
+                                  'overdue': {
+                                    icon: AlertTriangle,
+                                    bgColor: 'bg-red-100 dark:bg-red-900/30',
+                                    iconColor: 'text-red-600 dark:text-red-400',
+                                    borderColor: 'border-red-200 dark:border-red-800',
+                                    pulse: true,
+                                    pulseColor: 'bg-red-500'
+                                  },
+                                  'extended': {
+                                    icon: Calendar,
+                                    bgColor: 'bg-cyan-100 dark:bg-cyan-900/30',
+                                    iconColor: 'text-cyan-600 dark:text-cyan-400',
+                                    borderColor: 'border-cyan-200 dark:border-cyan-800',
+                                    pulse: false
+                                  },
+                                  'redeemed': {
+                                    icon: CheckCircle,
+                                    bgColor: 'bg-green-100 dark:bg-green-900/30',
+                                    iconColor: 'text-green-600 dark:text-green-400',
+                                    borderColor: 'border-green-200 dark:border-green-800',
+                                    pulse: false
+                                  },
+                                  'sold': {
+                                    icon: ShoppingBag,
+                                    bgColor: 'bg-purple-100 dark:bg-purple-900/30',
+                                    iconColor: 'text-purple-600 dark:text-purple-400',
+                                    borderColor: 'border-purple-200 dark:border-purple-800',
+                                    pulse: false
+                                  },
+                                  'hold': {
+                                    icon: Clock,
+                                    bgColor: 'bg-amber-100 dark:bg-amber-900/30',
+                                    iconColor: 'text-amber-600 dark:text-amber-400',
+                                    borderColor: 'border-amber-200 dark:border-amber-800',
+                                    pulse: false
+                                  },
+                                  'forfeited': {
+                                    icon: XCircle,
+                                    bgColor: 'bg-orange-100 dark:bg-orange-900/30',
+                                    iconColor: 'text-orange-600 dark:text-orange-400',
+                                    borderColor: 'border-orange-200 dark:border-orange-800',
+                                    pulse: true,
+                                    pulseColor: 'bg-orange-500'
+                                  },
+                                  'damaged': {
+                                    icon: AlertCircle,
+                                    bgColor: 'bg-amber-100 dark:bg-amber-900/30',
+                                    iconColor: 'text-amber-800 dark:text-amber-600',
+                                    borderColor: 'border-amber-200 dark:border-amber-800',
+                                    pulse: false
+                                  },
+                                  'voided': {
+                                    icon: XCircle,
+                                    bgColor: 'bg-gray-100 dark:bg-gray-900/30',
+                                    iconColor: 'text-gray-600 dark:text-gray-400',
+                                    borderColor: 'border-gray-200 dark:border-gray-800',
+                                    pulse: false
+                                  }
+                                };
+                                
+                                const config = statusConfig[currentStatus] || {
+                                  icon: Circle,
+                                  bgColor: 'bg-slate-100 dark:bg-slate-900/30',
+                                  iconColor: 'text-slate-600 dark:text-slate-400'
+                                };
+                                
+                                const StatusIcon = config.icon;
+                                
+                                return (
+                                  <div className="flex space-x-3 group hover:bg-slate-50/50 dark:hover:bg-slate-800/50 rounded-lg p-2 -m-2 transition-colors">
+                                    <div className="flex-shrink-0 mt-1.5">
+                                      <div className={`w-6 h-6 rounded-full flex items-center justify-center ${config.bgColor}`}>
+                                        <StatusIcon className={`w-3 h-3 ${config.iconColor}`} />
                                       </div>
                                     </div>
-                                    <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-                                      Current status
+                                    <div className="flex-1">
+                                      <div className="flex items-center justify-between">
+                                        <div className="text-sm font-medium text-slate-900 dark:text-slate-100 capitalize">
+                                          {currentStatus}
+                                        </div>
+                                      </div>
+                                      <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                                        Current status
+                                      </div>
                                     </div>
                                   </div>
-                                </div>
-                              )}
+                                );
+                              })()}
                               
                               {/* Unified Timeline - Most Recent First (Payments + Extensions + Audits) - EXACT COPY FROM TRANSACTIONHUB */}
                               {(() => {
@@ -1598,7 +1653,7 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                                                   ? 'bg-red-100 dark:bg-red-900/30' 
                                                   : 'bg-cyan-100 dark:bg-cyan-900/30'
                                               }`}>
-                                                <Clock className={`w-3 h-3 ${
+                                                <Calendar className={`w-3 h-3 ${
                                                   event.data.is_cancelled 
                                                     ? 'text-red-600 dark:text-red-400' 
                                                     : 'text-cyan-600 dark:text-cyan-400'
@@ -1746,86 +1801,61 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                                               </div>
                                             </div>
                                           ) : event.data.action_type === 'status_changed' ? (
-                                            // Clean Status Change Display
+                                            // Status Change Timeline - Use unified theming system
                                             <div className="flex space-x-3 group hover:bg-slate-50/50 dark:hover:bg-slate-800/50 rounded-lg p-2 -m-2 transition-colors">
                                               <div className="flex-shrink-0 mt-1.5">
                                                 <div className={`w-6 h-6 rounded-full flex items-center justify-center ${(() => {
                                                   const status = event.data.new_value?.toLowerCase().replace('transactionstatus.', '');
-                                                  switch (status) {
-                                                    case 'redeemed': return 'bg-green-100 dark:bg-green-900/30';
-                                                    case 'active': return 'bg-blue-100 dark:bg-blue-900/30';
-                                                    case 'extended': return 'bg-cyan-100 dark:bg-cyan-900/30';
-                                                    case 'sold': return 'bg-purple-100 dark:bg-purple-900/30';
-                                                    case 'hold': return 'bg-yellow-100 dark:bg-yellow-900/30';
-                                                    case 'forfeited': return 'bg-red-100 dark:bg-red-900/30';
-                                                    case 'overdue': return 'bg-red-100 dark:bg-red-900/30';
-                                                    case 'damaged': return 'bg-stone-100 dark:bg-stone-900/30';
-                                                    case 'voided': return 'bg-slate-100 dark:bg-slate-800';
-                                                    default: return 'bg-blue-100 dark:bg-blue-900/30';
-                                                  }
+                                                  // Use the same status configuration as the main status display
+                                                  const statusColors = {
+                                                    'active': 'bg-blue-100 dark:bg-blue-900/30',
+                                                    'overdue': 'bg-red-100 dark:bg-red-900/30',
+                                                    'extended': 'bg-cyan-100 dark:bg-cyan-900/30',
+                                                    'redeemed': 'bg-green-100 dark:bg-green-900/30',
+                                                    'sold': 'bg-purple-100 dark:bg-purple-900/30',
+                                                    'hold': 'bg-amber-100 dark:bg-amber-900/30',
+                                                    'forfeited': 'bg-orange-100 dark:bg-orange-900/30',
+                                                    'damaged': 'bg-amber-100 dark:bg-amber-900/30',
+                                                    'voided': 'bg-gray-100 dark:bg-gray-900/30'
+                                                  };
+                                                  return statusColors[status] || 'bg-blue-100 dark:bg-blue-900/30';
                                                 })()}`}>
-                                                  <RefreshCw 
-                                                    className="w-3 h-3"
-                                                    style={{
-                                                      color: (() => {
-                                                        const status = event.data.new_value?.toLowerCase().replace('transactionstatus.', '');
-                                                        switch (status) {
-                                                          case 'redeemed': return '#4CAF50';
-                                                          case 'active': return '#2196F3';
-                                                          case 'extended': return '#00BCD4';
-                                                          case 'sold': return '#9C27B0';
-                                                          case 'hold': return '#FFC107';
-                                                          case 'forfeited': return '#FF5722';
-                                                          case 'overdue': return '#F44336';
-                                                          case 'damaged': return '#795548';
-                                                          case 'voided': return '#9E9E9E';
-                                                          default: return '#2196F3';
-                                                        }
-                                                      })()
-                                                    }}
-                                                  />
+                                                  {(() => {
+                                                    const status = event.data.new_value?.toLowerCase().replace('transactionstatus.', '');
+                                                    const statusIcons = {
+                                                      'active': <Circle className="w-3 h-3 text-blue-600 dark:text-blue-400" />,
+                                                      'overdue': <AlertTriangle className="w-3 h-3 text-red-600 dark:text-red-400" />,
+                                                      'extended': <Calendar className="w-3 h-3 text-cyan-600 dark:text-cyan-400" />,
+                                                      'redeemed': <CheckCircle className="w-3 h-3 text-green-600 dark:text-green-400" />,
+                                                      'sold': <ShoppingBag className="w-3 h-3 text-purple-600 dark:text-purple-400" />,
+                                                      'hold': <Clock className="w-3 h-3 text-amber-600 dark:text-amber-400" />,
+                                                      'forfeited': <XCircle className="w-3 h-3 text-orange-600 dark:text-orange-400" />,
+                                                      'damaged': <AlertCircle className="w-3 h-3 text-amber-800 dark:text-amber-600" />,
+                                                      'voided': <XCircle className="w-3 h-3 text-gray-600 dark:text-gray-400" />
+                                                    };
+                                                    return statusIcons[status] || <RefreshCw className="w-3 h-3 text-blue-600 dark:text-blue-400" />;
+                                                  })()}
                                                 </div>
                                               </div>
                                               <div className="flex-1">
                                                 <div className="flex items-center justify-between">
                                                   <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
                                                     Status Changed
-                                                    <span 
-                                                      className="ml-2 px-2 py-0.5 text-xs rounded-full border text-white"
-                                                      style={{ 
-                                                        backgroundColor: (() => {
-                                                          const status = event.data.new_value?.toLowerCase().replace('transactionstatus.', '');
-                                                          switch (status) {
-                                                            case 'redeemed': return '#4CAF50';
-                                                            case 'active': return '#2196F3';
-                                                            case 'extended': return '#00BCD4';
-                                                            case 'sold': return '#9C27B0';
-                                                            case 'hold': return '#FFC107';
-                                                            case 'forfeited': return '#FF5722';
-                                                            case 'overdue': return '#F44336';
-                                                            case 'damaged': return '#795548';
-                                                            case 'voided': return '#9E9E9E';
-                                                            default: return '#2196F3';
-                                                          }
-                                                        })(),
-                                                        borderColor: (() => {
-                                                          const status = event.data.new_value?.toLowerCase().replace('transactionstatus.', '');
-                                                          switch (status) {
-                                                            case 'redeemed': return '#4CAF50';
-                                                            case 'active': return '#2196F3';
-                                                            case 'extended': return '#00BCD4';
-                                                            case 'sold': return '#9C27B0';
-                                                            case 'hold': return '#FFC107';
-                                                            case 'forfeited': return '#FF5722';
-                                                            case 'overdue': return '#F44336';
-                                                            case 'damaged': return '#795548';
-                                                            case 'voided': return '#9E9E9E';
-                                                            default: return '#2196F3';
-                                                          }
-                                                        })(),
-                                                        color: event.data.new_value?.toLowerCase().replace('transactionstatus.', '') === 'hold' ? '#000' : '#fff'
-                                                      }}
-                                                    >
+                                                    <span className={`ml-2 px-2 py-0.5 text-xs rounded-full border ${(() => {
+                                                      const status = event.data.new_value?.toLowerCase().replace('transactionstatus.', '');
+                                                      const statusBadges = {
+                                                        'active': 'bg-blue-600 border-blue-600 text-white',
+                                                        'overdue': 'bg-red-600 border-red-600 text-white',
+                                                        'extended': 'bg-cyan-600 border-cyan-600 text-white',
+                                                        'redeemed': 'bg-green-600 border-green-600 text-white',
+                                                        'sold': 'bg-purple-600 border-purple-600 text-white',
+                                                        'hold': 'bg-amber-600 border-amber-600 text-black',
+                                                        'forfeited': 'bg-orange-600 border-orange-600 text-white',
+                                                        'damaged': 'bg-amber-700 border-amber-700 text-white',
+                                                        'voided': 'bg-gray-600 border-gray-600 text-white'
+                                                      };
+                                                      return statusBadges[status] || 'bg-blue-600 border-blue-600 text-white';
+                                                    })()}`}>
                                                       {event.data.new_value?.replace('TransactionStatus.', '').toUpperCase() || 'STATUS CHANGE'}
                                                     </span>
                                                   </div>
@@ -1854,9 +1884,29 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                                             // Other Audit Timeline Entries
                                             <div className="flex space-x-3 group hover:bg-slate-50/50 dark:hover:bg-slate-800/50 rounded-lg p-2 -m-2 transition-colors">
                                               <div className="flex-shrink-0 mt-1.5">
-                                                <div className="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
-                                                  <FileText className="w-3 h-3 text-slate-600 dark:text-slate-400" />
-                                                </div>
+                                                {(() => {
+                                                  // Use specific icons for audit entries based on action_summary
+                                                  if (event.data.action_summary === 'Transaction redeemed') {
+                                                    return (
+                                                      <div className="w-6 h-6 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                                                        <CheckCircle className="w-3 h-3 text-green-600 dark:text-green-400" />
+                                                      </div>
+                                                    );
+                                                  } else if (event.data.action_summary === 'Transaction Created') {
+                                                    return (
+                                                      <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                                                        <Plus className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+                                                      </div>
+                                                    );
+                                                  } else {
+                                                    // Default audit entry styling
+                                                    return (
+                                                      <div className="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                                                        <FileText className="w-3 h-3 text-slate-600 dark:text-slate-400" />
+                                                      </div>
+                                                    );
+                                                  }
+                                                })()}
                                               </div>
                                               <div className="flex-1">
                                                 <div className="flex items-center justify-between">
