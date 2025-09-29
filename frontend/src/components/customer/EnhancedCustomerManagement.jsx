@@ -29,10 +29,8 @@ import {
   Package,
   X,
   Trash2,
-  Crown,
   Circle,
   ShoppingBag,
-  ArrowUpDown,
   ArrowUp,
   ArrowDown,
   MessageCircle,
@@ -41,7 +39,6 @@ import {
   UserCog,
   Lock,
   Info,
-  Database,
   UserCheck
 } from 'lucide-react';
 import { Button } from '../ui/button';
@@ -98,6 +95,7 @@ import transactionService from '../../services/transactionService';
 import paymentService from '../../services/paymentService';
 import extensionService from '../../services/extensionService';
 import authService from '../../services/authService';
+import reversalService from '../../services/reversalService';
 import CustomerDialog from './CustomerDialog';
 import AlertBellAction from './AlertBellAction';
 import ServiceAlertDialog from './ServiceAlertDialog';
@@ -106,12 +104,13 @@ import { useToast } from '../ui/toast';
 import { useAuth } from '../../context/AuthContext';
 import { useAlertCount } from '../../context/AlertCountContext';
 import { isAdmin as isAdminRole } from '../../utils/roleUtils';
-import { formatBusinessDate, canCancelExtension } from '../../utils/timezoneUtils';
+import { formatBusinessDate, canCancelExtension, canReversePayment } from '../../utils/timezoneUtils';
 import { formatCurrency, formatStorageLocation, formatTransactionId } from '../../utils/transactionUtils';
 import { handleError } from '../../utils/errorHandling';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '../ui/resizable';
 import { ScrollArea } from '../ui/scroll-area';
 import TransactionNotesDisplay from '../transaction/TransactionNotesDisplay';
+import AdminApprovalDialog from '../common/AdminApprovalDialog';
 import CustomerCard from './CustomerCard';
 import CustomLoanLimitDialog from './CustomLoanLimitDialog';
 import TransactionCard from '../transaction/TransactionCard';
@@ -148,6 +147,17 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
   const [showAllPayments, setShowAllPayments] = useState(false);
   const [auditEntries, setAuditEntries] = useState([]);
   const [selectedTransactionCustomer, setSelectedTransactionCustomer] = useState(null);
+
+  // Extension Cancellation state
+  const [showExtensionCancelDialog, setShowExtensionCancelDialog] = useState(false);
+  const [pendingCancelExtensionId, setPendingCancelExtensionId] = useState(null);
+  const [pendingCancelTransaction, setPendingCancelTransaction] = useState(null);
+  const [reversalEligibility, setReversalEligibility] = useState(null);
+
+  // Payment Reversal state
+  const [showPaymentReversalDialog, setShowPaymentReversalDialog] = useState(false);
+  const [pendingReversalPaymentId, setPendingReversalPaymentId] = useState(null);
+  const [pendingReversalTransaction, setPendingReversalTransaction] = useState(null);
 
   // Date formatting helper (exact copy from TransactionHub)
   const formatDate = (dateString) => {
@@ -341,7 +351,7 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
           date: new Date(audit.timestamp),
           data: {
             ...audit,
-            action_summary: 'Transaction redeemed',
+            action_summary: 'Transaction Redeemed',
             details: details
           },
           auditIndex: audits.length - i,
@@ -663,24 +673,19 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
   const handleVoidTransaction = (transaction) => {
     // Check admin permissions
     if (!user?.role || user.role !== 'admin') {
-      toast({
-        title: "Permission Denied",
-        description: "Only administrators can void transactions",
-        variant: "destructive"
-      });
+      handleError(new Error('Only administrators can void transactions'), 'Permission denied');
       return;
     }
 
     // Check if transaction can be voided
-    if (transaction.status === 'voided' || transaction.status === 'redeemed') {
-      toast({
-        title: "Invalid Operation",
-        description: "This transaction cannot be voided",
-        variant: "destructive"
-      });
+    const voidableStatuses = ['active', 'overdue', 'extended', 'hold'];
+    if (!voidableStatuses.includes(transaction.status)) {
+      handleError(new Error(`Cannot void transaction with status: ${transaction.status}`), 'Invalid transaction state');
       return;
     }
 
+    // Close transaction details dialog since validation passed
+    setShowTransactionDetails(false);
     setPendingVoidTransaction(transaction);
     setShowVoidApprovalDialog(true);
   };
@@ -730,6 +735,232 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
     } finally {
       setProcessingCancel(null);
     }
+  };
+
+  // Handle void transaction cancellation
+  const handleVoidTransactionCancel = () => {
+    setShowVoidApprovalDialog(false);
+    setPendingVoidTransaction(null);
+  };
+
+  // Extension Cancellation Handlers
+  const handleExtensionCancelAction = async (extensionId) => {
+    if (!user?.role || user.role !== 'admin') {
+      handleError(new Error('Only administrators can cancel extensions'), 'Permission denied');
+      return;
+    }
+    
+    try {
+      // Check eligibility first
+      const eligibility = await reversalService.checkExtensionCancellationEligibility(extensionId);
+      
+      if (!eligibility.is_eligible) {
+        handleError(new Error(eligibility.reason || 'Extension cannot be cancelled'), 'Cancellation not allowed');
+        return;
+      }
+      
+      // Store eligibility, extension ID, and transaction data, then show dialog
+      setReversalEligibility(eligibility);
+      setPendingCancelExtensionId(extensionId);
+      setPendingCancelTransaction(selectedTransaction);
+      setShowExtensionCancelDialog(true);
+    } catch (error) {
+      handleError(error, 'Failed to check cancellation eligibility');
+    }
+  };
+
+  // Handle approved extension cancellation
+  const handleExtensionCancelApproval = async (approvalData) => {
+    if (!pendingCancelExtensionId) return;
+    
+    setProcessingCancel(`extension-${pendingCancelExtensionId}`);
+    
+    try {
+      // Optimistic UI update - immediately mark extension as cancelled in local state
+      const optimisticTransaction = { ...selectedTransaction };
+      if (optimisticTransaction?.extensions) {
+        optimisticTransaction.extensions = optimisticTransaction.extensions.map(extension => {
+          if (extension.extension_id === pendingCancelExtensionId) {
+            return {
+              ...extension,
+              is_cancelled: true,
+              cancellation_reason: approvalData.reason,
+              cancelled_at: new Date().toISOString(),
+              cancelled_by: user?.user_id
+            };
+          }
+          return extension;
+        });
+        setSelectedTransaction(optimisticTransaction);
+      }
+      
+      // Close dialog immediately for better UX
+      setShowExtensionCancelDialog(false);
+      setPendingCancelExtensionId(null);
+      setPendingCancelTransaction(null);
+      setReversalEligibility(null);
+      
+      // Process the cancellation
+      const cancellationData = {
+        cancellation_reason: approvalData.reason,
+        admin_pin: approvalData.admin_pin
+      };
+      
+      await reversalService.cancelExtension(pendingCancelExtensionId, cancellationData);
+      
+      // Background refresh to sync with server
+      if (selectedTransaction?.transaction_id) {
+        refreshTimelineData(selectedTransaction.transaction_id).catch(() => {});
+      }
+      
+      // Trigger a refresh of the transaction list
+      await refreshTransactions();
+      
+      toast({
+        title: "Extension Cancelled",
+        description: `Extension cancelled successfully. ${formatCurrency(reversalEligibility?.extension_fee || 0)} extension fee has been refunded and maturity date restored.`,
+        variant: "default"
+      });
+    } catch (error) {
+      // Enhanced error handling with specific messages
+      let errorMessage = 'Extension cancellation failed';
+      
+      if (error.response?.status === 401) {
+        errorMessage = 'Invalid admin PIN provided';
+      } else if (error.response?.status === 400) {
+        errorMessage = error.response?.data?.detail || 'Extension cannot be cancelled at this time';
+      } else if (error.response?.status === 404) {
+        errorMessage = 'Extension not found';
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      handleError(new Error(errorMessage), 'Extension cancellation failed');
+      
+      // Revert optimistic update
+      if (selectedTransaction?.transaction_id) {
+        refreshTimelineData(selectedTransaction.transaction_id).catch(() => {});
+      }
+    } finally {
+      setProcessingCancel(null);
+    }
+  };
+
+  const handleExtensionCancelCancel = () => {
+    setShowExtensionCancelDialog(false);
+    setPendingCancelExtensionId(null);
+    setPendingCancelTransaction(null);
+    setReversalEligibility(null);
+  };
+
+  // Payment Reversal Handlers
+  const handlePaymentReversal = async (paymentId) => {
+    if (!user?.role || user.role !== 'admin') {
+      handleError(new Error('Only administrators can cancel payments'), 'Permission denied');
+      return;
+    }
+    
+    try {
+      // Check eligibility first
+      const eligibility = await reversalService.checkPaymentReversalEligibility(paymentId);
+      
+      if (!eligibility.is_eligible) {
+        handleError(new Error(eligibility.reason || 'Payment cannot be reversed'), 'Reversal not allowed');
+        return;
+      }
+      
+      // Store eligibility, payment ID, and transaction data, then show dialog
+      setReversalEligibility(eligibility);
+      setPendingReversalPaymentId(paymentId);
+      setPendingReversalTransaction(selectedTransaction);
+      setShowPaymentReversalDialog(true);
+    } catch (error) {
+      handleError(error, 'Failed to check reversal eligibility');
+    }
+  };
+
+  // Handle approved payment reversal
+  const handlePaymentReversalApproval = async (approvalData) => {
+    if (!pendingReversalPaymentId) return;
+    
+    setProcessingCancel(`payment-${pendingReversalPaymentId}`);
+    
+    try {
+      // Optimistic UI update - immediately mark payment as voided in local state
+      const optimisticPaymentHistory = { ...paymentHistory };
+      if (optimisticPaymentHistory?.payments) {
+        optimisticPaymentHistory.payments = optimisticPaymentHistory.payments.map(payment => {
+          if (payment.payment_id === pendingReversalPaymentId) {
+            return {
+              ...payment,
+              is_voided: true,
+              void_reason: `REVERSAL: ${approvalData.reason}`,
+              voided_at: new Date().toISOString(),
+              voided_by: user?.user_id
+            };
+          }
+          return payment;
+        });
+        setPaymentHistory(optimisticPaymentHistory);
+      }
+      
+      // Close dialog immediately for better UX
+      setShowPaymentReversalDialog(false);
+      setPendingReversalPaymentId(null);
+      setPendingReversalTransaction(null);
+      setReversalEligibility(null);
+      
+      // Process the reversal
+      const reversalData = {
+        reversal_reason: approvalData.reason,
+        admin_pin: approvalData.admin_pin
+      };
+      
+      await reversalService.reversePayment(pendingReversalPaymentId, reversalData);
+      
+      // Background refresh to sync with server
+      if (selectedTransaction?.transaction_id) {
+        refreshTimelineData(selectedTransaction.transaction_id).catch(() => {});
+      }
+      
+      // Trigger a refresh of the transaction list
+      await refreshTransactions();
+      
+      toast({
+        title: "Payment Reversed",
+        description: `Payment reversed successfully. ${formatCurrency(reversalEligibility?.payment_amount || 0)} has been credited back to the transaction balance.`,
+        variant: "default"
+      });
+    } catch (error) {
+      // Enhanced error handling with specific messages
+      let errorMessage = 'Payment reversal failed';
+      
+      if (error.message?.includes('401') || error.message?.includes('Invalid admin PIN')) {
+        errorMessage = 'Invalid admin PIN. Please check your credentials.';
+      } else if (error.message?.includes('400')) {
+        errorMessage = 'Payment cannot be reversed at this time. Please check eligibility requirements.';
+      } else if (error.message?.includes('404')) {
+        errorMessage = 'Payment not found. It may have already been processed.';
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      handleError(new Error(errorMessage), 'Payment reversal failed');
+      
+      // Revert optimistic update
+      if (selectedTransaction?.transaction_id) {
+        refreshTimelineData(selectedTransaction.transaction_id).catch(() => {});
+      }
+    } finally {
+      setProcessingCancel(null);
+    }
+  };
+
+  const handlePaymentReversalCancel = () => {
+    setShowPaymentReversalDialog(false);
+    setPendingReversalPaymentId(null);
+    setPendingReversalTransaction(null);
+    setReversalEligibility(null);
   };
 
   const refreshTransactions = async () => {
@@ -979,14 +1210,25 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
 
       {/* Status Update Dialog */}
       <Dialog open={showStatusUpdateForm} onOpenChange={setShowStatusUpdateForm}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Update Transaction Status</DialogTitle>
-            <DialogDescription>Change the status of this transaction</DialogDescription>
+            <div className="flex items-center space-x-3">
+              <div className="p-2 rounded-full bg-blue-100">
+                <RefreshCw className="h-5 w-5 text-blue-600" />
+              </div>
+              <div>
+                <DialogTitle className="text-xl text-blue-500 font-bold">Transaction Status Update</DialogTitle>
+                <p className="text-xs text-blue-600 font-medium mt-1">STATUS CHANGE</p>
+              </div>
+            </div>
+            <DialogDescription className="mt-3">
+              Change the status of the selected transaction. This action will be recorded in the audit log.
+            </DialogDescription>
           </DialogHeader>
           {selectedTransaction && (
             <StatusUpdateForm
               transaction={selectedTransaction}
+              customer={selectedTransactionCustomer}
               onSuccess={handleStatusUpdateSuccess}
               onCancel={() => setShowStatusUpdateForm(false)}
             />
@@ -998,7 +1240,9 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
       <Dialog open={showTransactionDetails} onOpenChange={(open) => {
         setShowTransactionDetails(open);
         if (!open) {
-          setSelectedTransaction(null);
+          setSelectedTransactionCustomer(null); // Reset customer data when closing
+          setPaymentHistory(null); // Reset payment history
+          setShowAllPayments(false); // Reset payment view
         }
       }}>
         <DialogContent className="max-w-7xl max-h-[95vh] p-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
@@ -1617,12 +1861,31 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                                               <div className="flex items-center justify-between">
                                                 <div className={`text-sm font-medium ${(event.data.is_reversed || event.data.is_voided) ? 'text-red-600 dark:text-red-400 line-through' : 'text-slate-900 dark:text-slate-100'}`}>
                                                   Payment #{event.paymentIndex}
+                                                  {event.data.type === 'full' && ' (Full Redemption)'}
+                                                  {event.data.type === 'partial' && ' (Partial)'}
                                                   {(event.data.is_reversed || event.data.is_voided) && (
                                                     <span className="ml-2 px-2 py-0.5 text-xs bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-full border border-red-200 dark:border-red-800">
                                                       REVERSED
                                                     </span>
                                                   )}
                                                 </div>
+                                                {user?.role === 'admin' && !event.data.is_voided && (() => {
+                                                  // Check if payment is within same business day (auto-hide at midnight)
+                                                  const canReverse = canReversePayment(event.data.payment_date || event.data.created_at);
+                                                  
+                                                  if (!canReverse) return null;
+                                                  
+                                                  return (
+                                                    <button
+                                                      onClick={() => handlePaymentReversal(event.data.payment_id)}
+                                                      disabled={processingCancel === `payment-${event.data.payment_id}`}
+                                                      className="ml-2 px-2 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-700 rounded transition-colors disabled:opacity-50"
+                                                      title="Cancel payment (admin only, same-day)"
+                                                    >
+                                                      {processingCancel === `payment-${event.data.payment_id}` ? '...' : 'Cancel'}
+                                                    </button>
+                                                  );
+                                                })()}
                                               </div>
                                               <div className="flex items-center justify-between mt-1">
                                                 <div className={`text-xs ${(event.data.is_reversed || event.data.is_voided) ? 'text-red-600 dark:text-red-400' : 'text-slate-600 dark:text-slate-400'}`}>
@@ -1676,7 +1939,9 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                                                 </div>
                                                 {canCancelExtension(event.data.extension_date) && !event.data.is_cancelled && (
                                                   <button
-                                                    className="ml-2 px-2 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-700 rounded transition-colors"
+                                                    onClick={() => handleExtensionCancelAction(event.data.extension_id)}
+                                                    disabled={processingCancel === `extension-${event.data.extension_id}`}
+                                                    className="ml-2 px-2 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-700 rounded transition-colors disabled:opacity-50"
                                                     title="Cancel extension (admin only, same-day)"
                                                   >
                                                     Cancel
@@ -1849,7 +2114,7 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                                                         'extended': 'bg-cyan-600 border-cyan-600 text-white',
                                                         'redeemed': 'bg-green-600 border-green-600 text-white',
                                                         'sold': 'bg-purple-600 border-purple-600 text-white',
-                                                        'hold': 'bg-amber-600 border-amber-600 text-black',
+                                                        'hold': 'bg-amber-600 border-amber-600 text-white',
                                                         'forfeited': 'bg-orange-600 border-orange-600 text-white',
                                                         'damaged': 'bg-amber-700 border-amber-700 text-white',
                                                         'voided': 'bg-gray-600 border-gray-600 text-white'
@@ -1886,7 +2151,7 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                                               <div className="flex-shrink-0 mt-1.5">
                                                 {(() => {
                                                   // Use specific icons for audit entries based on action_summary
-                                                  if (event.data.action_summary === 'Transaction redeemed') {
+                                                  if (event.data.action_summary === 'Transaction Redeemed') {
                                                     return (
                                                       <div className="w-6 h-6 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
                                                         <CheckCircle className="w-3 h-3 text-green-600 dark:text-green-400" />
@@ -1994,14 +2259,153 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                 </ResizablePanelGroup>
               )}
 
-              {/* Mobile Layout */}
+              {/* Mobile/Tablet Layout - Stacked Panels */}
               {!loadingTransactionDetails && (
-                <div className="lg:hidden p-6 space-y-6">
-                  <div className="text-center">
-                    <p className="text-slate-500 dark:text-slate-400">
-                      Mobile view - detailed transaction view is optimized for desktop
-                    </p>
+                <div className="lg:hidden p-4 space-y-6">
+                  {/* Customer & Financial Summary (Mobile) */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="flex items-center space-x-2 text-sm">
+                          <Phone className="w-4 h-4 text-blue-600" />
+                          <span>Customer</span>
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-lg font-bold">
+                          {getTransactionField('customer_phone') ||
+                           getTransactionField('customer_name') ||
+                           getTransactionField('customer_id') || 'No Customer'}
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="flex items-center space-x-2 text-sm">
+                          <DollarSign className="w-4 h-4 text-green-600" />
+                          <span>Financial</span>
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        <div>
+                          <div className="text-xs text-slate-600 dark:text-slate-400">Loan Amount</div>
+                          <div className="font-bold text-lg text-green-900 dark:text-green-100">
+                            {formatCurrency(getTransactionField('loan_amount') || 0)}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-slate-600 dark:text-slate-400">Monthly Interest</div>
+                          <div className="font-bold text-lg text-blue-900 dark:text-blue-100">
+                            {formatCurrency(getTransactionField('monthly_interest_amount') || 0)}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
                   </div>
+
+                  {/* Pawn Items (Mobile) */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center space-x-3">
+                        <Package className="w-5 h-5 text-blue-600" />
+                        <span>Pawn Items ({getTransactionField('items')?.length || 0})</span>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {getTransactionField('items')?.length > 0 ? (
+                        <div className="space-y-3">
+                          {getTransactionField('items').map((item, index) => (
+                            <div key={index} className="p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                              <div className="flex items-center space-x-2 mb-2">
+                                <span className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">
+                                  {index + 1}
+                                </span>
+                                <div className="font-semibold">{item.description}</div>
+                              </div>
+                              {item.serial_number && (
+                                <div className="text-xs text-slate-600 dark:text-slate-400 font-mono">
+                                  SN: {item.serial_number}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center text-slate-500 py-4">No items found</div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Quick Actions (Mobile) */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-sm">Quick Actions</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {canProcessActions() && (
+                        <>
+                          <Button 
+                            onClick={() => {
+                              setShowTransactionDetails(false);
+                              handlePayment(selectedTransaction?.transaction || selectedTransaction);
+                            }}
+                            className="w-full bg-green-600 hover:bg-green-700 text-white"
+                          >
+                            <DollarSign className="w-4 h-4 mr-2" />
+                            Process Payment
+                          </Button>
+                          <Button 
+                            variant="outline"
+                            onClick={() => {
+                              setShowTransactionDetails(false);
+                              handleExtension(selectedTransaction?.transaction || selectedTransaction);
+                            }}
+                            className="w-full"
+                          >
+                            <Calendar className="w-4 h-4 mr-2" />
+                            Extend Loan
+                          </Button>
+                        </>
+                      )}
+                      {/* Admin-only Update Status Button */}
+                      {user?.role === 'admin' && (
+                        <Button 
+                          variant="outline"
+                          onClick={() => {
+                            setShowTransactionDetails(false);
+                            handleStatusUpdate(selectedTransaction?.transaction || selectedTransaction);
+                          }}
+                          className="w-full"
+                        >
+                          <Activity className="w-4 h-4 mr-2" />
+                          Update Status
+                        </Button>
+                      )}
+                      
+                      {/* Admin-only Void Transaction Button */}
+                      {user?.role === 'admin' && (
+                        <Button 
+                          variant="destructive"
+                          onClick={() => {
+                            handleVoidTransaction(selectedTransaction?.transaction || selectedTransaction);
+                          }}
+                          className="w-full"
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Void Transaction
+                        </Button>
+                      )}
+                      <Button 
+                        variant="outline"
+                        onClick={() => setShowTransactionDetails(false)}
+                        className="w-full"
+                      >
+                        <X className="w-4 h-4 mr-2" />
+                        Close
+                      </Button>
+                    </CardContent>
+                  </Card>
                 </div>
               )}
             </div>
@@ -2009,103 +2413,129 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
         </DialogContent>
       </Dialog>
 
-      {/* Transaction Void Dialog */}
-      <Dialog open={showVoidApprovalDialog} onOpenChange={setShowVoidApprovalDialog}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <div className="flex items-center space-x-3">
-              <div className="p-2 rounded-full bg-red-100">
-                <X className="h-5 w-5 text-red-600" />
-              </div>
-              <div>
-                <DialogTitle className="text-xl text-red-800 font-bold">Transaction Void Authorization</DialogTitle>
-                <p className="text-xs text-red-600 font-medium mt-1">PERMANENT ACTION</p>
-              </div>
+      {/* Admin Approval Dialog for Payment Reversal */}
+      <AdminApprovalDialog
+        open={showPaymentReversalDialog}
+        onOpenChange={setShowPaymentReversalDialog}
+        title="Payment Reversal Authorization"
+        description="This action will reverse the selected payment and update the transaction balance. Please provide your admin credentials and reason for this reversal."
+        onApprove={handlePaymentReversalApproval}
+        onCancel={handlePaymentReversalCancel}
+        loading={processingCancel === `payment-${pendingReversalPaymentId}`}
+        actionType="reversal"
+        requireReason={true}
+        warningMessage={reversalEligibility?.warnings ? reversalEligibility.warnings.join(' ') : undefined}
+      >
+        {(pendingReversalTransaction || selectedTransaction || reversalEligibility) && (
+          <div className="bg-amber-50 border border-amber-300 rounded-md p-3">
+            <h4 className="text-sm font-medium text-amber-900 mb-2">Reversal Details</h4>
+            <div className="text-sm text-amber-900 space-y-1">
+              {(() => {
+                const transactionData = pendingReversalTransaction?.transaction || selectedTransaction?.transaction || selectedTransaction;
+                if (transactionData) {
+                  return (
+                    <>
+                      <p><strong>Transaction ID:</strong> {formatTransactionId(transactionData)}</p>
+                      <div><strong>Current Status:</strong> <StatusBadge status={transactionData.status} /></div>
+                      {selectedTransactionCustomer && (
+                        <p><strong>Customer:</strong> {`${selectedTransactionCustomer.first_name || ''} ${selectedTransactionCustomer.last_name || ''}`.trim().toUpperCase()}</p>
+                      )}
+                      {transactionData.loan_amount && (
+                        <p><strong>Loan Amount:</strong> {formatCurrency(transactionData.loan_amount)}</p>
+                      )}
+                    </>
+                  );
+                }
+                return null; // Don't show incomplete data
+              })()}
+              {reversalEligibility?.payment_amount && (
+                <p><strong>Payment Amount:</strong> {formatCurrency(reversalEligibility.payment_amount)}</p>
+              )}
+              {reversalEligibility?.payment_date && (
+                <p><strong>Payment Date:</strong> {formatBusinessDate(reversalEligibility.payment_date)}</p>
+              )}
             </div>
-            <DialogDescription className="mt-3">
-              This action will permanently void the transaction and mark it as canceled. This action cannot be reversed.
-            </DialogDescription>
-          </DialogHeader>
-          {pendingVoidTransaction && (
-            <div className="space-y-4">
-              {/* Transaction Details */}
-              <div className="bg-red-50 border border-red-200 rounded-md p-3">
-                <h4 className="text-sm font-medium text-red-900 mb-2">Transaction Details</h4>
-                <div className="text-sm text-red-900 space-y-1">
-                  <p><strong>Transaction ID:</strong> {formatTransactionId(pendingVoidTransaction)}</p>
-                  <div><strong>Current Status:</strong> <StatusBadge status={pendingVoidTransaction.status} /></div>
-                  {selectedCustomer && (
-                    <p><strong>Customer:</strong> {`${selectedCustomer.first_name || ''} ${selectedCustomer.last_name || ''}`.trim().toUpperCase()}</p>
-                  )}
-                  {pendingVoidTransaction.loan_amount && (
-                    <p><strong>Loan Amount:</strong> {formatCurrency(pendingVoidTransaction.loan_amount)}</p>
-                  )}
-                </div>
-              </div>
+          </div>
+        )}
+      </AdminApprovalDialog>
 
-              <form onSubmit={(e) => {
-                e.preventDefault();
-                const formData = new FormData(e.target);
-                const approvalData = {
-                  admin_pin: formData.get('admin-pin'),
-                  reason: formData.get('void-reason')
-                };
-                handleVoidTransactionApproval(approvalData);
-              }} className="space-y-4">
-                {/* Reason */}
-                <div className="space-y-2">
-                  <Label htmlFor="void-reason">Reason for void *</Label>
-                  <Textarea
-                    id="void-reason"
-                    name="void-reason"
-                    placeholder="Describe the specific reason for voiding this transaction (e.g., data entry error, customer request, duplicate entry)..."
-                    rows={3}
-                    required
-                  />
-                </div>
-
-                {/* Admin PIN */}
-                <div className="space-y-2">
-                  <Label htmlFor="admin-pin">Admin PIN *</Label>
-                  <Input
-                    id="admin-pin"
-                    name="admin-pin"
-                    type="password"
-                    placeholder="Enter your admin PIN"
-                    required
-                  />
-                </div>
-
-                {/* Action Buttons */}
-                <div className="flex justify-end space-x-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setShowVoidApprovalDialog(false)}
-                    disabled={processingCancel === `void-${pendingVoidTransaction.transaction_id}`}
-                  >
-                    Cancel
-                  </Button>
-                  <Button 
-                    type="submit"
-                    className="bg-red-600 hover:bg-red-700 text-white"
-                    disabled={processingCancel === `void-${pendingVoidTransaction.transaction_id}`}
-                  >
-                    {processingCancel === `void-${pendingVoidTransaction.transaction_id}` ? (
-                      <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                        Voiding...
-                      </>
-                    ) : (
-                      'Authorize Void'
+      {/* Admin Approval Dialog for Extension Cancellation */}
+      <AdminApprovalDialog
+        open={showExtensionCancelDialog}
+        onOpenChange={setShowExtensionCancelDialog}
+        title="Extension Cancellation Authorization"
+        description="This action will cancel the selected extension, refund fees, and revert the maturity date. Please provide your admin credentials and reason for this cancellation."
+        onApprove={handleExtensionCancelApproval}
+        onCancel={handleExtensionCancelCancel}
+        loading={processingCancel === `extension-${pendingCancelExtensionId}`}
+        actionType="cancellation"
+        requireReason={true}
+        warningMessage={reversalEligibility?.warnings ? reversalEligibility.warnings.join(' ') : undefined}
+      >
+        {(pendingCancelTransaction || selectedTransaction || reversalEligibility) && (
+          <div className="bg-orange-50 border border-orange-200 rounded-md p-3">
+            <h4 className="text-sm font-medium text-orange-900 mb-2">Cancellation Details</h4>
+            <div className="text-sm text-orange-900 space-y-1">
+              {(() => {
+                const transactionData = pendingCancelTransaction?.transaction || selectedTransaction?.transaction;
+                return transactionData ? (
+                  <>
+                    <p><strong>Transaction ID:</strong> {formatTransactionId(transactionData)}</p>
+                    <div><strong>Current Status:</strong> <StatusBadge status={transactionData.status} /></div>
+                    {selectedTransactionCustomer && (
+                      <p><strong>Customer:</strong> {`${selectedTransactionCustomer.first_name || ''} ${selectedTransactionCustomer.last_name || ''}`.trim().toUpperCase()}</p>
                     )}
-                  </Button>
-                </div>
-              </form>
+                    {transactionData.loan_amount && (
+                      <p><strong>Loan Amount:</strong> {formatCurrency(transactionData.loan_amount)}</p>
+                    )}
+                  </>
+                ) : (
+                  <p><strong>Extension ID:</strong> {pendingCancelExtensionId}</p>
+                );
+              })()}
+              {reversalEligibility?.extension_fee && (
+                <p><strong>Extension Fee:</strong> {formatCurrency(reversalEligibility.extension_fee)}</p>
+              )}
+              {reversalEligibility?.extension_date && (
+                <p><strong>Extension Date:</strong> {formatBusinessDate(reversalEligibility.extension_date)}</p>
+              )}
+              {reversalEligibility?.extension_months && (
+                <p><strong>Extension Period:</strong> {reversalEligibility.extension_months} month(s)</p>
+              )}
             </div>
-          )}
-        </DialogContent>
-      </Dialog>
+          </div>
+        )}
+      </AdminApprovalDialog>
+
+      {/* Admin Approval Dialog for Transaction Void */}
+      <AdminApprovalDialog
+        open={showVoidApprovalDialog}
+        onOpenChange={setShowVoidApprovalDialog}
+        title="Transaction Void Authorization"
+        description="This action will permanently void the transaction and mark it as canceled. This action cannot be reversed."
+        onApprove={handleVoidTransactionApproval}
+        onCancel={handleVoidTransactionCancel}
+        loading={processingCancel === `void-${pendingVoidTransaction?.transaction_id}`}
+        actionType="void"
+        requireReason={true}
+        warningMessage="This is a permanent action that cannot be undone. All transaction data will be marked as voided."
+      >
+        {pendingVoidTransaction && (
+          <div className="bg-red-50 border border-red-300 rounded-md p-3">
+            <h4 className="text-sm font-medium text-red-900 mb-2">Transaction Details</h4>
+            <div className="text-sm text-red-900 space-y-1">
+              <p><strong>Transaction ID:</strong> {formatTransactionId(pendingVoidTransaction)}</p>
+              <div><strong>Current Status:</strong> <StatusBadge status={pendingVoidTransaction.status} /></div>
+              {selectedCustomer && (
+                <p><strong>Customer:</strong> {`${selectedCustomer.first_name || ''} ${selectedCustomer.last_name || ''}`.trim().toUpperCase()}</p>
+              )}
+              {pendingVoidTransaction.loan_amount && (
+                <p><strong>Loan Amount:</strong> {formatCurrency(pendingVoidTransaction.loan_amount)}</p>
+              )}
+            </div>
+          </div>
+        )}
+      </AdminApprovalDialog>
     </Card>
   );
 };

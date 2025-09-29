@@ -118,16 +118,24 @@ const AdminApprovalDialog = ({
   const validateForm = () => {
     const newErrors = {};
     
+    // Admin PIN validation
     if (!adminPin.trim()) {
       newErrors.adminPin = 'Admin PIN is required';
     } else if (adminPin.length < 4) {
       newErrors.adminPin = 'PIN must be at least 4 characters';
+    } else if (adminPin.length > 10) {
+      newErrors.adminPin = 'PIN cannot exceed 10 characters';
+    } else if (!/^[0-9]+$/.test(adminPin)) {
+      newErrors.adminPin = 'PIN must contain only numbers';
     }
     
+    // Reason validation
     if (requireReason && !reason.trim()) {
       newErrors.reason = `Reason for ${actionType} is required`;
     } else if (requireReason && reason.trim().length < 10) {
       newErrors.reason = `Please provide a more detailed reason (minimum 10 characters)`;
+    } else if (requireReason && reason.trim().length > 500) {
+      newErrors.reason = `Reason cannot exceed 500 characters (current: ${reason.trim().length})`;
     }
     
     setErrors(newErrors);
@@ -255,11 +263,17 @@ const AdminApprovalDialog = ({
                     `Please explain why this ${actionType} is necessary...`
                 }
                 value={reason}
-                onChange={(e) => setReason(e.target.value)}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (value.length <= 500) {
+                    setReason(value);
+                  }
+                }}
                 onKeyPress={handleKeyPress}
                 className={errors.reason ? 'border-red-500' : ''}
                 rows={actionType === 'void' ? 4 : 3}
                 disabled={loading}
+                maxLength={500}
               />
               {actionType === 'void' && (
                 <p className="text-xs text-red-600">
@@ -289,6 +303,11 @@ const AdminApprovalDialog = ({
                   {10 - reason.length} more characters needed for a detailed reason
                 </p>
               )}
+              {reason.length >= 10 && (
+                <p className="text-xs text-green-600">
+                  {reason.length}/500 characters {reason.length > 450 ? '(approaching limit)' : ''}
+                </p>
+              )}
             </div>
           )}
 
@@ -304,11 +323,18 @@ const AdminApprovalDialog = ({
                 type={showPin ? "text" : "password"}
                 placeholder="Enter your admin PIN"
                 value={adminPin}
-                onChange={(e) => setAdminPin(e.target.value)}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  // Only allow numeric input and limit to 10 characters
+                  if (/^[0-9]*$/.test(value) && value.length <= 10) {
+                    setAdminPin(value);
+                  }
+                }}
                 onKeyPress={handleKeyPress}
                 className={errors.adminPin ? 'border-red-500 pr-10' : 'pr-10'}
                 disabled={loading}
                 autoComplete="off"
+                maxLength={10}
               />
               <Button
                 type="button"

@@ -23,7 +23,6 @@ import {
   TrendingUp,
   Mail,
   Trash2,
-  X,
   RefreshCw,
   XCircle,
   Circle,
@@ -34,7 +33,6 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { Textarea } from '../components/ui/textarea';
 import { handleError, handleSuccess } from '../utils/errorHandling';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../components/ui/dialog';
 import { Avatar, AvatarImage, AvatarFallback } from '../components/ui/avatar';
@@ -767,9 +765,28 @@ const TransactionHub = () => {
       // Trigger a refresh of the transaction list
       setRefreshKey(prev => prev + 1);
       
-      handleSuccess('Payment reversed successfully');
+      handleSuccess(`Payment reversed successfully. ${formatCurrency(reversalEligibility?.payment_amount || 0)} has been credited back to the transaction balance.`);
     } catch (error) {
-      handleError(error, 'Payment reversal failed');
+      // Enhanced error handling with specific messages
+      let errorMessage = 'Payment reversal failed';
+      
+      if (error.message?.includes('401') || error.message?.includes('Invalid admin PIN')) {
+        errorMessage = 'Invalid admin PIN. Please check your credentials.';
+      } else if (error.message?.includes('403')) {
+        errorMessage = 'Access denied. Admin privileges required.';
+      } else if (error.message?.includes('400')) {
+        if (error.message?.includes('same-day')) {
+          errorMessage = 'Payment can only be reversed on the same business day it was made.';
+        } else if (error.message?.includes('daily limit')) {
+          errorMessage = 'Daily reversal limit reached for this transaction.';
+        } else {
+          errorMessage = 'Payment cannot be reversed. Please check business rules.';
+        }
+      } else if (error.message?.includes('404')) {
+        errorMessage = 'Payment not found or already processed.';
+      }
+      
+      handleError(error, errorMessage);
       // Revert optimistic update on failure
       if (selectedTransaction?.transaction_id) {
         refreshTimelineData(selectedTransaction.transaction_id).catch(() => {});
@@ -860,9 +877,28 @@ const TransactionHub = () => {
       // Trigger a refresh of the transaction list
       setRefreshKey(prev => prev + 1);
       
-      handleSuccess('Extension cancelled successfully');
+      handleSuccess(`Extension cancelled successfully. ${formatCurrency(reversalEligibility?.extension_fee || 0)} extension fee has been refunded and maturity date restored.`);
     } catch (error) {
-      handleError(error, 'Extension cancellation failed');
+      // Enhanced error handling with specific messages
+      let errorMessage = 'Extension cancellation failed';
+      
+      if (error.message?.includes('401') || error.message?.includes('Invalid admin PIN')) {
+        errorMessage = 'Invalid admin PIN. Please check your credentials.';
+      } else if (error.message?.includes('403')) {
+        errorMessage = 'Access denied. Admin privileges required.';
+      } else if (error.message?.includes('400')) {
+        if (error.message?.includes('same-day')) {
+          errorMessage = 'Extension can only be cancelled on the same business day it was created.';
+        } else if (error.message?.includes('daily limit')) {
+          errorMessage = 'Daily cancellation limit reached for this transaction.';
+        } else {
+          errorMessage = 'Extension cannot be cancelled. Please check business rules.';
+        }
+      } else if (error.message?.includes('404')) {
+        errorMessage = 'Extension not found or already processed.';
+      }
+      
+      handleError(error, errorMessage);
       // Revert optimistic update on failure
       if (selectedTransaction?.transaction_id) {
         refreshTimelineData(selectedTransaction.transaction_id).catch(() => {});
@@ -889,7 +925,7 @@ const TransactionHub = () => {
 
       const voidData = {
         void_reason: approvalData.reason,
-        admin_pin: approvalData.adminPin
+        admin_pin: approvalData.admin_pin
       };
 
       await transactionService.voidTransaction(pendingVoidTransaction.transaction_id, voidData);
@@ -915,26 +951,38 @@ const TransactionHub = () => {
       // Trigger a refresh of the transaction list
       setRefreshKey(prev => prev + 1);
       
-      handleSuccess('Transaction voided successfully');
+      handleSuccess(`Transaction ${formatTransactionId(pendingVoidTransaction)} voided successfully. All transaction data has been marked as cancelled.`);
       
     } catch (error) {
-      // Handle error with detailed messages
-      let errorMessage = 'Failed to void transaction';
+      // Enhanced error handling with specific messages
+      let errorMessage = 'Transaction void failed';
       
-      if (error.message?.includes('401') || error.message?.includes('403')) {
-        errorMessage = 'Invalid admin credentials';
+      if (error.message?.includes('401') || error.message?.includes('Invalid admin PIN')) {
+        errorMessage = 'Invalid admin PIN. Please check your credentials.';
+      } else if (error.message?.includes('403')) {
+        errorMessage = 'Access denied. Admin privileges required.';
       } else if (error.message?.includes('400')) {
-        errorMessage = error.message.includes('status') 
-          ? 'Transaction cannot be voided in current status'
-          : 'Invalid void request';
+        if (error.message?.includes('status')) {
+          errorMessage = 'Transaction cannot be voided in its current status. Only active, overdue, or extended transactions can be voided.';
+        } else if (error.message?.includes('payments')) {
+          errorMessage = 'Cannot void transaction with payments made. Please process refunds separately.';
+        } else {
+          errorMessage = 'Transaction cannot be voided. Please check business rules.';
+        }
       } else if (error.message?.includes('404')) {
-        errorMessage = 'Transaction not found';
+        errorMessage = 'Transaction not found or already processed.';
       }
       
       handleError(error, errorMessage);
     } finally {
       setProcessingCancel(null);
     }
+  };
+
+  // Handle void transaction cancellation
+  const handleVoidTransactionCancel = () => {
+    setShowVoidApprovalDialog(false);
+    setPendingVoidTransaction(null);
   };
 
   // Handle successful status update
@@ -2281,7 +2329,7 @@ const TransactionHub = () => {
                                                         'extended': 'bg-cyan-600 border-cyan-600 text-white',
                                                         'redeemed': 'bg-green-600 border-green-600 text-white',
                                                         'sold': 'bg-purple-600 border-purple-600 text-white',
-                                                        'hold': 'bg-amber-600 border-amber-600 text-black',
+                                                        'hold': 'bg-amber-600 border-amber-600 text-white',
                                                         'forfeited': 'bg-orange-600 border-orange-600 text-white',
                                                         'damaged': 'bg-amber-700 border-amber-700 text-white',
                                                         'voided': 'bg-gray-600 border-gray-600 text-white'
@@ -2924,21 +2972,22 @@ onKeyPress={async (e) => {
             <h4 className="text-sm font-medium text-amber-900 mb-2">Reversal Details</h4>
             <div className="text-sm text-amber-900 space-y-1">
               {(() => {
-                const transactionData = pendingReversalTransaction?.transaction || selectedTransaction?.transaction;
-                return transactionData ? (
-                  <>
-                    <p><strong>Transaction ID:</strong> {formatTransactionId(transactionData)}</p>
-                    <div><strong>Current Status:</strong> <StatusBadge status={transactionData.status} /></div>
-                    {selectedTransactionCustomer && (
-                      <p><strong>Customer:</strong> {`${selectedTransactionCustomer.first_name || ''} ${selectedTransactionCustomer.last_name || ''}`.trim().toUpperCase()}</p>
-                    )}
-                    {transactionData.loan_amount && (
-                      <p><strong>Loan Amount:</strong> {formatCurrency(transactionData.loan_amount)}</p>
-                    )}
-                  </>
-                ) : (
-                  <p><strong>Payment ID:</strong> {pendingReversalPaymentId}</p>
-                );
+                const transactionData = pendingReversalTransaction?.transaction || selectedTransaction?.transaction || selectedTransaction;
+                if (transactionData) {
+                  return (
+                    <>
+                      <p><strong>Transaction ID:</strong> {formatTransactionId(transactionData)}</p>
+                      <div><strong>Current Status:</strong> <StatusBadge status={transactionData.status} /></div>
+                      {selectedTransactionCustomer && (
+                        <p><strong>Customer:</strong> {`${selectedTransactionCustomer.first_name || ''} ${selectedTransactionCustomer.last_name || ''}`.trim().toUpperCase()}</p>
+                      )}
+                      {transactionData.loan_amount && (
+                        <p><strong>Loan Amount:</strong> {formatCurrency(transactionData.loan_amount)}</p>
+                      )}
+                    </>
+                  );
+                }
+                return null; // Don't show incomplete data
               })()}
               {reversalEligibility?.payment_amount && (
                 <p><strong>Payment Amount:</strong> {formatCurrency(reversalEligibility.payment_amount)}</p>
@@ -2999,103 +3048,35 @@ onKeyPress={async (e) => {
         )}
       </AdminApprovalDialog>
 
-      {/* Transaction Void Dialog */}
-      <Dialog open={showVoidApprovalDialog} onOpenChange={setShowVoidApprovalDialog}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <div className="flex items-center space-x-3">
-              <div className="p-2 rounded-full bg-red-100">
-                <X className="h-5 w-5 text-red-600" />
-              </div>
-              <div>
-                <DialogTitle className="text-xl text-red-800 font-bold">Transaction Void Authorization</DialogTitle>
-                <p className="text-xs text-red-600 font-medium mt-1">PERMANENT ACTION</p>
-              </div>
+      {/* Admin Approval Dialog for Transaction Void */}
+      <AdminApprovalDialog
+        open={showVoidApprovalDialog}
+        onOpenChange={setShowVoidApprovalDialog}
+        title="Transaction Void Authorization"
+        description="This action will permanently void the transaction and mark it as canceled. This action cannot be reversed."
+        onApprove={handleVoidTransactionApproval}
+        onCancel={handleVoidTransactionCancel}
+        loading={processingCancel === `void-${pendingVoidTransaction?.transaction_id}`}
+        actionType="void"
+        requireReason={true}
+        warningMessage="This is a permanent action that cannot be undone. All transaction data will be marked as voided."
+      >
+        {pendingVoidTransaction && (
+          <div className="bg-red-50 border border-red-300 rounded-md p-3">
+            <h4 className="text-sm font-medium text-red-900 mb-2">Transaction Details</h4>
+            <div className="text-sm text-red-900 space-y-1">
+              <p><strong>Transaction ID:</strong> {formatTransactionId(pendingVoidTransaction)}</p>
+              <div><strong>Current Status:</strong> <StatusBadge status={pendingVoidTransaction.status} /></div>
+              {selectedTransactionCustomer && (
+                <p><strong>Customer:</strong> {`${selectedTransactionCustomer.first_name || ''} ${selectedTransactionCustomer.last_name || ''}`.trim().toUpperCase()}</p>
+              )}
+              {pendingVoidTransaction.loan_amount && (
+                <p><strong>Loan Amount:</strong> {formatCurrency(pendingVoidTransaction.loan_amount)}</p>
+              )}
             </div>
-            <DialogDescription className="mt-3">
-              This action will permanently void the transaction and mark it as canceled. This action cannot be reversed.
-            </DialogDescription>
-          </DialogHeader>
-          {pendingVoidTransaction && (
-            <div className="space-y-4">
-              {/* Transaction Details */}
-              <div className="bg-red-50 border border-red-200 rounded-md p-3">
-                <h4 className="text-sm font-medium text-red-900 mb-2">Transaction Details</h4>
-                <div className="text-sm text-red-900 space-y-1">
-                  <p><strong>Transaction ID:</strong> {formatTransactionId(pendingVoidTransaction)}</p>
-                  <div><strong>Current Status:</strong> <StatusBadge status={pendingVoidTransaction.status} /></div>
-                  {selectedTransactionCustomer && (
-                    <p><strong>Customer:</strong> {`${selectedTransactionCustomer.first_name || ''} ${selectedTransactionCustomer.last_name || ''}`.trim().toUpperCase()}</p>
-                  )}
-                  {pendingVoidTransaction.loan_amount && (
-                    <p><strong>Loan Amount:</strong> {formatCurrency(pendingVoidTransaction.loan_amount)}</p>
-                  )}
-                </div>
-              </div>
-
-              <form onSubmit={(e) => {
-                e.preventDefault();
-                const formData = new FormData(e.target);
-                const approvalData = {
-                  admin_pin: formData.get('admin-pin'),
-                  reason: formData.get('void-reason')
-                };
-                handleVoidTransactionApproval(approvalData);
-              }} className="space-y-4">
-                {/* Reason */}
-                <div className="space-y-2">
-                  <Label htmlFor="void-reason">Reason for void *</Label>
-                  <Textarea
-                    id="void-reason"
-                    name="void-reason"
-                    placeholder="Describe the specific reason for voiding this transaction (e.g., data entry error, customer request, duplicate entry)..."
-                    rows={3}
-                    required
-                  />
-                </div>
-
-                {/* Admin PIN */}
-                <div className="space-y-2">
-                  <Label htmlFor="admin-pin">Admin PIN *</Label>
-                  <Input
-                    id="admin-pin"
-                    name="admin-pin"
-                    type="password"
-                    placeholder="Enter your admin PIN"
-                    required
-                  />
-                </div>
-
-                {/* Action Buttons */}
-                <div className="flex justify-end space-x-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setShowVoidApprovalDialog(false)}
-                    disabled={processingCancel === `void-${pendingVoidTransaction.transaction_id}`}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    type="submit"
-                    className="bg-red-600 hover:bg-red-700 text-white"
-                    disabled={processingCancel === `void-${pendingVoidTransaction.transaction_id}`}
-                  >
-                    {processingCancel === `void-${pendingVoidTransaction.transaction_id}` ? (
-                      <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                        Processing...
-                      </>
-                    ) : (
-                      'Authorize Void'
-                    )}
-                  </Button>
-                </div>
-              </form>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+          </div>
+        )}
+      </AdminApprovalDialog>
     </div>
   );
 };
