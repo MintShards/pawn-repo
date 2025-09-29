@@ -2241,7 +2241,7 @@ const EnhancedCustomerManagement = () => {
   const [sortField, setSortField] = useState('created_at');
   const [sortOrder, setSortOrder] = useState('desc');
   const [currentPage, setCurrentPage] = useState(1);
-  const customersPerPage = 10;
+  const [customersPerPage, setCustomersPerPage] = useState(10);
   const [selectedCustomerIds, setSelectedCustomerIds] = useState([]);
   const [advancedFilters, setAdvancedFilters] = useState({
     status: 'all',
@@ -2667,6 +2667,9 @@ const EnhancedCustomerManagement = () => {
     // Reset to first page
     setCurrentPage(1);
     
+    // Reset page size to default
+    setCustomersPerPage(10);
+    
     // Clear alert filter too
     setAlertFilter(false);
     
@@ -2910,7 +2913,14 @@ const EnhancedCustomerManagement = () => {
       const timeoutId = setTimeout(makeRequest, 500 - timeSinceLastCall);
       return () => clearTimeout(timeoutId);
     }
-  }, [currentPage, debouncedSearchQuery, debouncedSearchFields, statusFilter, alertFilter, sortField, sortOrder, loadCustomers, loadCustomerList]);
+  }, [currentPage, debouncedSearchQuery, debouncedSearchFields, statusFilter, alertFilter, sortField, sortOrder, customersPerPage, loadCustomers, loadCustomerList]);
+
+  // Handle page size change
+  const handlePageSizeChange = useCallback((value) => {
+    const newPageSize = parseInt(value);
+    setCustomersPerPage(newPageSize);
+    setCurrentPage(1); // Reset to first page when changing page size
+  }, []);
 
   // For server-side pagination, we don't need client-side filtering
   const totalPages = Math.ceil(totalCustomers / customersPerPage);
@@ -2921,6 +2931,70 @@ const EnhancedCustomerManagement = () => {
     setCurrentPage(1);
     setSelectedCustomerIds([]); // Clear selections when filters change
   }, [searchQuery, searchFields, statusFilter, alertFilter]);
+
+  // Simple reload when customersPerPage changes
+  const [prevPageSize, setPrevPageSize] = useState(customersPerPage);
+  useEffect(() => {
+    if (prevPageSize !== customersPerPage) {
+      setPrevPageSize(customersPerPage);
+      // Direct API call to reload with new page size
+      const loadWithNewPageSize = async () => {
+        // Skip initial load
+        if (!hasInitialLoadRef.current) return;
+        
+        setCustomerListLoading(true);
+        setCustomerListError(null);
+        try {
+          const params = {
+            per_page: customersPerPage,
+            page: 1, // Always page 1 when changing size
+            sort_by: sortField,
+            sort_order: sortOrder,
+          };
+          
+          // Add current search if any
+          const searchTerm = getCurrentSearchTerm();
+          if (searchTerm) {
+            params.search = searchTerm;
+          }
+          
+          // Add status filter if not 'all'
+          if (statusFilter && statusFilter !== 'all') {
+            params.status = statusFilter;
+          }
+          
+          // Add alert filter if active
+          if (alertFilter) {
+            params.has_alerts = true;
+          }
+          
+          // Use the same API call pattern as loadCustomerList
+          const response = searchTerm ? 
+            await customerService.searchCustomers(searchTerm, params) : 
+            await customerService.getAllCustomers(params);
+          setCustomers(response.customers || []);
+          setTotalCustomers(response.total || 0);
+          
+          // Initialize alert counts after loading
+          if (response.customers && response.customers.length > 0) {
+            await initializeAlertCounts(response.customers);
+          }
+        } catch (error) {
+          console.error('Error loading customers with new page size:', error);
+          setCustomerListError(error.message || 'Failed to load customers');
+          toast({
+            title: 'Error',
+            description: 'Failed to load customers',
+            variant: 'destructive'
+          });
+        } finally {
+          setCustomerListLoading(false);
+        }
+      };
+      
+      loadWithNewPageSize();
+    }
+  }, [customersPerPage, prevPageSize, getCurrentSearchTerm, statusFilter, alertFilter, sortField, sortOrder, initializeAlertCounts, toast]);
 
   // Refresh overview transactions (called by activity triggers)
   const refreshOverviewTransactions = useCallback(async () => {
@@ -4233,9 +4307,30 @@ const EnhancedCustomerManagement = () => {
         )}
 
         {/* Results Summary and Pagination */}
-        <div className="mt-4 flex items-center justify-between">
-          <div className="text-sm text-muted-foreground">
-            Showing {Math.min((currentPage - 1) * customersPerPage + 1, totalCustomers)}-{Math.min(currentPage * customersPerPage, totalCustomers)} of {totalCustomers} customers
+        {(totalCustomers > 0 || (hasInitialLoadRef.current && !loading)) && (
+          <div className="mt-4 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="text-sm text-muted-foreground">
+              Showing {Math.min((currentPage - 1) * customersPerPage + 1, totalCustomers)}-{Math.min(currentPage * customersPerPage, totalCustomers)} of {totalCustomers} customers
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Show:</span>
+              <Select
+                value={customersPerPage.toString()}
+                onValueChange={handlePageSizeChange}
+              >
+                <SelectTrigger className="w-20 h-8">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="5">5</SelectItem>
+                  <SelectItem value="10">10</SelectItem>
+                  <SelectItem value="20">20</SelectItem>
+                  <SelectItem value="50">50</SelectItem>
+                  <SelectItem value="100">100</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           
           {totalPages > 1 && (
@@ -4289,7 +4384,8 @@ const EnhancedCustomerManagement = () => {
               </Button>
             </div>
           )}
-        </div>
+          </div>
+        )}
 
         {/* Modern Customer Details Sidebar */}
       <Sheet open={showDetails} onOpenChange={setShowDetails}>
