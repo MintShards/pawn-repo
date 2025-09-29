@@ -42,6 +42,13 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '../ui/sheet';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog';
 import TransactionCard from './TransactionCard';
 import StatusBadge from './components/StatusBadge';
@@ -69,7 +76,7 @@ const TransactionList = ({
   const [activeSearchTerm, setActiveSearchTerm] = useState(''); // Term to actually search with
   const [currentPage, setCurrentPage] = useState(1);
   const [totalTransactions, setTotalTransactions] = useState(0);
-  const transactionsPerPage = 10;
+  const [transactionsPerPage, setTransactionsPerPage] = useState(10);
   const [filters, setFilters] = useState({
     status: '',
     page_size: 10,
@@ -780,6 +787,7 @@ const TransactionList = ({
     setIsFilterPending(false);
     setFilters({ status: '', page_size: 10, sortBy: 'updated_at', sortOrder: 'desc' });
     setCurrentPage(1);
+    setTransactionsPerPage(10);
   };
 
   // Validate filters whenever search fields change
@@ -1824,6 +1832,7 @@ const TransactionList = ({
                     setFilterErrors({});
                     setIsFilterPending(false);
                     setCurrentPage(1);
+                    setTransactionsPerPage(10);
                   }}
                   className="bg-white/80 dark:bg-slate-800/80 border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700"
                 >
@@ -1843,14 +1852,38 @@ const TransactionList = ({
         </Card>
       )}
 
-      {/* Enhanced Pagination - Always show if more than 1 page of data */}
-      {totalPages > 1 && (
+      {/* Enhanced Pagination - Always show if there are transactions */}
+      {effectiveTotalTransactions > 0 && (
         <div className="!mt-0 mb-0 flex items-center justify-between px-6 py-2">
-          <div className="text-sm text-muted-foreground font-medium">
-            Showing {Math.min((currentPage - 1) * transactionsPerPage + 1, effectiveTotalTransactions)}-{Math.min(currentPage * transactionsPerPage, effectiveTotalTransactions)} of {effectiveTotalTransactions} transactions
+          <div className="flex items-center gap-4">
+            <div className="text-sm text-muted-foreground font-medium">
+              Showing {Math.min((currentPage - 1) * transactionsPerPage + 1, effectiveTotalTransactions)}-{Math.min(currentPage * transactionsPerPage, effectiveTotalTransactions)} of {effectiveTotalTransactions} transactions
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Show:</span>
+              <Select
+                value={transactionsPerPage.toString()}
+                onValueChange={(value) => {
+                  setTransactionsPerPage(parseInt(value));
+                  setCurrentPage(1); // Reset to first page when changing page size
+                }}
+              >
+                <SelectTrigger className="w-20 h-8">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="5">5</SelectItem>
+                  <SelectItem value="10">10</SelectItem>
+                  <SelectItem value="20">20</SelectItem>
+                  <SelectItem value="50">50</SelectItem>
+                  <SelectItem value="100">100</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           
-          <div className="flex items-center gap-2">
+          {totalPages > 1 && (
+            <div className="flex items-center gap-2">
             <Button
               variant="outline"
               size="sm"
@@ -1908,6 +1941,7 @@ const TransactionList = ({
               Next
             </Button>
             </div>
+          )}
         </div>
       )}
 
