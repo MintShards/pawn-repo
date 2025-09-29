@@ -296,6 +296,27 @@ export const formatCurrency = (amount) => {
   return formatted.replace(/\.00$/, '');
 };
 
+/**
+ * Format numbers with K/M suffixes for display
+ * @param {number} num - Number to format
+ * @returns {string} Formatted number (e.g., "3K", "2.5K", "1.2M")
+ */
+export const formatCount = (num) => {
+  if (num == null || isNaN(num)) return '0';
+  
+  const number = parseInt(num, 10);
+  
+  if (number >= 1000000) {
+    const millions = number / 1000000;
+    return millions % 1 === 0 ? `${millions}M` : `${millions.toFixed(1)}M`;
+  } else if (number >= 1000) {
+    const thousands = number / 1000;
+    return thousands % 1 === 0 ? `${thousands}K` : `${thousands.toFixed(1)}K`;
+  } else {
+    return number.toString();
+  }
+};
+
 const transactionUtils = {
   formatTransactionId,
   formatExtensionId,
@@ -303,7 +324,8 @@ const transactionUtils = {
   extractTransactionNumber,
   matchesTransactionSearch,
   formatStorageLocation,
-  formatCurrency
+  formatCurrency,
+  formatCount
 };
 
 export default transactionUtils;

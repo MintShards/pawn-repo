@@ -48,7 +48,7 @@ import StatusBadge from './components/StatusBadge';
 import transactionService from '../../services/transactionService';
 import customerService from '../../services/customerService';
 import extensionService from '../../services/extensionService';
-import { initializeSequenceNumbers, formatTransactionId, formatExtensionId, formatStorageLocation, formatCurrency } from '../../utils/transactionUtils';
+import { initializeSequenceNumbers, formatTransactionId, formatExtensionId, formatStorageLocation, formatCurrency, formatCount } from '../../utils/transactionUtils';
 import { formatBusinessDate } from '../../utils/timezoneUtils';
 import { useOptimisticTransactionUpdate } from '../../hooks/useOptimisticTransactionUpdate';
 
@@ -975,15 +975,15 @@ const TransactionList = ({
         <div className="relative group">
           <div className="absolute inset-0 bg-gradient-to-r from-white via-slate-50 to-slate-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 rounded-xl opacity-95 transition-colors duration-300"></div>
           <div className="relative p-6">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center space-x-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center space-x-1.5 flex-wrap">
                 {['all', 'active', 'overdue', 'extended', 'redeemed', 'sold'].map((status) => (
                   <Button
                     key={status}
                     variant={filters.status === (status === 'all' ? '' : status) ? "default" : "ghost"}
                     size="sm"
                     onClick={() => handleStatusFilter(status === 'all' ? '' : status)}
-                    className={`h-10 px-3 font-medium transition-all duration-200 text-sm ${
+                    className={`h-9 px-2.5 font-medium transition-all duration-200 text-sm ${
                       filters.status === (status === 'all' ? '' : status)
                         ? 'text-white shadow-lg'
                         : 'bg-slate-200/50 hover:bg-slate-300/60 hover:shadow-sm text-slate-700 hover:text-slate-900 border-slate-300/50 hover:border-slate-400/60 dark:bg-slate-700/50 dark:hover:bg-slate-600/60 dark:text-slate-300 dark:hover:text-white dark:border-slate-600/50 dark:hover:border-slate-500/60'
@@ -1006,9 +1006,20 @@ const TransactionList = ({
                     {status === 'all' ? 'All' : status.charAt(0).toUpperCase() + status.slice(1)}
                     <Badge 
                       variant="secondary" 
-                      className="ml-2 h-5 px-2 min-w-[20px] max-w-[60px] text-xs bg-white/20 text-current border-0 font-bold flex items-center justify-center whitespace-nowrap overflow-hidden"
+                      className={`ml-1.5 h-4 text-xs bg-white/20 text-current border-0 font-bold flex items-center justify-center whitespace-nowrap overflow-hidden ${
+                        (() => {
+                          const count = status === 'all' ? allTransactionsCounts.all : (allTransactionsCounts[status] || 0);
+                          // Dynamic sizing: larger for smaller numbers, smaller for K/M formatted numbers
+                          if (count >= 1000) {
+                            return 'px-1.5 min-w-[24px] max-w-[36px]'; // Compact for K/M: "3K", "10K", "2.5K", "1.2M"
+                          } else {
+                            return 'px-2 min-w-[32px] max-w-[48px]'; // Larger for small numbers: "1", "50", "100", "999"
+                          }
+                        })()
+                      }`}
+                      title={`${status === 'all' ? allTransactionsCounts.all : (allTransactionsCounts[status] || 0)} transactions`}
                     >
-                      {status === 'all' ? (allTransactionsCounts.all > 999999 ? '999K+' : allTransactionsCounts.all) : (allTransactionsCounts[status] > 999999 ? '999K+' : allTransactionsCounts[status] || 0)}
+                      {status === 'all' ? formatCount(allTransactionsCounts.all) : formatCount(allTransactionsCounts[status] || 0)}
                     </Badge>
                   </Button>
                 ))}
@@ -1022,9 +1033,9 @@ const TransactionList = ({
                   variant="ghost" 
                   size="sm"
                   disabled={loading}
-                  className="h-10 px-3 bg-slate-200/50 hover:bg-slate-300/60 hover:shadow-sm text-slate-700 hover:text-slate-900 border-slate-300/50 hover:border-slate-400/60 dark:bg-slate-700/50 dark:hover:bg-slate-600/60 dark:text-slate-300 dark:hover:text-white dark:border-slate-600/50 dark:hover:border-slate-500/60 transition-all duration-200 text-sm"
+                  className="h-9 px-3 bg-slate-200/50 hover:bg-slate-300/60 hover:shadow-sm text-slate-700 hover:text-slate-900 border-slate-300/50 hover:border-slate-400/60 dark:bg-slate-700/50 dark:hover:bg-slate-600/60 dark:text-slate-300 dark:hover:text-white dark:border-slate-600/50 dark:hover:border-slate-500/60 transition-all duration-200 text-sm"
                 >
-                  <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
                   <span className="font-medium">Refresh</span>
                 </Button>
 
@@ -1033,9 +1044,9 @@ const TransactionList = ({
                     <Button 
                       variant="outline" 
                       size="sm" 
-                      className="relative h-10 px-3 bg-slate-200/50 hover:bg-slate-300/60 hover:shadow-sm text-slate-700 hover:text-slate-900 border-slate-300/50 hover:border-slate-400/60 dark:bg-slate-700/50 dark:hover:bg-slate-600/60 dark:text-slate-300 dark:hover:text-white dark:border-slate-600/50 dark:hover:border-slate-500/60 transition-all duration-200 text-sm"
+                      className="relative h-9 px-3 bg-slate-200/50 hover:bg-slate-300/60 hover:shadow-sm text-slate-700 hover:text-slate-900 border-slate-300/50 hover:border-slate-400/60 dark:bg-slate-700/50 dark:hover:bg-slate-600/60 dark:text-slate-300 dark:hover:text-white dark:border-slate-600/50 dark:hover:border-slate-500/60 transition-all duration-200 text-sm"
                     >
-                      <Filter className="h-4 w-4 mr-2" />
+                      <Filter className="h-3.5 w-3.5 mr-1.5" />
                       <span className="font-medium">Advanced</span>
                       {Object.values(searchFields).some(v => v) && (
                         <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
