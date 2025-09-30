@@ -52,6 +52,7 @@ import { ScrollArea } from '../components/ui/scroll-area';
 import StatsPanel from '../components/ui/realtime-stats-panel';
 import useStatsPolling from '../hooks/useStatsPolling';
 import useExtensionCancellation from '../hooks/useExtensionCancellation';
+import usePaymentReversal from '../hooks/usePaymentReversal';
 import transactionService from '../services/transactionService';
 import extensionService from '../services/extensionService';
 import customerService from '../services/customerService';
@@ -85,12 +86,8 @@ const TransactionHub = () => {
   const [showQuickExtension, setShowQuickExtension] = useState(false);
   
   // Admin approval dialog states
-  const [showPaymentReversalDialog, setShowPaymentReversalDialog] = useState(false);
   const [showVoidApprovalDialog, setShowVoidApprovalDialog] = useState(false);
-  const [pendingReversalPaymentId, setPendingReversalPaymentId] = useState(null);
-  const [pendingReversalTransaction, setPendingReversalTransaction] = useState(null);
   const [pendingVoidTransaction, setPendingVoidTransaction] = useState(null);
-  const [reversalEligibility, setReversalEligibility] = useState(null); // For payment reversal
   
   // Get real-time stats data
   const { 
@@ -127,6 +124,39 @@ const TransactionHub = () => {
       
       // Refresh stats after successful cancellation
       await statsCacheService.invalidateAfterExtension();
+    }
+  });
+
+  // Use payment reversal hook for consolidated payment reversal logic
+  const {
+    showPaymentReversalDialog: paymentReversalDialogOpen,
+    pendingReversalPaymentId: pendingPaymentReversalId,
+    pendingReversalTransaction: pendingPaymentTransaction,
+    reversalEligibility: paymentReversalEligibility,
+    processingCancel: paymentProcessingCancel,
+    handlePaymentReversalAction,
+    handlePaymentReversalApproval,
+    handlePaymentReversalCancel,
+    canReversePayment: canReversePaymentFromHook,
+    isProcessingPayment
+  } = usePaymentReversal({
+    user,
+    handleError,
+    onSuccess: async (data) => {
+      // Update payment history with optimistic update if available
+      if (data.optimisticPaymentHistory) {
+        setPaymentHistory(data.optimisticPaymentHistory);
+      }
+      
+      // Background refresh to sync with server
+      if (selectedTransaction?.transaction_id) {
+        refreshTimelineData(selectedTransaction.transaction_id).catch(() => {});
+      }
+      
+      // Trigger immediate TransactionList refresh to show updated balance
+      setRefreshKey(prev => prev + 1);
+      
+      handleSuccess(`Payment reversed successfully. ${formatCurrency(paymentReversalEligibility?.payment_amount || 0)} has been credited back to the transaction balance.`);
     }
   });
   
@@ -724,117 +754,6 @@ const TransactionHub = () => {
     setShowVoidApprovalDialog(true);
   };
   
-  // Handle payment reversal initiation
-  const handlePaymentReversal = async (paymentId) => {
-    if (!user?.role || user.role !== 'admin') {
-      handleError(new Error('Only administrators can cancel payments'), 'Permission denied');
-      return;
-    }
-    
-    try {
-      // Check eligibility first
-      const eligibility = await reversalService.checkPaymentReversalEligibility(paymentId);
-      
-      if (!eligibility.is_eligible) {
-        handleError(new Error(eligibility.reason || 'Payment cannot be reversed'), 'Reversal not allowed');
-        return;
-      }
-      
-      // Store eligibility, payment ID, and transaction data, then show dialog
-      setReversalEligibility(eligibility);
-      setPendingReversalPaymentId(paymentId);
-      setPendingReversalTransaction(selectedTransaction);
-      setShowPaymentReversalDialog(true);
-    } catch (error) {
-      handleError(error, 'Failed to check reversal eligibility');
-    }
-  };
-
-  // Handle approved payment reversal
-  const handlePaymentReversalApproval = async (approvalData) => {
-    if (!pendingReversalPaymentId) return;
-    
-    setProcessingCancel(`payment-${pendingReversalPaymentId}`);
-    
-    try {
-      // Optimistic UI update - immediately mark payment as voided in local state
-      const optimisticPaymentHistory = { ...paymentHistory };
-      if (optimisticPaymentHistory?.payments) {
-        optimisticPaymentHistory.payments = optimisticPaymentHistory.payments.map(payment => {
-          if (payment.payment_id === pendingReversalPaymentId) {
-            return {
-              ...payment,
-              is_voided: true,
-              void_reason: `REVERSAL: ${approvalData.reason}`,
-              voided_at: new Date().toISOString(),
-              voided_by: user?.user_id
-            };
-          }
-          return payment;
-        });
-        setPaymentHistory(optimisticPaymentHistory);
-      }
-      
-      // Close dialog immediately for better UX
-      setShowPaymentReversalDialog(false);
-      setPendingReversalPaymentId(null);
-      setPendingReversalTransaction(null);
-      setReversalEligibility(null);
-      
-      // Process the reversal
-      const reversalData = {
-        reversal_reason: approvalData.reason,
-        admin_pin: approvalData.admin_pin
-      };
-      
-      await reversalService.reversePayment(pendingReversalPaymentId, reversalData);
-      
-      // Background refresh to sync with server
-      if (selectedTransaction?.transaction_id) {
-        refreshTimelineData(selectedTransaction.transaction_id).catch(() => {});
-      }
-      
-      // Trigger a refresh of the transaction list
-      setRefreshKey(prev => prev + 1);
-      
-      handleSuccess(`Payment reversed successfully. ${formatCurrency(reversalEligibility?.payment_amount || 0)} has been credited back to the transaction balance.`);
-    } catch (error) {
-      // Enhanced error handling with specific messages
-      let errorMessage = 'Payment reversal failed';
-      
-      if (error.message?.includes('401') || error.message?.includes('Invalid admin PIN')) {
-        errorMessage = 'Invalid admin PIN. Please check your credentials.';
-      } else if (error.message?.includes('403')) {
-        errorMessage = 'Access denied. Admin privileges required.';
-      } else if (error.message?.includes('400')) {
-        if (error.message?.includes('same-day')) {
-          errorMessage = 'Payment can only be reversed on the same business day it was made.';
-        } else if (error.message?.includes('daily limit')) {
-          errorMessage = 'Daily reversal limit reached for this transaction.';
-        } else {
-          errorMessage = 'Payment cannot be reversed. Please check business rules.';
-        }
-      } else if (error.message?.includes('404')) {
-        errorMessage = 'Payment not found or already processed.';
-      }
-      
-      handleError(error, errorMessage);
-      // Revert optimistic update on failure
-      if (selectedTransaction?.transaction_id) {
-        refreshTimelineData(selectedTransaction.transaction_id).catch(() => {});
-      }
-    } finally {
-      setProcessingCancel(null);
-    }
-  };
-
-  // Handle payment reversal cancellation
-  const handlePaymentReversalCancel = () => {
-    setShowPaymentReversalDialog(false);
-    setPendingReversalPaymentId(null);
-    setPendingReversalTransaction(null);
-    setReversalEligibility(null);
-  };
   
 
   // Handle void transaction approval
@@ -2017,12 +1936,12 @@ const TransactionHub = () => {
                                                   
                                                   return (
                                                     <button
-                                                      onClick={() => handlePaymentReversal(event.data.payment_id)}
-                                                      disabled={processingCancel === `payment-${event.data.payment_id}`}
+                                                      onClick={() => handlePaymentReversalAction(event.data.payment_id, selectedTransaction)}
+                                                      disabled={isProcessingPayment(event.data.payment_id)}
                                                       className="ml-2 px-2 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-700 rounded transition-colors disabled:opacity-50"
                                                       title="Cancel payment (admin only, same-day)"
                                                     >
-                                                      {processingCancel === `payment-${event.data.payment_id}` ? '...' : 'Cancel'}
+                                                      {isProcessingPayment(event.data.payment_id) ? '...' : 'Cancel'}
                                                     </button>
                                                   );
                                                 })()}
@@ -2894,23 +2813,23 @@ onKeyPress={async (e) => {
 
       {/* Admin Approval Dialog for Payment Reversal */}
       <AdminApprovalDialog
-        open={showPaymentReversalDialog}
-        onOpenChange={setShowPaymentReversalDialog}
+        open={paymentReversalDialogOpen}
+        onOpenChange={handlePaymentReversalCancel}
         title="Payment Reversal Authorization"
         description="This action will reverse the selected payment and update the transaction balance. Please provide your admin credentials and reason for this reversal."
-        onApprove={handlePaymentReversalApproval}
+        onApprove={(approvalData) => handlePaymentReversalApproval(approvalData, selectedTransaction, paymentHistory)}
         onCancel={handlePaymentReversalCancel}
-        loading={processingCancel === `payment-${pendingReversalPaymentId}`}
+        loading={isProcessingPayment(pendingPaymentReversalId)}
         actionType="reversal"
         requireReason={true}
-        warningMessage={reversalEligibility?.warnings ? reversalEligibility.warnings.join(' ') : undefined}
+        warningMessage={paymentReversalEligibility?.warnings ? paymentReversalEligibility.warnings.join(' ') : undefined}
       >
-        {(pendingReversalTransaction || selectedTransaction || reversalEligibility) && (
+        {(pendingPaymentTransaction || selectedTransaction || paymentReversalEligibility) && (
           <div className="bg-amber-50 border border-amber-300 rounded-md p-3">
             <h4 className="text-sm font-medium text-amber-900 mb-2">Reversal Details</h4>
             <div className="text-sm text-amber-900 space-y-1">
               {(() => {
-                const transactionData = pendingReversalTransaction?.transaction || selectedTransaction?.transaction || selectedTransaction;
+                const transactionData = pendingPaymentTransaction?.transaction || selectedTransaction?.transaction || selectedTransaction;
                 if (transactionData) {
                   return (
                     <>
@@ -2927,11 +2846,11 @@ onKeyPress={async (e) => {
                 }
                 return null; // Don't show incomplete data
               })()}
-              {reversalEligibility?.payment_amount && (
-                <p><strong>Payment Amount:</strong> {formatCurrency(reversalEligibility.payment_amount)}</p>
+              {paymentReversalEligibility?.payment_amount && (
+                <p><strong>Payment Amount:</strong> {formatCurrency(paymentReversalEligibility.payment_amount)}</p>
               )}
-              {reversalEligibility?.payment_date && (
-                <p><strong>Payment Date:</strong> {formatBusinessDate(reversalEligibility.payment_date)}</p>
+              {paymentReversalEligibility?.payment_date && (
+                <p><strong>Payment Date:</strong> {formatBusinessDate(paymentReversalEligibility.payment_date)}</p>
               )}
             </div>
           </div>

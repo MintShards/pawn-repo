@@ -91,6 +91,9 @@ export const useExtensionCancellation = ({
       // Call the API to cancel the extension
       const result = await reversalService.cancelExtension(pendingCancelExtensionId, cancellationData);
       
+      // Only close dialog and reset state on successful API call
+      handleExtensionCancelCancel();
+      
       // Clear caches to ensure fresh data on next fetch
       transactionService.clearTransactionCache();
       extensionService.clearExtensionCache();
@@ -111,9 +114,6 @@ export const useExtensionCancellation = ({
           return extension;
         })
       } : null;
-
-      // Reset state
-      handleExtensionCancelCancel();
       
       // Notify success with results
       if (onSuccess) {
