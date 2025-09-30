@@ -53,13 +53,13 @@ import StatsPanel from '../components/ui/realtime-stats-panel';
 import useStatsPolling from '../hooks/useStatsPolling';
 import useExtensionCancellation from '../hooks/useExtensionCancellation';
 import usePaymentReversal from '../hooks/usePaymentReversal';
+import useTransactionVoid from '../hooks/useTransactionVoid';
 import transactionService from '../services/transactionService';
 import extensionService from '../services/extensionService';
 import customerService from '../services/customerService';
 import authService from '../services/authService';
 import statsCacheService from '../services/statsCacheService';
 import paymentService from '../services/paymentService';
-import reversalService from '../services/reversalService';
 import AdminApprovalDialog from '../components/common/AdminApprovalDialog';
 
 const TransactionHub = () => {
@@ -75,7 +75,6 @@ const TransactionHub = () => {
   const [paymentHistory, setPaymentHistory] = useState(null);
   const [auditEntries, setAuditEntries] = useState([]);
   const [showAllPayments, setShowAllPayments] = useState(false);
-  const [processingCancel, setProcessingCancel] = useState(null);
   const [loadingTransactionDetails, setLoadingTransactionDetails] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0); // Add refresh key for TransactionList
   const [showCustomerDetails, setShowCustomerDetails] = useState(false);
@@ -85,9 +84,36 @@ const TransactionHub = () => {
   const [showQuickPayment, setShowQuickPayment] = useState(false);
   const [showQuickExtension, setShowQuickExtension] = useState(false);
   
-  // Admin approval dialog states
-  const [showVoidApprovalDialog, setShowVoidApprovalDialog] = useState(false);
-  const [pendingVoidTransaction, setPendingVoidTransaction] = useState(null);
+  // Transaction void hook - consolidates duplicate logic
+  const {
+    showVoidApprovalDialog,
+    pendingVoidTransaction,
+    processingCancel: voidProcessingCancel,
+    handleVoidTransaction,
+    handleVoidTransactionApproval,
+    handleVoidTransactionCancel,
+    canVoidTransaction
+  } = useTransactionVoid({
+    user,
+    handleError,
+    onSuccess: async (data) => {
+      // If transaction details dialog is open and it's the same transaction, refresh the timeline immediately
+      if (showTransactionDetails && selectedTransaction?.transaction_id === data.transactionId) {
+        // Small delay to ensure backend audit entry is created
+        setTimeout(() => {
+          refreshTimelineData(selectedTransaction.transaction_id).catch(() => {
+            // Fallback to full refresh
+            handleViewTransaction(selectedTransaction).catch(() => {});
+          });
+        }, 500);
+      }
+      
+      // Trigger a refresh of the transaction list
+      setRefreshKey(prev => prev + 1);
+      
+      handleSuccess(`Transaction ${formatTransactionId(selectedTransaction?.transaction || selectedTransaction)} voided successfully. All transaction data has been marked as cancelled.`);
+    }
+  });
   
   // Get real-time stats data
   const { 
@@ -106,8 +132,7 @@ const TransactionHub = () => {
     handleExtensionCancelAction,
     handleExtensionCancelApproval,
     handleExtensionCancelCancel,
-    canCancelExtension: canCancelExtensionFromHook,
-    isProcessingExtension
+    canCancelExtension: canCancelExtensionFromHook
   } = useExtensionCancellation({
     user,
     handleError,
@@ -133,11 +158,9 @@ const TransactionHub = () => {
     pendingReversalPaymentId: pendingPaymentReversalId,
     pendingReversalTransaction: pendingPaymentTransaction,
     reversalEligibility: paymentReversalEligibility,
-    processingCancel: paymentProcessingCancel,
     handlePaymentReversalAction,
     handlePaymentReversalApproval,
     handlePaymentReversalCancel,
-    canReversePayment: canReversePaymentFromHook,
     isProcessingPayment
   } = usePaymentReversal({
     user,
@@ -732,97 +755,17 @@ const TransactionHub = () => {
     setShowStatusUpdateForm(true);
   };
 
-  // Handle transaction void (Admin only)
-  const handleVoidTransaction = (transaction) => {
-    // Check admin permissions
-    if (!user?.role || user.role !== 'admin') {
-      handleError(new Error('Only administrators can void transactions'), 'Permission denied');
-      return;
-    }
-
-    // Check if transaction can be voided - calculate effective status
-    const voidableStatuses = ['active', 'overdue', 'extended', 'hold'];
-    const extensions = transaction.extensions || selectedTransaction?.extensions || [];
-    const hasActiveExtensions = extensions.some(ext => !ext.is_cancelled);
-    const effectiveStatus = hasActiveExtensions && ['active', 'overdue'].includes(transaction.status) ? 'extended' : transaction.status;
-    if (!voidableStatuses.includes(effectiveStatus)) {
-      handleError(new Error(`Cannot void transaction with status: ${effectiveStatus}`), 'Invalid transaction state');
-      return;
-    }
-
-    setPendingVoidTransaction(transaction);
-    setShowVoidApprovalDialog(true);
-  };
-  
-  
-
-  // Handle void transaction approval
-  const handleVoidTransactionApproval = async (approvalData) => {
-    if (!pendingVoidTransaction) return;
-
-    try {
-      setProcessingCancel(`void-${pendingVoidTransaction.transaction_id}`);
-
-      const voidData = {
-        void_reason: approvalData.reason,
-        admin_pin: approvalData.admin_pin
-      };
-
-      await transactionService.voidTransaction(pendingVoidTransaction.transaction_id, voidData);
-      
-      // Clear transaction cache to ensure fresh data
-      transactionService.clearTransactionCache();
-      
-      // Close dialog and clear state
-      setShowVoidApprovalDialog(false);
-      setPendingVoidTransaction(null);
-
-      // If transaction details dialog is open and it's the same transaction, refresh the timeline immediately
-      if (showTransactionDetails && selectedTransaction?.transaction_id === pendingVoidTransaction.transaction_id) {
-        // Small delay to ensure backend audit entry is created
-        setTimeout(() => {
-          refreshTimelineData(selectedTransaction.transaction_id).catch(error => {
-            // Fallback to full refresh
-            handleViewTransaction(selectedTransaction).catch(() => {});
-          });
-        }, 500);
-      }
-      
-      // Trigger a refresh of the transaction list
-      setRefreshKey(prev => prev + 1);
-      
-      handleSuccess(`Transaction ${formatTransactionId(pendingVoidTransaction)} voided successfully. All transaction data has been marked as cancelled.`);
-      
-    } catch (error) {
-      // Enhanced error handling with specific messages
-      let errorMessage = 'Transaction void failed';
-      
-      if (error.message?.includes('401') || error.message?.includes('Invalid admin PIN')) {
-        errorMessage = 'Invalid admin PIN. Please check your credentials.';
-      } else if (error.message?.includes('403')) {
-        errorMessage = 'Access denied. Admin privileges required.';
-      } else if (error.message?.includes('400')) {
-        if (error.message?.includes('status')) {
-          errorMessage = 'Transaction cannot be voided in its current status. Only active, overdue, or extended transactions can be voided.';
-        } else if (error.message?.includes('payments')) {
-          errorMessage = 'Cannot void transaction with payments made. Please process refunds separately.';
-        } else {
-          errorMessage = 'Transaction cannot be voided. Please check business rules.';
-        }
-      } else if (error.message?.includes('404')) {
-        errorMessage = 'Transaction not found or already processed.';
-      }
-      
-      handleError(error, errorMessage);
-    } finally {
-      setProcessingCancel(null);
-    }
-  };
-
-  // Handle void transaction cancellation
-  const handleVoidTransactionCancel = () => {
-    setShowVoidApprovalDialog(false);
-    setPendingVoidTransaction(null);
+  // Check if a transaction status can be updated
+  const canUpdateStatus = (transaction) => {
+    if (!transaction) return false;
+    
+    // Finalized statuses that cannot be changed
+    const finalizedStatuses = ['redeemed', 'sold', 'voided'];
+    
+    const currentStatus = transaction.status?.toLowerCase();
+    
+    // Block status updates for finalized transactions
+    return !finalizedStatuses.includes(currentStatus);
   };
 
   // Handle successful status update
@@ -1744,7 +1687,12 @@ const TransactionHub = () => {
                               onClick={() => {
                                 handleStatusUpdate(selectedTransaction?.transaction || selectedTransaction);
                               }}
+                              disabled={!canUpdateStatus(selectedTransaction?.transaction || selectedTransaction)}
                               className="w-full"
+                              title={!canUpdateStatus(selectedTransaction?.transaction || selectedTransaction) ? 
+                                "Cannot update status for finalized transactions: redeemed, sold, or voided" : 
+                                "Update transaction status (admin only)"
+                              }
                             >
                               <Activity className="w-4 h-4 mr-2" />
                               Update Status
@@ -1758,7 +1706,12 @@ const TransactionHub = () => {
                               onClick={() => {
                                 handleVoidTransaction(selectedTransaction?.transaction || selectedTransaction);
                               }}
+                              disabled={!canVoidTransaction(selectedTransaction?.transaction || selectedTransaction)}
                               className="w-full"
+                              title={!canVoidTransaction(selectedTransaction?.transaction || selectedTransaction) ? 
+                                "Cannot void transactions with status: redeemed, forfeited, sold, voided, or canceled" : 
+                                "Void this transaction (admin only)"
+                              }
                             >
                               <Trash2 className="w-4 h-4 mr-2" />
                               Void Transaction
@@ -2454,7 +2407,12 @@ const TransactionHub = () => {
                             setShowTransactionDetails(false);
                             handleStatusUpdate(selectedTransaction?.transaction || selectedTransaction);
                           }}
+                          disabled={!canUpdateStatus(selectedTransaction?.transaction || selectedTransaction)}
                           className="w-full"
+                          title={!canUpdateStatus(selectedTransaction?.transaction || selectedTransaction) ? 
+                            "Cannot update status for finalized transactions: redeemed, sold, or voided" : 
+                            "Update transaction status (admin only)"
+                          }
                         >
                           <Activity className="w-4 h-4 mr-2" />
                           Update Status
@@ -2469,7 +2427,12 @@ const TransactionHub = () => {
                             setShowTransactionDetails(false);
                             handleVoidTransaction(selectedTransaction?.transaction || selectedTransaction);
                           }}
+                          disabled={!canVoidTransaction(selectedTransaction?.transaction || selectedTransaction)}
                           className="w-full"
+                          title={!canVoidTransaction(selectedTransaction?.transaction || selectedTransaction) ? 
+                            "Cannot void transactions with status: redeemed, forfeited, sold, voided, or canceled" : 
+                            "Void this transaction (admin only)"
+                          }
                         >
                           <Trash2 className="w-4 h-4 mr-2" />
                           Void Transaction
@@ -2908,12 +2871,12 @@ onKeyPress={async (e) => {
       {/* Admin Approval Dialog for Transaction Void */}
       <AdminApprovalDialog
         open={showVoidApprovalDialog}
-        onOpenChange={setShowVoidApprovalDialog}
+        onOpenChange={(open) => !open && handleVoidTransactionCancel()}
         title="Transaction Void Authorization"
         description="This action will permanently void the transaction and mark it as canceled. This action cannot be reversed."
-        onApprove={handleVoidTransactionApproval}
+        onApprove={(approvalData) => handleVoidTransactionApproval(approvalData, selectedTransaction)}
         onCancel={handleVoidTransactionCancel}
-        loading={processingCancel === `void-${pendingVoidTransaction?.transaction_id}`}
+        loading={voidProcessingCancel === `void-${pendingVoidTransaction?.transaction_id}`}
         actionType="void"
         requireReason={true}
         warningMessage="This is a permanent action that cannot be undone. All transaction data will be marked as voided."

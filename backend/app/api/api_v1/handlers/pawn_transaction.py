@@ -42,7 +42,7 @@ from app.services.interest_calculation_service import (
 from app.services.receipt_service import ReceiptService, ReceiptGenerationError
 from app.core.exceptions import (
     ValidationError, BusinessRuleError, TransactionNotFoundError,
-    CustomerNotFoundError, DatabaseError, AuthorizationError
+    CustomerNotFoundError, DatabaseError, AuthorizationError, AuthenticationError
 )
 from app.models.customer_model import Customer
 
@@ -1396,6 +1396,10 @@ async def void_transaction(
         if not void_request.void_reason or not void_request.void_reason.strip():
             raise ValidationError("Void reason is required")
         
+        # Verify admin PIN (same validation as reversal operations)
+        if not current_user.verify_pin(void_request.admin_pin):
+            raise AuthenticationError("Invalid admin PIN")
+        
         # Verify transaction exists with enhanced error handling
         try:
             transaction = await PawnTransactionService.get_transaction_by_id(transaction_id)
@@ -1526,6 +1530,9 @@ async def void_transaction(
             audit_trail=audit_trail
         )
         
+    except AuthenticationError as e:
+        transaction_logger.warning("Authentication error in transaction void", transaction_id=transaction_id, user=current_user.user_id, error=str(e))
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
     except (ValidationError, BusinessRuleError, TransactionNotFoundError) as e:
         # Re-raise known exceptions to be handled by global handlers
         raise

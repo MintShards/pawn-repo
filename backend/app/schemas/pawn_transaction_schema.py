@@ -355,6 +355,12 @@ class TransactionVoidRequest(BaseModel):
         max_length=500,
         description="Reason for voiding transaction (required for audit trail)"
     )
+    admin_pin: str = Field(
+        ..., 
+        min_length=4, 
+        max_length=4,
+        description="Admin PIN for authorization (required for security)"
+    )
     admin_notes: Optional[str] = Field(
         None,
         max_length=1000,
@@ -365,6 +371,7 @@ class TransactionVoidRequest(BaseModel):
         json_schema_extra={
             "example": {
                 "void_reason": "Customer changed mind, items not received",
+                "admin_pin": "1234",
                 "admin_notes": "Called customer to confirm cancellation"
             }
         }
