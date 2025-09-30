@@ -125,6 +125,22 @@ const TransactionList = ({
   // Customer data for name display
   const [customerData, setCustomerData] = useState({});
 
+  // Helper to calculate effective transaction status based on extensions
+  const getEffectiveTransactionStatus = (transaction) => {
+    const baseStatus = transaction.status;
+    
+    // Check if transaction has any active (non-cancelled) extensions
+    const extensions = transaction.extensions || [];
+    const hasActiveExtensions = extensions.some(ext => !ext.is_cancelled);
+    
+    // If there are active extensions, status should be 'extended'
+    if (hasActiveExtensions && ['active', 'overdue'].includes(baseStatus)) {
+      return 'extended';
+    }
+    
+    return baseStatus;
+  };
+
   // Validation functions
   const validateFilters = useCallback((fields) => {
     const errors = {};
@@ -1650,7 +1666,7 @@ const TransactionList = ({
                         </TableCell>
                         <TableCell>
                           <div className="space-y-1">
-                            {['active', 'overdue', 'extended'].includes(transaction.status) ? (
+                            {['active', 'overdue', 'extended'].includes(getEffectiveTransactionStatus(transaction)) ? (
                               <>
                                 <div className="font-bold text-lg text-slate-800 dark:text-slate-200">
                                   {transactionBalances[transaction.transaction_id]?.current_balance !== undefined 
@@ -1669,14 +1685,14 @@ const TransactionList = ({
                               </>
                             ) : (
                               <div className="text-slate-600 dark:text-slate-500 text-sm italic font-medium">
-                                {transaction.status === 'redeemed' ? 'Paid' : 'N/A'}
+                                {getEffectiveTransactionStatus(transaction) === 'redeemed' ? 'Paid' : 'N/A'}
                               </div>
                             )}
                           </div>
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center space-x-2">
-                            <StatusBadge status={transaction.status} />
+                            <StatusBadge status={getEffectiveTransactionStatus(transaction)} />
                             {transaction.extensions && transaction.extensions.length > 0 && (() => {
                               const activeExtensions = transaction.extensions.filter(ext => !ext.is_cancelled);
                               const cancelledExtensions = transaction.extensions.filter(ext => ext.is_cancelled);
@@ -1709,7 +1725,7 @@ const TransactionList = ({
                             >
                               <Eye className="h-4 w-4" />
                             </Button>
-                            {(transaction.status === 'active' || transaction.status === 'overdue' || transaction.status === 'extended') && (
+                            {['active', 'overdue', 'extended'].includes(getEffectiveTransactionStatus(transaction)) && (
                               <>
                                 <Button
                                   variant="ghost"
@@ -1969,10 +1985,10 @@ const TransactionList = ({
                   </h3>
                   <p className="text-sm text-slate-600 dark:text-slate-400">
                     Customer: {selectedTransactionItems.customer_id} | 
-                    Status: <span className="capitalize font-medium">{selectedTransactionItems.status}</span>
+                    Status: <span className="capitalize font-medium">{getEffectiveTransactionStatus(selectedTransactionItems)}</span>
                   </p>
                 </div>
-                <StatusBadge status={selectedTransactionItems.status} />
+                <StatusBadge status={getEffectiveTransactionStatus(selectedTransactionItems)} />
               </div>
 
               {/* Items List */}

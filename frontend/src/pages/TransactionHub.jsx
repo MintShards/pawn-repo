@@ -46,11 +46,12 @@ import StatusBadge from '../components/transaction/components/StatusBadge';
 import TransactionNotesDisplay from '../components/transaction/TransactionNotesDisplay';
 import { formatTransactionId, formatStorageLocation, formatCurrency } from '../utils/transactionUtils';
 import { getRoleTitle, getUserDisplayString } from '../utils/roleUtils';
-import { formatBusinessDate, canReversePayment, canCancelExtension } from '../utils/timezoneUtils';
+import { formatBusinessDate, canReversePayment } from '../utils/timezoneUtils';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '../components/ui/resizable';
 import { ScrollArea } from '../components/ui/scroll-area';
 import StatsPanel from '../components/ui/realtime-stats-panel';
 import useStatsPolling from '../hooks/useStatsPolling';
+import useExtensionCancellation from '../hooks/useExtensionCancellation';
 import transactionService from '../services/transactionService';
 import extensionService from '../services/extensionService';
 import customerService from '../services/customerService';
@@ -85,14 +86,11 @@ const TransactionHub = () => {
   
   // Admin approval dialog states
   const [showPaymentReversalDialog, setShowPaymentReversalDialog] = useState(false);
-  const [showExtensionCancelDialog, setShowExtensionCancelDialog] = useState(false);
   const [showVoidApprovalDialog, setShowVoidApprovalDialog] = useState(false);
   const [pendingReversalPaymentId, setPendingReversalPaymentId] = useState(null);
   const [pendingReversalTransaction, setPendingReversalTransaction] = useState(null);
-  const [pendingCancelExtensionId, setPendingCancelExtensionId] = useState(null);
-  const [pendingCancelTransaction, setPendingCancelTransaction] = useState(null);
   const [pendingVoidTransaction, setPendingVoidTransaction] = useState(null);
-  const [reversalEligibility, setReversalEligibility] = useState(null);
+  const [reversalEligibility, setReversalEligibility] = useState(null); // For payment reversal
   
   // Get real-time stats data
   const { 
@@ -100,6 +98,37 @@ const TransactionHub = () => {
     todaysCollection, 
     maturityThisWeek 
   } = useStatsPolling({ refreshInterval: 60000 });
+
+  // Extension cancellation hook - consolidates duplicate logic
+  const {
+    showExtensionCancelDialog,
+    pendingCancelExtensionId,
+    pendingCancelTransaction,
+    reversalEligibility: extensionEligibility,
+    processingCancel: extensionProcessingCancel,
+    handleExtensionCancelAction,
+    handleExtensionCancelApproval,
+    handleExtensionCancelCancel,
+    canCancelExtension: canCancelExtensionFromHook,
+    isProcessingExtension
+  } = useExtensionCancellation({
+    user,
+    handleError,
+    onSuccess: async (data) => {
+      // Update selectedTransaction with the optimistic update to refresh timeline immediately
+      if (data.optimisticUpdate && selectedTransaction) {
+        setSelectedTransaction(data.optimisticUpdate);
+      }
+      
+      // Trigger immediate TransactionList refresh to show updated status
+      setRefreshKey(prev => prev + 1);
+      
+      handleSuccess(`Extension cancelled successfully. ${formatCurrency(data.result?.extension_fee || extensionEligibility?.extension_fee || 0)} extension fee has been refunded and maturity date restored.`);
+      
+      // Refresh stats after successful cancellation
+      await statsCacheService.invalidateAfterExtension();
+    }
+  });
   
   // Optimized timeline calculation with memoization and performance improvements
   const timelineData = useMemo(() => {
@@ -681,10 +710,13 @@ const TransactionHub = () => {
       return;
     }
 
-    // Check if transaction can be voided
+    // Check if transaction can be voided - calculate effective status
     const voidableStatuses = ['active', 'overdue', 'extended', 'hold'];
-    if (!voidableStatuses.includes(transaction.status)) {
-      handleError(new Error(`Cannot void transaction with status: ${transaction.status}`), 'Invalid transaction state');
+    const extensions = transaction.extensions || selectedTransaction?.extensions || [];
+    const hasActiveExtensions = extensions.some(ext => !ext.is_cancelled);
+    const effectiveStatus = hasActiveExtensions && ['active', 'overdue'].includes(transaction.status) ? 'extended' : transaction.status;
+    if (!voidableStatuses.includes(effectiveStatus)) {
+      handleError(new Error(`Cannot void transaction with status: ${effectiveStatus}`), 'Invalid transaction state');
       return;
     }
 
@@ -804,117 +836,6 @@ const TransactionHub = () => {
     setReversalEligibility(null);
   };
   
-  // Handle extension cancellation initiation
-  const handleExtensionCancelAction = async (extensionId) => {
-    if (!user?.role || user.role !== 'admin') {
-      handleError(new Error('Only administrators can cancel extensions'), 'Permission denied');
-      return;
-    }
-    
-    try {
-      // Check eligibility first
-      const eligibility = await reversalService.checkExtensionCancellationEligibility(extensionId);
-      
-      if (!eligibility.is_eligible) {
-        handleError(new Error(eligibility.reason || 'Extension cannot be cancelled'), 'Cancellation not allowed');
-        return;
-      }
-      
-      // Store eligibility, extension ID, and transaction data, then show dialog
-      setReversalEligibility(eligibility);
-      setPendingCancelExtensionId(extensionId);
-      setPendingCancelTransaction(selectedTransaction);
-      setShowExtensionCancelDialog(true);
-    } catch (error) {
-      handleError(error, 'Failed to check cancellation eligibility');
-    }
-  };
-
-  // Handle approved extension cancellation
-  const handleExtensionCancelApproval = async (approvalData) => {
-    if (!pendingCancelExtensionId) return;
-    
-    setProcessingCancel(`extension-${pendingCancelExtensionId}`);
-    
-    try {
-      // Optimistic UI update - immediately mark extension as cancelled in local state
-      const optimisticTransaction = { ...selectedTransaction };
-      if (optimisticTransaction?.extensions) {
-        optimisticTransaction.extensions = optimisticTransaction.extensions.map(extension => {
-          if (extension.extension_id === pendingCancelExtensionId) {
-            return {
-              ...extension,
-              is_cancelled: true,
-              cancellation_reason: approvalData.reason,
-              cancelled_at: new Date().toISOString(),
-              cancelled_by: user?.user_id
-            };
-          }
-          return extension;
-        });
-        setSelectedTransaction(optimisticTransaction);
-      }
-      
-      // Close dialog immediately for better UX
-      setShowExtensionCancelDialog(false);
-      setPendingCancelExtensionId(null);
-      setPendingCancelTransaction(null);
-      setReversalEligibility(null);
-      
-      // Process the cancellation
-      const cancellationData = {
-        cancellation_reason: approvalData.reason,
-        admin_pin: approvalData.admin_pin
-      };
-      
-      await reversalService.cancelExtension(pendingCancelExtensionId, cancellationData);
-      
-      // Background refresh to sync with server
-      if (selectedTransaction?.transaction_id) {
-        refreshTimelineData(selectedTransaction.transaction_id).catch(() => {});
-      }
-      
-      // Trigger a refresh of the transaction list
-      setRefreshKey(prev => prev + 1);
-      
-      handleSuccess(`Extension cancelled successfully. ${formatCurrency(reversalEligibility?.extension_fee || 0)} extension fee has been refunded and maturity date restored.`);
-    } catch (error) {
-      // Enhanced error handling with specific messages
-      let errorMessage = 'Extension cancellation failed';
-      
-      if (error.message?.includes('401') || error.message?.includes('Invalid admin PIN')) {
-        errorMessage = 'Invalid admin PIN. Please check your credentials.';
-      } else if (error.message?.includes('403')) {
-        errorMessage = 'Access denied. Admin privileges required.';
-      } else if (error.message?.includes('400')) {
-        if (error.message?.includes('same-day')) {
-          errorMessage = 'Extension can only be cancelled on the same business day it was created.';
-        } else if (error.message?.includes('daily limit')) {
-          errorMessage = 'Daily cancellation limit reached for this transaction.';
-        } else {
-          errorMessage = 'Extension cannot be cancelled. Please check business rules.';
-        }
-      } else if (error.message?.includes('404')) {
-        errorMessage = 'Extension not found or already processed.';
-      }
-      
-      handleError(error, errorMessage);
-      // Revert optimistic update on failure
-      if (selectedTransaction?.transaction_id) {
-        refreshTimelineData(selectedTransaction.transaction_id).catch(() => {});
-      }
-    } finally {
-      setProcessingCancel(null);
-    }
-  };
-
-  // Handle extension cancellation cancellation
-  const handleExtensionCancelCancel = () => {
-    setShowExtensionCancelDialog(false);
-    setPendingCancelExtensionId(null);
-    setPendingCancelTransaction(null);
-    setReversalEligibility(null);
-  };
 
   // Handle void transaction approval
   const handleVoidTransactionApproval = async (approvalData) => {
@@ -1047,9 +968,20 @@ const TransactionHub = () => {
     return selectedTransaction?.transaction?.[field] || selectedTransaction?.[field];
   };
 
-  // Helper to get transaction status
+  // Helper to get transaction status - calculates effective status based on extensions
   const getTransactionStatus = () => {
-    return getTransactionField('status') || 'Unknown';
+    const baseStatus = getTransactionField('status') || 'Unknown';
+    
+    // Check if transaction has any active (non-cancelled) extensions
+    const extensions = selectedTransaction?.extensions || selectedTransaction?.transaction?.extensions || [];
+    const hasActiveExtensions = extensions.some(ext => !ext.is_cancelled);
+    
+    // If there are active extensions, status should be 'extended'
+    if (hasActiveExtensions && ['active', 'overdue'].includes(baseStatus)) {
+      return 'extended';
+    }
+    
+    return baseStatus;
   };
 
   // Helper to check if status allows actions
@@ -1945,8 +1877,8 @@ const TransactionHub = () => {
                           </div>
                           <ScrollArea className="h-[calc(100%-2rem)]">
                             <div className="space-y-3 pr-4 pb-4">
-                              {/* Current status indicator for non-active statuses */}
-                              {getTransactionStatus() !== 'active' && (() => {
+                              {/* Current status indicator - always visible */}
+                              {(() => {
                                 const currentStatus = getTransactionStatus();
                                 
                                 // Use the same status configuration as the main status display
@@ -2147,18 +2079,18 @@ const TransactionHub = () => {
                                                 </div>
                                                 {user?.role === 'admin' && !event.data.is_cancelled && (() => {
                                                   // Check if extension is within same business day (auto-hide at midnight)
-                                                  const canCancel = canCancelExtension(event.data.extension_date || event.data.created_at);
+                                                  const canCancel = canCancelExtensionFromHook(event.data.extension_date || event.data.created_at);
                                                   
                                                   if (!canCancel) return null;
                                                   
                                                   return (
                                                     <button
-                                                      onClick={() => handleExtensionCancelAction(event.data.extension_id)}
-                                                      disabled={processingCancel === `extension-${event.data.extension_id}`}
+                                                      onClick={() => handleExtensionCancelAction(event.data.extension_id, selectedTransaction)}
+                                                      disabled={extensionProcessingCancel === `extension-${event.data.extension_id}`}
                                                       className="ml-2 px-2 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-700 rounded transition-colors disabled:opacity-50"
                                                       title="Cancel extension (admin only, same-day)"
                                                     >
-                                                      {processingCancel === `extension-${event.data.extension_id}` ? '...' : 'Cancel'}
+                                                      {extensionProcessingCancel === `extension-${event.data.extension_id}` ? '...' : 'Cancel'}
                                                     </button>
                                                   );
                                                 })()}
@@ -2890,8 +2822,11 @@ onKeyPress={async (e) => {
                         const transaction = await findTransactionByDisplayId(displayId);
                         
                         // Validate transaction status for payment
-                        if (!['active', 'overdue', 'extended'].includes(transaction.status)) {
-                          handleError(new Error(`Cannot process payment for ${transaction.status} transaction`), 'Invalid Status');
+                        const extensions = transaction.extensions || [];
+                        const hasActiveExtensions = extensions.some(ext => !ext.is_cancelled);
+                        const effectiveStatus = hasActiveExtensions && ['active', 'overdue'].includes(transaction.status) ? 'extended' : transaction.status;
+                        if (!['active', 'overdue', 'extended'].includes(effectiveStatus)) {
+                          handleError(new Error(`Cannot process payment for ${effectiveStatus} transaction`), 'Invalid Status');
                           return;
                         }
                         
@@ -2934,8 +2869,11 @@ onKeyPress={async (e) => {
                         const transaction = await findTransactionByDisplayId(displayId);
                         
                         // Validate transaction status for extension
-                        if (!['active', 'overdue', 'extended'].includes(transaction.status)) {
-                          handleError(new Error(`Cannot extend ${transaction.status} transaction`), 'Invalid Status');
+                        const extensions = transaction.extensions || [];
+                        const hasActiveExtensions = extensions.some(ext => !ext.is_cancelled);
+                        const effectiveStatus = hasActiveExtensions && ['active', 'overdue'].includes(transaction.status) ? 'extended' : transaction.status;
+                        if (!['active', 'overdue', 'extended'].includes(effectiveStatus)) {
+                          handleError(new Error(`Cannot extend ${effectiveStatus} transaction`), 'Invalid Status');
                           return;
                         }
                         
@@ -2977,7 +2915,7 @@ onKeyPress={async (e) => {
                   return (
                     <>
                       <p><strong>Transaction ID:</strong> {formatTransactionId(transactionData)}</p>
-                      <div><strong>Current Status:</strong> <StatusBadge status={transactionData.status} /></div>
+                      <div><strong>Current Status:</strong> <StatusBadge status={getTransactionStatus()} /></div>
                       {selectedTransactionCustomer && (
                         <p><strong>Customer:</strong> {`${selectedTransactionCustomer.first_name || ''} ${selectedTransactionCustomer.last_name || ''}`.trim().toUpperCase()}</p>
                       )}
@@ -3003,17 +2941,17 @@ onKeyPress={async (e) => {
       {/* Admin Approval Dialog for Extension Cancellation */}
       <AdminApprovalDialog
         open={showExtensionCancelDialog}
-        onOpenChange={setShowExtensionCancelDialog}
+        onOpenChange={handleExtensionCancelCancel}
         title="Extension Cancellation Authorization"
         description="This action will cancel the selected extension, refund fees, and revert the maturity date. Please provide your admin credentials and reason for this cancellation."
-        onApprove={handleExtensionCancelApproval}
+        onApprove={(approvalData) => handleExtensionCancelApproval(approvalData, selectedTransaction)}
         onCancel={handleExtensionCancelCancel}
-        loading={processingCancel === `extension-${pendingCancelExtensionId}`}
+        loading={extensionProcessingCancel === `extension-${pendingCancelExtensionId}`}
         actionType="cancellation"
         requireReason={true}
-        warningMessage={reversalEligibility?.warnings ? reversalEligibility.warnings.join(' ') : undefined}
+        warningMessage={extensionEligibility?.warnings ? extensionEligibility.warnings.join(' ') : undefined}
       >
-        {(pendingCancelTransaction || selectedTransaction || reversalEligibility) && (
+        {(pendingCancelTransaction || selectedTransaction || extensionEligibility) && (
           <div className="bg-orange-50 border border-orange-200 rounded-md p-3">
             <h4 className="text-sm font-medium text-orange-900 mb-2">Cancellation Details</h4>
             <div className="text-sm text-orange-900 space-y-1">
@@ -3022,7 +2960,7 @@ onKeyPress={async (e) => {
                 return transactionData ? (
                   <>
                     <p><strong>Transaction ID:</strong> {formatTransactionId(transactionData)}</p>
-                    <div><strong>Current Status:</strong> <StatusBadge status={transactionData.status} /></div>
+                    <div><strong>Current Status:</strong> <StatusBadge status={getTransactionStatus()} /></div>
                     {selectedTransactionCustomer && (
                       <p><strong>Customer:</strong> {`${selectedTransactionCustomer.first_name || ''} ${selectedTransactionCustomer.last_name || ''}`.trim().toUpperCase()}</p>
                     )}
@@ -3034,14 +2972,14 @@ onKeyPress={async (e) => {
                   <p><strong>Extension ID:</strong> {pendingCancelExtensionId}</p>
                 );
               })()}
-              {reversalEligibility?.extension_fee && (
-                <p><strong>Extension Fee:</strong> {formatCurrency(reversalEligibility.extension_fee)}</p>
+              {extensionEligibility?.extension_fee && (
+                <p><strong>Extension Fee:</strong> {formatCurrency(extensionEligibility.extension_fee)}</p>
               )}
-              {reversalEligibility?.extension_date && (
-                <p><strong>Extension Date:</strong> {formatBusinessDate(reversalEligibility.extension_date)}</p>
+              {extensionEligibility?.extension_date && (
+                <p><strong>Extension Date:</strong> {formatBusinessDate(extensionEligibility.extension_date)}</p>
               )}
-              {reversalEligibility?.extension_months && (
-                <p><strong>Extension Period:</strong> {reversalEligibility.extension_months} month(s)</p>
+              {extensionEligibility?.extension_months && (
+                <p><strong>Extension Period:</strong> {extensionEligibility.extension_months} month(s)</p>
               )}
             </div>
           </div>
