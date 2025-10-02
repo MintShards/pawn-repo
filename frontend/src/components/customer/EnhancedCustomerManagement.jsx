@@ -127,6 +127,7 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
   const { user } = useAuth(); // Add useAuth hook for user context
   const { toast } = useToast();
   const [transactions, setTransactions] = useState([]);
+  const [totalTransactionCount, setTotalTransactionCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedTransaction, setSelectedTransaction] = useState(null);
@@ -491,20 +492,27 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
         
         // Handle different API response formats
         let transactionArray = [];
+        let totalCount = 0;
+        
         if (Array.isArray(response)) {
           transactionArray = response;
+          totalCount = response.length;
         } else if (response && Array.isArray(response.transactions)) {
           transactionArray = response.transactions;
+          totalCount = response.total_count || response.transactions.length;
         } else if (response && Array.isArray(response.data)) {
           transactionArray = response.data;
+          totalCount = response.total || response.total_count || response.data.length;
         } else if (response && typeof response === 'object') {
           // If response is an object but not an array, log it for debugging
-                    transactionArray = [];
+          transactionArray = [];
+          totalCount = 0;
         }
         
         // Apply sorting before setting transactions
         const sortedTransactions = sortTransactions(transactionArray, sortBy, sortDirection);
         setTransactions(sortedTransactions);
+        setTotalTransactionCount(totalCount);
         setInitialLoad(false); // Mark initial load as complete
       } catch (err) {
         setError(err.message || 'Failed to load transactions');
@@ -518,11 +526,11 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
 
   if (loading) {
     return (
-      <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
+      <Card className="border-0 shadow-lg bg-gradient-to-br from-cyan-50/80 to-sky-50/80 dark:from-cyan-950/80 dark:to-sky-950/80 backdrop-blur-sm">
         <CardContent className="p-6">
           <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
-            <span className="ml-3 text-slate-600 dark:text-slate-400">Loading transactions...</span>
+            <Loader2 className="w-8 h-8 animate-spin text-cyan-500" />
+            <span className="ml-3 text-cyan-700 dark:text-cyan-400">Loading transactions...</span>
           </div>
         </CardContent>
       </Card>
@@ -531,7 +539,7 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
 
   if (error) {
     return (
-      <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
+      <Card className="border-0 shadow-lg bg-gradient-to-br from-cyan-50/80 to-sky-50/80 dark:from-cyan-950/80 dark:to-sky-950/80 backdrop-blur-sm">
         <CardContent className="p-6">
           <div className="text-center py-12">
             <AlertTriangle className="w-12 h-12 text-red-400 mx-auto mb-4" />
@@ -545,10 +553,10 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
 
   if (!Array.isArray(transactions) || transactions.length === 0) {
     return (
-      <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
+      <Card className="border-0 shadow-lg bg-gradient-to-br from-cyan-50/80 to-sky-50/80 dark:from-cyan-950/80 dark:to-sky-950/80 backdrop-blur-sm">
         <CardContent className="p-6">
           <div className="text-center py-12">
-            <CreditCard className="w-12 h-12 text-slate-400 mx-auto mb-4" />
+            <CreditCard className="w-12 h-12 text-cyan-400 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">No Transactions</h3>
             <p className="text-slate-500 dark:text-slate-400">This customer has no transaction records.</p>
           </div>
@@ -790,17 +798,24 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
       
       // Handle different API response formats
       let transactionArray = [];
+      let totalCount = 0;
+      
       if (Array.isArray(response)) {
         transactionArray = response;
+        totalCount = response.length;
       } else if (response && Array.isArray(response.transactions)) {
         transactionArray = response.transactions;
+        totalCount = response.total_count || response.transactions.length;
       } else if (response && Array.isArray(response.data)) {
         transactionArray = response.data;
+        totalCount = response.total || response.total_count || response.data.length;
       } else if (response && typeof response === 'object') {
-                transactionArray = [];
+        transactionArray = [];
+        totalCount = 0;
       }
       
       setTransactions(transactionArray);
+      setTotalTransactionCount(totalCount);
     } catch (err) {
     }
   };
@@ -862,26 +877,26 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
   };
 
   return (
-    <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
+    <Card className="border-0 shadow-lg bg-gradient-to-br from-cyan-50/80 to-sky-50/80 dark:from-cyan-950/80 dark:to-sky-950/80 backdrop-blur-sm">
       <CardHeader className="pb-4">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl flex items-center justify-center">
+            <div className="w-10 h-10 bg-gradient-to-br from-cyan-500 to-sky-600 rounded-xl flex items-center justify-center shadow-lg shadow-cyan-500/30">
               <CreditCard className="w-5 h-5 text-white" />
             </div>
             <CardTitle className="text-lg">Transaction History</CardTitle>
           </div>
           
-          {Array.isArray(transactions) && transactions.length > 0 && (
-            <span className="px-3 py-1 text-sm bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 rounded-full font-semibold">
-              {transactions.length}
+          {totalTransactionCount > 0 && (
+            <span className="px-3 py-1 text-sm bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300 rounded-full font-semibold">
+              {totalTransactionCount}
             </span>
           )}
           
           <Button
             size="sm"
             onClick={handleNewTransaction}
-            className="h-8 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white shadow-lg shadow-emerald-500/25"
+            className="h-8 bg-gradient-to-r from-cyan-500 to-sky-600 hover:from-cyan-600 hover:to-sky-700 text-white shadow-lg shadow-cyan-500/25 transition-all duration-200"
           >
             <Plus className="w-4 h-4" />
             <span className="ml-1 hidden sm:inline">New Transaction</span>
@@ -4713,7 +4728,7 @@ const EnhancedCustomerManagement = () => {
                     onClick={() => setActiveTab('transactions')}
                     className={`flex items-center justify-center space-x-2 px-3 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
                       activeTab === 'transactions' 
-                        ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/25' 
+                        ? 'bg-gradient-to-r from-cyan-500 to-sky-600 text-white shadow-lg shadow-cyan-500/25' 
                         : 'text-slate-600 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-100'
                     }`}
                   >
