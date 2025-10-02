@@ -39,7 +39,9 @@ import {
   UserCog,
   Lock,
   Info,
-  UserCheck
+  UserCheck,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { CustomerTableSkeleton, StatsCardSkeleton, SearchSkeleton } from '../ui/skeleton';
@@ -131,6 +133,10 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedTransaction, setSelectedTransaction] = useState(null);
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10; // 10 items per page
   
   // Sorting state
   const [sortBy, setSortBy] = useState('transaction_date'); // Default to newest first
@@ -253,77 +259,6 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
     return formatBusinessDate(dateString);
   };
 
-  // Sorting function for transactions
-  const sortTransactions = (transactionArray, sortField, direction) => {
-    if (!Array.isArray(transactionArray)) return [];
-    if (transactionArray.length === 0) return [];
-    
-    return [...transactionArray].sort((a, b) => {
-      let aValue, bValue;
-      
-      switch (sortField) {
-        case 'transaction_date':
-          // Try multiple possible date fields
-          aValue = new Date(a.pawn_date || a.transaction_date || a.created_at || 0);
-          bValue = new Date(b.pawn_date || b.transaction_date || b.created_at || 0);
-          // Handle invalid dates
-          if (isNaN(aValue.getTime())) aValue = new Date(0);
-          if (isNaN(bValue.getTime())) bValue = new Date(0);
-          break;
-        case 'status_priority':
-          // Priority: active/overdue first, then others
-          const statusPriority = {
-            'active': 1, 'overdue': 2, 'extended': 3,
-            'forfeited': 4, 'hold': 5, 'damaged': 6,
-            'redeemed': 7, 'sold': 8, 'voided': 9
-          };
-          const aStatus = (a.status || '').toLowerCase();
-          const bStatus = (b.status || '').toLowerCase();
-          aValue = statusPriority[aStatus] || 99;
-          bValue = statusPriority[bStatus] || 99;
-          break;
-        case 'balance':
-          // Use fetched balance data if available, otherwise fallback to loan_amount
-          aValue = parseFloat(a._sortBalance || a.current_balance || a.balance || a.outstanding_balance || a.loan_amount || 0) || 0;
-          bValue = parseFloat(b._sortBalance || b.current_balance || b.balance || b.outstanding_balance || b.loan_amount || 0) || 0;
-          break;
-        default:
-          aValue = a[sortField] || '';
-          bValue = b[sortField] || '';
-      }
-      
-      // Handle comparison
-      if (aValue < bValue) return direction === 'asc' ? -1 : 1;
-      if (aValue > bValue) return direction === 'asc' ? 1 : -1;
-      return 0;
-    });
-  };
-
-  // Fetch balances for transactions when balance sorting is needed
-  const fetchBalancesForSorting = async (transactionArray) => {
-    if (!Array.isArray(transactionArray)) return transactionArray;
-    
-    const transactionsWithBalance = await Promise.all(
-      transactionArray.map(async (transaction) => {
-        try {
-          const balance = await transactionService.getTransactionBalance(transaction.transaction_id);
-          return {
-            ...transaction,
-            _sortBalance: balance?.current_balance || balance?.balance || 0
-          };
-        } catch (error) {
-          console.warn(`Failed to fetch balance for transaction ${transaction.transaction_id}:`, error);
-          return {
-            ...transaction,
-            _sortBalance: transaction.loan_amount || 0 // Fallback to loan_amount
-          };
-        }
-      })
-    );
-    
-    return transactionsWithBalance;
-  };
-
   // Handle sort change
   const handleSortChange = async (field) => {
     if (sortBy === field) {
@@ -332,31 +267,11 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
       setSortBy(field);
       setSortDirection('desc'); // Default to descending for new field
     }
-    
-    // For balance sort, ensure we have balance data before sorting
-    if (field === 'balance' && transactions.length > 0 && !transactions[0]._sortBalance) {
-      try {
-        const transactionsWithBalances = await fetchBalancesForSorting(transactions);
-        const sorted = sortTransactions(transactionsWithBalances, field, 'desc');
-        setTransactions(sorted);
-      } catch (error) {
-        console.error('Failed to fetch balances for sorting:', error);
-        // Continue with existing sort logic using loan_amount fallback
-        const sorted = sortTransactions(transactions, field, 'desc');
-        setTransactions(sorted);
-      }
-    }
+    setCurrentPage(1); // Reset to first page when sorting changes
   };
 
   // Apply sorting when sort parameters change
   const [initialLoad, setInitialLoad] = useState(true);
-  
-  useEffect(() => {
-    if (transactions.length > 0 && !initialLoad) {
-      const sorted = sortTransactions(transactions, sortBy, sortDirection);
-      setTransactions(sorted);
-    }
-  }, [sortBy, sortDirection]); // Don't include transactions to avoid infinite loop
 
   // Helper to get transaction field consistently (must be before useMemo)
   const getTransactionField = (field) => {
@@ -488,7 +403,24 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
       setError(null);
       
       try {
-        const response = await transactionService.getCustomerTransactions(selectedCustomer.phone_number);
+        // Map frontend sort fields to backend field names
+        let backendSortBy = sortBy;
+        if (sortBy === 'transaction_date') {
+          backendSortBy = 'pawn_date';
+        } else if (sortBy === 'status_priority') {
+          backendSortBy = 'status';
+        } else if (sortBy === 'balance') {
+          backendSortBy = 'loan_amount'; // Backend sorts by loan_amount for balance
+        }
+        
+        const params = {
+          page: currentPage,
+          page_size: pageSize,
+          sort_by: backendSortBy,
+          sort_order: sortDirection
+        };
+        
+        const response = await transactionService.getCustomerTransactions(selectedCustomer.phone_number, params);
         
         // Handle different API response formats
         let transactionArray = [];
@@ -509,9 +441,8 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
           totalCount = 0;
         }
         
-        // Apply sorting before setting transactions
-        const sortedTransactions = sortTransactions(transactionArray, sortBy, sortDirection);
-        setTransactions(sortedTransactions);
+        // Server already sorted the data, so just set it
+        setTransactions(transactionArray);
         setTotalTransactionCount(totalCount);
         setInitialLoad(false); // Mark initial load as complete
       } catch (err) {
@@ -522,7 +453,7 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
     };
 
     fetchTransactions();
-  }, [selectedCustomer?.phone_number]);
+  }, [selectedCustomer?.phone_number, currentPage, sortBy, sortDirection, pageSize]);
 
   if (loading) {
     return (
@@ -794,7 +725,24 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
     if (!selectedCustomer?.phone_number) return;
     
     try {
-      const response = await transactionService.getCustomerTransactions(selectedCustomer.phone_number);
+      // Map frontend sort fields to backend field names
+      let backendSortBy = sortBy;
+      if (sortBy === 'transaction_date') {
+        backendSortBy = 'pawn_date';
+      } else if (sortBy === 'status_priority') {
+        backendSortBy = 'status';
+      } else if (sortBy === 'balance') {
+        backendSortBy = 'loan_amount'; // Backend sorts by loan_amount for balance
+      }
+      
+      const params = {
+        page: currentPage,
+        page_size: pageSize,
+        sort_by: backendSortBy,
+        sort_order: sortDirection
+      };
+      
+      const response = await transactionService.getCustomerTransactions(selectedCustomer.phone_number, params);
       
       // Handle different API response formats
       let transactionArray = [];
@@ -991,6 +939,76 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
             />
           ))}
         </div>
+        
+        {/* Pagination */}
+        {totalTransactionCount > pageSize && (
+          <div className="mt-6 flex items-center justify-between">
+            <div className="text-sm text-slate-600 dark:text-slate-400">
+              Showing {((currentPage - 1) * pageSize) + 1}-{Math.min(currentPage * pageSize, totalTransactionCount)} of {totalTransactionCount}
+            </div>
+            
+            <div className="flex items-center space-x-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+                className="h-8 px-3"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Previous
+              </Button>
+              
+              <div className="flex items-center space-x-1">
+                {/* Simple page numbers */}
+                {(() => {
+                  const totalPages = Math.ceil(totalTransactionCount / pageSize);
+                  const pages = [];
+                  
+                  // Show max 5 page buttons
+                  let startPage = Math.max(1, currentPage - 2);
+                  let endPage = Math.min(totalPages, startPage + 4);
+                  
+                  // Adjust start if we're near the end
+                  if (endPage - startPage < 4) {
+                    startPage = Math.max(1, endPage - 4);
+                  }
+                  
+                  for (let i = startPage; i <= endPage; i++) {
+                    pages.push(
+                      <Button
+                        key={i}
+                        variant={currentPage === i ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setCurrentPage(i)}
+                        className={`h-8 w-8 p-0 ${
+                          currentPage === i 
+                            ? 'bg-cyan-600 text-white hover:bg-cyan-700' 
+                            : 'hover:bg-slate-100 dark:hover:bg-slate-800'
+                        }`}
+                      >
+                        {i}
+                      </Button>
+                    );
+                  }
+                  
+                  return pages;
+                })()}
+              </div>
+              
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(prev => Math.min(Math.ceil(totalTransactionCount / pageSize), prev + 1))}
+                disabled={currentPage >= Math.ceil(totalTransactionCount / pageSize)}
+                className="h-8 px-3"
+              >
+                Next
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )}
       </CardContent>
 
       {/* Create Transaction Dialog */}
