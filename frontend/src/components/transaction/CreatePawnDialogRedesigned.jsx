@@ -376,7 +376,7 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel, prefilledCustomer = n
         // Fallback to direct API call
         const result = await transactionService.createTransaction(transactionData);
         
-        handleSuccess(`Transaction #${result.transaction_id?.slice(-8)} created successfully`);
+        handleSuccess(`Transaction #${result.formatted_id || result.transaction_id} created successfully`);
         
         if (onSuccess) {
           onSuccess(result);

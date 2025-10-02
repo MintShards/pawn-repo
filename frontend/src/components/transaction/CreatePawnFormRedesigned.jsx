@@ -355,7 +355,7 @@ const CreatePawnFormRedesigned = ({ onSuccess, onCancel }) => {
       // Clear draft on success
       localStorage.removeItem('pawnTransactionDraft');
       
-      handleSuccess(`Transaction #${result.transaction_id?.slice(-8)} created successfully`);
+      handleSuccess(`Transaction #${result.formatted_id || result.transaction_id} created successfully`);
       
       if (onSuccess) {
         onSuccess(result);
