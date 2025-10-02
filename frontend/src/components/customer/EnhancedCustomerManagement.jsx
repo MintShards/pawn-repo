@@ -3304,7 +3304,13 @@ const EnhancedCustomerManagement = () => {
     
     setOverviewLoading(true);
     try {
-      const response = await transactionService.getCustomerTransactions(selectedCustomer.phone_number);
+      // Fetch ALL transactions by using a large page size
+      const params = {
+        page: 1,
+        page_size: 100 // Fetch up to 100 transactions for overview stats
+      };
+      
+      const response = await transactionService.getCustomerTransactions(selectedCustomer.phone_number, params);
       
       // Handle different API response formats
       let transactionArray = [];
