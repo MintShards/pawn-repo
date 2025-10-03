@@ -3407,6 +3407,13 @@ const EnhancedCustomerManagement = () => {
     }
   }, []);
 
+  // Refresh Credit & Slots data specifically for real-time updates
+  const refreshCreditSlotsData = useCallback(async () => {
+    if (currentCustomers && currentCustomers.length > 0) {
+      await loadCustomerActivities(currentCustomers);
+    }
+  }, [currentCustomers, loadCustomerActivities]);
+
   // Load customer activities when customer list changes
   useEffect(() => {
     if (currentCustomers && currentCustomers.length > 0) {
@@ -3431,16 +3438,20 @@ const EnhancedCustomerManagement = () => {
         refreshOverviewTransactions();
       }
       
+      // Immediate refresh for Credit & Slots data (no delay for real-time responsiveness)
+      clearTimeout(window.creditSlotsRefreshTimeout);
+      window.creditSlotsRefreshTimeout = setTimeout(() => {
+        if (currentCustomers && currentCustomers.length > 0) {
+          loadCustomerActivities(currentCustomers);
+        }
+      }, 500); // Faster refresh for Credit & Slots
+      
       // Also refresh customer list to update last transaction dates
       // Use a small delay to avoid multiple rapid refreshes
       clearTimeout(window.customerListRefreshTimeout);
       window.customerListRefreshTimeout = setTimeout(() => {
         loadCustomerList(currentPage, getCurrentSearchTerm(), statusFilter, alertFilter);
-        // Also refresh activity data for better accuracy
-        if (currentCustomers && currentCustomers.length > 0) {
-          loadCustomerActivities(currentCustomers);
-        }
-      }, 1000);
+      }, 1500); // Longer delay for full customer list
     };
 
     // Listen for various transaction activities
@@ -4303,7 +4314,7 @@ const EnhancedCustomerManagement = () => {
             <Table>
               <TableHeader>
                 <TableRow className="border-slate-200 dark:border-slate-700">
-                  <TableHead className="w-[50px] pt-6">
+                  <TableHead className="w-[60px] pt-6">
                     <Checkbox
                       checked={currentCustomers.length > 0 && selectedCustomerIds.length === currentCustomers.length}
                       onCheckedChange={handleSelectAll}
@@ -4311,54 +4322,78 @@ const EnhancedCustomerManagement = () => {
                       className="border-slate-300 dark:border-slate-600"
                     />
                   </TableHead>
-                  <TableHead className="w-[300px] pt-6">
+                  <TableHead className="w-[240px] pt-6">
                     <button 
                       className="flex items-center gap-2 hover:text-amber-600 dark:hover:text-amber-400 transition-colors font-medium"
                       onClick={() => handleSort('customer')}
                     >
+                      <User className="h-3.5 w-3.5" />
                       Customer {getSortIcon('customer')}
                     </button>
                   </TableHead>
-                  <TableHead className="pt-6">
-                    <button 
-                      className="flex items-center gap-2 hover:text-amber-600 dark:hover:text-amber-400 transition-colors font-medium"
-                      onClick={() => handleSort('contact')}
-                    >
-                      Contact {getSortIcon('contact')}
-                    </button>
+                  <TableHead className="w-[200px] pt-6">
+                    <div className="flex items-center justify-between">
+                      <button 
+                        className="flex items-center gap-2 hover:text-amber-600 dark:hover:text-amber-400 transition-colors font-medium"
+                        onClick={() => handleSort('loan_activity')}
+                      >
+                        <CreditCard className="h-3.5 w-3.5" />
+                        Credit & Slots {getSortIcon('loan_activity')}
+                      </button>
+                      <button
+                        onClick={refreshCreditSlotsData}
+                        disabled={loadingCustomerActivities}
+                        className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded transition-colors"
+                        title="Refresh Credit & Slots data"
+                      >
+                        {loadingCustomerActivities ? (
+                          <Loader2 className="h-3 w-3 animate-spin text-slate-400" />
+                        ) : (
+                          <RefreshCw className="h-3 w-3 text-slate-400 hover:text-amber-600 dark:hover:text-amber-400" />
+                        )}
+                      </button>
+                    </div>
                   </TableHead>
-                  <TableHead className="pt-6">
+                  <TableHead className="w-[100px] pt-6">
                     <button 
                       className="flex items-center gap-2 hover:text-amber-600 dark:hover:text-amber-400 transition-colors font-medium"
                       onClick={() => handleSort('status')}
                     >
+                      <Shield className="h-3.5 w-3.5" />
                       Status {getSortIcon('status')}
                     </button>
                   </TableHead>
-                  <TableHead className="pt-6">
+                  <TableHead className="w-[180px] pt-6">
                     <button 
                       className="flex items-center gap-2 hover:text-amber-600 dark:hover:text-amber-400 transition-colors font-medium"
-                      onClick={() => handleSort('loan_activity')}
+                      onClick={() => handleSort('contact')}
                     >
-                      Loans {getSortIcon('loan_activity')}
+                      <Phone className="h-3.5 w-3.5" />
+                      Contact {getSortIcon('contact')}
                     </button>
                   </TableHead>
-                  <TableHead className="pt-6">
+                  <TableHead className="w-[140px] pt-6">
                     <button 
                       className="flex items-center gap-2 hover:text-amber-600 dark:hover:text-amber-400 transition-colors font-medium"
                       onClick={() => handleSort('last_visit')}
                       title="Sort by last customer activity"
                     >
+                      <Calendar className="h-3.5 w-3.5" />
                       Last Visit {getSortIcon('last_visit')}
                     </button>
                   </TableHead>
-                  <TableHead className="text-right pt-6 font-medium">Actions</TableHead>
+                  <TableHead className="w-[120px] text-right pt-6 font-medium">
+                    <div className="flex items-center justify-end gap-2">
+                      <Settings className="h-3.5 w-3.5" />
+                      Actions
+                    </div>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
               {customerListLoading ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-32 text-center">
+                  <TableCell colSpan={7} className="h-32 text-center border-none">
                     <div className="flex flex-col items-center gap-2">
                       <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                       <p className="text-sm text-muted-foreground">Loading customers...</p>
@@ -4367,7 +4402,7 @@ const EnhancedCustomerManagement = () => {
                 </TableRow>
               ) : customerListError ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-32 text-center">
+                  <TableCell colSpan={7} className="h-32 text-center border-none">
                     <div className="flex flex-col items-center gap-2">
                       <AlertTriangle className="h-8 w-8 text-orange-500" />
                       <div className="space-y-1">
@@ -4389,7 +4424,7 @@ const EnhancedCustomerManagement = () => {
                 </TableRow>
               ) : currentCustomers.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-32 text-center">
+                  <TableCell colSpan={7} className="h-32 text-center border-none">
                     <div className="flex flex-col items-center gap-2">
                       <User className="h-8 w-8 text-muted-foreground" />
                       <p className="text-sm text-muted-foreground">
@@ -4433,27 +4468,6 @@ const EnhancedCustomerManagement = () => {
                       </div>
                     </TableCell>
                     
-                    <TableCell 
-                      className="cursor-pointer"
-                      onClick={() => handleViewCustomer(customer)}
-                    >
-                      <div>
-                        <p className="font-mono text-sm">{customerService.formatPhoneNumber(customer.phone_number)}</p>
-                        {customer.email && (
-                          <p className="text-sm text-muted-foreground">{customer.email}</p>
-                        )}
-                      </div>
-                    </TableCell>
-                    
-                    <TableCell 
-                      className="cursor-pointer"
-                      onClick={() => handleViewCustomer(customer)}
-                    >
-                      <div className="flex items-center space-x-2">
-                        <CustomerStatusBadge status={customer.status} />
-                      </div>
-                    </TableCell>
-                    
                     <TableCell>
                       <div className="space-y-2">
                         {(() => {
@@ -4487,32 +4501,120 @@ const EnhancedCustomerManagement = () => {
                           
                           if (loadingCustomerActivities) {
                             return (
-                              <>
-                                <div className="flex items-center gap-1 text-xs text-slate-400">
-                                  <Loader2 className="w-3 h-3 animate-spin" />
-                                  <span>Loading...</span>
+                              <div className="space-y-3 animate-pulse">
+                                <div className="space-y-1.5">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-1.5">
+                                      <DollarSign className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 opacity-50" />
+                                      <span className="text-xs font-medium text-slate-700 dark:text-slate-300">Credit</span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                      <Loader2 className="w-3 h-3 animate-spin text-emerald-500" />
+                                      <span className="text-xs text-slate-400">Updating...</span>
+                                    </div>
+                                  </div>
+                                  <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5">
+                                    <div className="h-1.5 rounded-full bg-slate-300 dark:bg-slate-600 w-1/3"></div>
+                                  </div>
                                 </div>
-                              </>
+                                <div className="space-y-1.5">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-1.5">
+                                      <Package className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 opacity-50" />
+                                      <span className="text-xs font-medium text-slate-700 dark:text-slate-300">Slots</span>
+                                    </div>
+                                    <span className="text-xs text-slate-400">...</span>
+                                  </div>
+                                  <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5">
+                                    <div className="h-1.5 rounded-full bg-slate-300 dark:bg-slate-600 w-1/2"></div>
+                                  </div>
+                                </div>
+                              </div>
                             );
                           }
                           
+                          const creditPercentage = Math.min((displayUsedCredit / creditLimit) * 100, 100);
+                          const slotPercentage = Math.min((displayActiveLoans / effectiveMaxLoans) * 100, 100);
+                          
                           return (
-                            <>
-                              <div className="flex items-center gap-1 text-sm">
-                                <span className="text-slate-600 dark:text-slate-400">Credit:</span>
-                                <span className={`font-medium ${displayUsedCredit >= creditLimit ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-slate-100'}`}>
-                                  {formatCurrency(displayUsedCredit)}/{formatCurrency(creditLimit)}
-                                </span>
+                            <div className="space-y-3">
+                              {/* Credit Usage */}
+                              <div className="space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-1.5">
+                                    <DollarSign className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                                    <span className="text-xs font-medium text-slate-700 dark:text-slate-300">Credit</span>
+                                  </div>
+                                  <span className={`text-xs font-semibold ${
+                                    creditPercentage >= 100 ? 'text-red-600 dark:text-red-400' :
+                                    creditPercentage >= 80 ? 'text-amber-600 dark:text-amber-400' :
+                                    'text-slate-700 dark:text-slate-300'
+                                  }`}>
+                                    {formatCurrency(displayUsedCredit)}/{formatCurrency(creditLimit)}
+                                  </span>
+                                </div>
+                                <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 shadow-inner">
+                                  <div 
+                                    className={`h-1.5 rounded-full transition-all duration-300 shadow-sm ${
+                                      creditPercentage >= 100 ? 'bg-gradient-to-r from-red-500 to-red-600' :
+                                      creditPercentage >= 80 ? 'bg-gradient-to-r from-amber-500 to-amber-600' :
+                                      'bg-gradient-to-r from-emerald-500 to-emerald-600'
+                                    }`}
+                                    style={{ width: `${creditPercentage}%` }}
+                                  />
+                                </div>
                               </div>
-                              <div className="flex items-center gap-1 text-sm">
-                                <span className="text-slate-600 dark:text-slate-400">Slot:</span>
-                                <span className={`font-medium ${displayActiveLoans >= effectiveMaxLoans ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-slate-100'}`}>
-                                  {displayActiveLoans}/{effectiveMaxLoans}
-                                </span>
+
+                              {/* Slot Usage */}
+                              <div className="space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-1.5">
+                                    <Package className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                                    <span className="text-xs font-medium text-slate-700 dark:text-slate-300">Slots</span>
+                                  </div>
+                                  <span className={`text-xs font-semibold ${
+                                    slotPercentage >= 100 ? 'text-red-600 dark:text-red-400' :
+                                    slotPercentage >= 80 ? 'text-amber-600 dark:text-amber-400' :
+                                    'text-slate-700 dark:text-slate-300'
+                                  }`}>
+                                    {displayActiveLoans}/{effectiveMaxLoans}
+                                  </span>
+                                </div>
+                                <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 shadow-inner">
+                                  <div 
+                                    className={`h-1.5 rounded-full transition-all duration-300 shadow-sm ${
+                                      slotPercentage >= 100 ? 'bg-gradient-to-r from-red-500 to-red-600' :
+                                      slotPercentage >= 80 ? 'bg-gradient-to-r from-amber-500 to-amber-600' :
+                                      'bg-gradient-to-r from-blue-500 to-blue-600'
+                                    }`}
+                                    style={{ width: `${slotPercentage}%` }}
+                                  />
+                                </div>
                               </div>
-                            </>
+                            </div>
                           );
                         })()}
+                      </div>
+                    </TableCell>
+                    
+                    <TableCell 
+                      className="cursor-pointer"
+                      onClick={() => handleViewCustomer(customer)}
+                    >
+                      <div className="flex items-center space-x-2">
+                        <CustomerStatusBadge status={customer.status} />
+                      </div>
+                    </TableCell>
+                    
+                    <TableCell 
+                      className="cursor-pointer"
+                      onClick={() => handleViewCustomer(customer)}
+                    >
+                      <div>
+                        <p className="font-mono text-sm">{customerService.formatPhoneNumber(customer.phone_number)}</p>
+                        {customer.email && (
+                          <p className="text-sm text-muted-foreground">{customer.email}</p>
+                        )}
                       </div>
                     </TableCell>
                     

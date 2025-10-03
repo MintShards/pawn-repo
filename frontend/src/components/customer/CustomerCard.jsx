@@ -1,4 +1,4 @@
-import { MoreHorizontal, Eye, Edit2, CreditCard, TrendingUp, Phone, Mail, Gauge } from 'lucide-react';
+import { MoreHorizontal, Eye, Edit2, CreditCard, TrendingUp, Phone, Mail, Gauge, DollarSign, Package } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Card, CardContent } from '../ui/card';
 import { Avatar, AvatarImage, AvatarFallback } from '../ui/avatar';
@@ -197,63 +197,105 @@ const CustomerCard = ({
             )}
           </div>
           
-          <div className="grid grid-cols-2 gap-4">
-            {/* Credit Information */}
-            <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3">
-              <div className="text-xs text-slate-600 dark:text-slate-400 mb-1">Credit Used</div>
-              {(() => {
-                // Calculate credit from transactions with customer field fallback
-                const slotUsingTransactions = customerTransactions.filter(t => 
-                  t.status === 'active' || t.status === 'overdue' || t.status === 'extended' || 
-                  t.status === 'hold' || t.status === 'damaged'
-                );
-                const usedCreditFromTransactions = slotUsingTransactions.reduce((total, t) => 
-                  total + (t.loan_amount || 0), 0
-                );
-                
-                const hasTransactionData = customerTransactions.length > 0;
-                const displayUsedCredit = hasTransactionData ? usedCreditFromTransactions : (customer.total_loan_value || 0);
-                const creditLimit = customer.credit_limit || 3000;
-                
-                return (
-                  <>
-                    <div className={`text-sm font-semibold ${displayUsedCredit >= creditLimit ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-slate-100'}`}>
-                      {formatCurrency(displayUsedCredit)}
+          <div className="space-y-4">
+            {/* Credit Usage */}
+            {(() => {
+              // Calculate credit from transactions with customer field fallback
+              const slotUsingTransactions = customerTransactions.filter(t => 
+                t.status === 'active' || t.status === 'overdue' || t.status === 'extended' || 
+                t.status === 'hold' || t.status === 'damaged'
+              );
+              const usedCreditFromTransactions = slotUsingTransactions.reduce((total, t) => 
+                total + (t.loan_amount || 0), 0
+              );
+              
+              const hasTransactionData = customerTransactions.length > 0;
+              const displayUsedCredit = hasTransactionData ? usedCreditFromTransactions : (customer.total_loan_value || 0);
+              const creditLimit = customer.credit_limit || 3000;
+              const creditPercentage = Math.min((displayUsedCredit / creditLimit) * 100, 100);
+              
+              return (
+                <div className="bg-gradient-to-r from-emerald-50 to-green-50 dark:from-emerald-950/30 dark:to-green-950/30 rounded-lg p-3 space-y-2 hover:shadow-md transition-shadow duration-200">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <DollarSign className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                      <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Credit Usage</span>
                     </div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                      of {formatCurrency(creditLimit)}
+                    <span className={`text-sm font-bold ${
+                      creditPercentage >= 100 ? 'text-red-600 dark:text-red-400' :
+                      creditPercentage >= 80 ? 'text-amber-600 dark:text-amber-400' :
+                      'text-emerald-700 dark:text-emerald-300'
+                    }`}>
+                      {Math.round(creditPercentage)}%
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-slate-600 dark:text-slate-400">Used: {formatCurrency(displayUsedCredit)}</span>
+                      <span className="text-slate-600 dark:text-slate-400">Limit: {formatCurrency(creditLimit)}</span>
                     </div>
-                  </>
-                );
-              })()}
-            </div>
-            
-            {/* Slot Information */}
-            <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3">
-              <div className="text-xs text-slate-600 dark:text-slate-400 mb-1">Active Slots</div>
-              {(() => {
-                // Calculate slots from transactions with customer field fallback
-                const slotsUsedFromTransactions = customerTransactions.filter(t => 
-                  t.status === 'active' || t.status === 'overdue' || t.status === 'extended' || 
-                  t.status === 'hold' || t.status === 'damaged'
-                ).length;
-                
-                const hasTransactionData = customerTransactions.length > 0;
-                const displayActiveLoans = hasTransactionData ? slotsUsedFromTransactions : (customer.active_loans || 0);
-                const effectiveMaxLoans = getEffectiveLoanLimit();
-                
-                return (
-                  <>
-                    <div className={`text-sm font-semibold ${displayActiveLoans >= effectiveMaxLoans ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-slate-100'}`}>
-                      {displayActiveLoans} / {effectiveMaxLoans}
+                    <div className="w-full bg-white dark:bg-slate-800 rounded-full h-2 shadow-inner">
+                      <div 
+                        className={`h-2 rounded-full transition-all duration-500 shadow-sm ${
+                          creditPercentage >= 100 ? 'bg-gradient-to-r from-red-500 to-red-600' :
+                          creditPercentage >= 80 ? 'bg-gradient-to-r from-amber-500 to-amber-600' :
+                          'bg-gradient-to-r from-emerald-500 to-emerald-600'
+                        }`}
+                        style={{ width: `${creditPercentage}%` }}
+                      />
                     </div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                      {customer.total_transactions || 0} total loans
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Slot Usage */}
+            {(() => {
+              // Calculate slots from transactions with customer field fallback
+              const slotsUsedFromTransactions = customerTransactions.filter(t => 
+                t.status === 'active' || t.status === 'overdue' || t.status === 'extended' || 
+                t.status === 'hold' || t.status === 'damaged'
+              ).length;
+              
+              const hasTransactionData = customerTransactions.length > 0;
+              const displayActiveLoans = hasTransactionData ? slotsUsedFromTransactions : (customer.active_loans || 0);
+              const effectiveMaxLoans = getEffectiveLoanLimit();
+              const slotPercentage = Math.min((displayActiveLoans / effectiveMaxLoans) * 100, 100);
+              
+              return (
+                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 rounded-lg p-3 space-y-2 hover:shadow-md transition-shadow duration-200">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Package className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                      <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Loan Slots</span>
                     </div>
-                  </>
-                );
-              })()}
-            </div>
+                    <span className={`text-sm font-bold ${
+                      slotPercentage >= 100 ? 'text-red-600 dark:text-red-400' :
+                      slotPercentage >= 80 ? 'text-amber-600 dark:text-amber-400' :
+                      'text-blue-700 dark:text-blue-300'
+                    }`}>
+                      {Math.round(slotPercentage)}%
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-slate-600 dark:text-slate-400">Active: {displayActiveLoans}</span>
+                      <span className="text-slate-600 dark:text-slate-400">Max: {effectiveMaxLoans}</span>
+                    </div>
+                    <div className="w-full bg-white dark:bg-slate-800 rounded-full h-2 shadow-inner">
+                      <div 
+                        className={`h-2 rounded-full transition-all duration-500 shadow-sm ${
+                          slotPercentage >= 100 ? 'bg-gradient-to-r from-red-500 to-red-600' :
+                          slotPercentage >= 80 ? 'bg-gradient-to-r from-amber-500 to-amber-600' :
+                          'bg-gradient-to-r from-blue-500 to-blue-600'
+                        }`}
+                        style={{ width: `${slotPercentage}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
 
