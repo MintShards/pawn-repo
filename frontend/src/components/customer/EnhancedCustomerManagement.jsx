@@ -80,7 +80,6 @@ import {
   SelectValue,
 } from '../ui/select';
 import { Avatar, AvatarImage, AvatarFallback } from '../ui/avatar';
-import { Progress } from '../ui/progress';
 import { Command, CommandInput } from '../ui/command';
 import { Checkbox } from '../ui/checkbox';
 import {
@@ -271,7 +270,6 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
   };
 
   // Apply sorting when sort parameters change
-  const [initialLoad, setInitialLoad] = useState(true);
 
   // Helper to get transaction field consistently (must be before useMemo)
   const getTransactionField = (field) => {
@@ -444,7 +442,6 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
         // Server already sorted the data, so just set it
         setTransactions(transactionArray);
         setTotalTransactionCount(totalCount);
-        setInitialLoad(false); // Mark initial load as complete
       } catch (err) {
         setError(err.message || 'Failed to load transactions');
       } finally {
@@ -3345,16 +3342,51 @@ const EnhancedCustomerManagement = () => {
         const batch = customers.slice(i, i + batchSize);
         const promises = batch.map(async (customer) => {
           try {
-            const response = await transactionService.getCustomerTransactions(customer.phone_number);
-            let transactionArray = [];
-            if (Array.isArray(response)) {
-              transactionArray = response;
-            } else if (response && Array.isArray(response.transactions)) {
-              transactionArray = response.transactions;
-            } else if (response && Array.isArray(response.data)) {
-              transactionArray = response.data;
+            // Get ALL transactions by fetching multiple pages if needed
+            let allTransactions = [];
+            let page = 1;
+            let hasMorePages = true;
+            const pageSize = 100; // Maximum allowed by backend
+            
+            while (hasMorePages) {
+              const response = await transactionService.getCustomerTransactions(customer.phone_number, {
+                page_size: pageSize,
+                page: page
+              });
+              
+              let transactionArray = [];
+              let totalCount = 0;
+              
+              if (Array.isArray(response)) {
+                transactionArray = response;
+                totalCount = response.length;
+              } else if (response && Array.isArray(response.transactions)) {
+                transactionArray = response.transactions;
+                totalCount = response.total_count || response.transactions.length;
+              } else if (response && Array.isArray(response.data)) {
+                transactionArray = response.data;
+                totalCount = response.total || response.total_count || response.data.length;
+              }
+              
+              allTransactions = allTransactions.concat(transactionArray);
+              
+              // Check if we've loaded all transactions
+              if (transactionArray.length < pageSize) {
+                // Last page reached (fewer items than page size)
+                hasMorePages = false;
+              } else if (response.total_count && allTransactions.length >= response.total_count) {
+                // All transactions loaded based on total count
+                hasMorePages = false;
+              } else if (page >= 10) {
+                // Safety limit: don't fetch more than 10 pages (1000 transactions)
+                console.warn(`Customer ${customer.phone_number} has more than 1000 transactions. Limiting to first 1000 for performance.`);
+                hasMorePages = false;
+              }
+              
+              page++;
             }
-            return { phone: customer.phone_number, transactions: transactionArray };
+            
+            return { phone: customer.phone_number, transactions: allTransactions };
           } catch (error) {
             console.error(`Failed to fetch transactions for ${customer.phone_number}:`, error);
             return { phone: customer.phone_number, transactions: [] };
@@ -3392,7 +3424,7 @@ const EnhancedCustomerManagement = () => {
   // Listen for transaction activity updates to refresh last activity
   useEffect(() => {
     const handleTransactionUpdate = (event) => {
-      const { customer_phone, type } = event.detail || {};
+      const { customer_phone } = event.detail || {};
       
       // Refresh overview if this update is for the currently selected customer
       if (customer_phone === selectedCustomer?.phone_number && activeTab === 'overview') {
@@ -3500,19 +3532,6 @@ const EnhancedCustomerManagement = () => {
   const handleViewCustomer = (customer) => {
     setSelectedCustomer(customer);
     setShowDetails(true);
-  };
-
-  const handleSetCustomLimit = (customer) => {
-    if (isAdmin) {
-      setSelectedCustomerForLimit(customer);
-      setShowCustomLimitDialog(true);
-    } else {
-      toast({
-        title: "Access Denied",
-        description: "Only admin users can set custom loan limits.",
-        variant: "destructive",
-      });
-    }
   };
 
   const handleCustomerUpdate = (updatedCustomer) => {
@@ -4269,6 +4288,7 @@ const EnhancedCustomerManagement = () => {
                       setTimeout(() => setActiveTab('overview'), 100);
                     }}
                     maxActiveLoans={maxActiveLoans}
+                    customerTransactions={customerTransactionsMap[customer.phone_number] || []}
                   />
                 ))}
               </div>
@@ -4435,46 +4455,61 @@ const EnhancedCustomerManagement = () => {
                     </TableCell>
                     
                     <TableCell>
-                      <div className="space-y-1">
+                      <div className="space-y-2">
                         {(() => {
-                          // Calculate accurate counts from transaction data if available
+                          // Get transaction data loaded for this customer
                           const customerTransactions = customerTransactionsMap[customer.phone_number] || [];
-                          const activeLoans = customerTransactions.filter(t => 
-                            t.status === 'active' || t.status === 'overdue' || t.status === 'extended'
-                          ).length;
-                          const totalLoans = customerTransactions.length;
                           
-                          // Use calculated values if available, otherwise fall back to customer data
-                          const displayActiveLoans = customerTransactions.length > 0 ? activeLoans : (customer.active_loans || 0);
-                          const displayTotalLoans = customerTransactions.length > 0 ? totalLoans : (customer.total_transactions || 0);
+                          // Filter for slot-using transaction statuses
+                          const slotUsingTransactions = customerTransactions.filter(t => 
+                            t.status === 'active' || t.status === 'overdue' || t.status === 'extended' || 
+                            t.status === 'hold' || t.status === 'damaged'
+                          );
                           
-                          if (loadingCustomerActivities && customerTransactions.length === 0) {
+                          const usedCreditFromTransactions = slotUsingTransactions.reduce((total, t) => 
+                            total + (t.loan_amount || 0), 0
+                          );
+                          const activeLoansFromTransactions = slotUsingTransactions.length;
+                          
+                          // Prioritize transaction calculations when available
+                          const hasTransactionData = customerTransactions.length > 0;
+                          
+                          // Use calculated values when transaction data is available
+                          const displayUsedCredit = hasTransactionData ? usedCreditFromTransactions : (customer.total_loan_value || 0);
+                          const displayActiveLoans = hasTransactionData ? activeLoansFromTransactions : (customer.active_loans || 0);
+                          
+                          
+                          // Get loan limits - use custom limit if set, otherwise system default
+                          const effectiveMaxLoans = customer.custom_loan_limit || maxActiveLoans;
+                          
+                          // Format credit values
+                          const creditLimit = customer.credit_limit || 3000;
+                          
+                          if (loadingCustomerActivities) {
                             return (
                               <>
-                                <div className="flex items-center justify-between text-sm">
-                                  <span className="flex items-center gap-1">
-                                    <Loader2 className="w-3 h-3 animate-spin text-slate-400" />
-                                    <span className="text-slate-400">Loading...</span>
-                                  </span>
+                                <div className="flex items-center gap-1 text-xs text-slate-400">
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                  <span>Loading...</span>
                                 </div>
-                                <Progress value={0} className="h-1" />
-                                <p className="text-xs text-muted-foreground">-</p>
                               </>
                             );
                           }
                           
                           return (
                             <>
-                              <div className="flex items-center justify-between text-sm">
-                                <span>Active: {displayActiveLoans}</span>
+                              <div className="flex items-center gap-1 text-sm">
+                                <span className="text-slate-600 dark:text-slate-400">Credit:</span>
+                                <span className={`font-medium ${displayUsedCredit >= creditLimit ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-slate-100'}`}>
+                                  {formatCurrency(displayUsedCredit)}/{formatCurrency(creditLimit)}
+                                </span>
                               </div>
-                              <Progress 
-                                value={Math.min((displayActiveLoans / maxActiveLoans) * 100, 100)} 
-                                className="h-1"
-                              />
-                              <p className="text-xs text-muted-foreground">
-                                {displayTotalLoans} total loans
-                              </p>
+                              <div className="flex items-center gap-1 text-sm">
+                                <span className="text-slate-600 dark:text-slate-400">Slot:</span>
+                                <span className={`font-medium ${displayActiveLoans >= effectiveMaxLoans ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-slate-100'}`}>
+                                  {displayActiveLoans}/{effectiveMaxLoans}
+                                </span>
+                              </div>
                             </>
                           );
                         })()}

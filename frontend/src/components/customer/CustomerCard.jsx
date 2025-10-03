@@ -2,7 +2,6 @@ import { MoreHorizontal, Eye, Edit2, CreditCard, TrendingUp, Phone, Mail, Gauge 
 import { Button } from '../ui/button';
 import { Card, CardContent } from '../ui/card';
 import { Avatar, AvatarImage, AvatarFallback } from '../ui/avatar';
-import { Progress } from '../ui/progress';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,6 +10,7 @@ import {
 } from '../ui/dropdown-menu';
 import { StatusBadge } from '../ui/enhanced-badge';
 import { formatBusinessDate } from '../../utils/timezoneUtils';
+import { formatCurrency } from '../../utils/transactionUtils';
 import customerService from '../../services/customerService';
 import { useAuth } from '../../context/AuthContext';
 import { isAdmin as isAdminRole } from '../../utils/roleUtils';
@@ -25,7 +25,8 @@ const CustomerCard = ({
   onManageEligibility,
   onNotifications,
   onSetCustomLimit,
-  maxActiveLoans = 8
+  maxActiveLoans = 8,
+  customerTransactions = [] // Pass transaction data to calculate accurate values
 }) => {
   const { user } = useAuth();
   const isAdmin = isAdminRole(user);
@@ -186,39 +187,73 @@ const CustomerCard = ({
         </div>
 
         {/* Loan Activity Section */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-sm">
-            <div className="flex items-center gap-2">
-              <span className="text-slate-600 dark:text-slate-400">Loan Activity</span>
-              {customer.custom_loan_limit && (
-                <span className="text-xs bg-amber-100 text-amber-800 dark:bg-amber-900/20 dark:text-amber-400 px-2 py-1 rounded-full">
-                  Custom Limit
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="text-right">
-                <span className="font-semibold text-slate-900 dark:text-slate-100">
-                  {customer.active_loans || 0}
-                </span>
-                <span className="text-xs text-slate-500 ml-1">/ {getEffectiveLoanLimit()}</span>
-              </div>
-              <div className="text-right">
-                <span className="text-xs text-slate-500">
-                  {customer.total_transactions || 0} total
-                </span>
-              </div>
-            </div>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-slate-600 dark:text-slate-400 font-medium">Loan Activity</span>
+            {customer.custom_loan_limit && (
+              <span className="text-xs bg-amber-100 text-amber-800 dark:bg-amber-900/20 dark:text-amber-400 px-2 py-1 rounded-full">
+                Custom Limit
+              </span>
+            )}
           </div>
           
-          <div className="flex items-center gap-2">
-            <Progress 
-              value={Math.min(((customer.active_loans || 0) / getEffectiveLoanLimit()) * 100, 100)} 
-              className="flex-1 h-2"
-            />
-            <span className="text-xs text-slate-500 w-8">
-              {Math.min(((customer.active_loans || 0) / getEffectiveLoanLimit()) * 100, 100).toFixed(0)}%
-            </span>
+          <div className="grid grid-cols-2 gap-4">
+            {/* Credit Information */}
+            <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3">
+              <div className="text-xs text-slate-600 dark:text-slate-400 mb-1">Credit Used</div>
+              {(() => {
+                // Calculate credit from transactions with customer field fallback
+                const slotUsingTransactions = customerTransactions.filter(t => 
+                  t.status === 'active' || t.status === 'overdue' || t.status === 'extended' || 
+                  t.status === 'hold' || t.status === 'damaged'
+                );
+                const usedCreditFromTransactions = slotUsingTransactions.reduce((total, t) => 
+                  total + (t.loan_amount || 0), 0
+                );
+                
+                const hasTransactionData = customerTransactions.length > 0;
+                const displayUsedCredit = hasTransactionData ? usedCreditFromTransactions : (customer.total_loan_value || 0);
+                const creditLimit = customer.credit_limit || 3000;
+                
+                return (
+                  <>
+                    <div className={`text-sm font-semibold ${displayUsedCredit >= creditLimit ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-slate-100'}`}>
+                      {formatCurrency(displayUsedCredit)}
+                    </div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                      of {formatCurrency(creditLimit)}
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+            
+            {/* Slot Information */}
+            <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3">
+              <div className="text-xs text-slate-600 dark:text-slate-400 mb-1">Active Slots</div>
+              {(() => {
+                // Calculate slots from transactions with customer field fallback
+                const slotsUsedFromTransactions = customerTransactions.filter(t => 
+                  t.status === 'active' || t.status === 'overdue' || t.status === 'extended' || 
+                  t.status === 'hold' || t.status === 'damaged'
+                ).length;
+                
+                const hasTransactionData = customerTransactions.length > 0;
+                const displayActiveLoans = hasTransactionData ? slotsUsedFromTransactions : (customer.active_loans || 0);
+                const effectiveMaxLoans = getEffectiveLoanLimit();
+                
+                return (
+                  <>
+                    <div className={`text-sm font-semibold ${displayActiveLoans >= effectiveMaxLoans ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-slate-100'}`}>
+                      {displayActiveLoans} / {effectiveMaxLoans}
+                    </div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                      {customer.total_transactions || 0} total loans
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
           </div>
         </div>
 
