@@ -853,7 +853,7 @@ const TransactionHub = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/40 dark:from-slate-950 dark:via-slate-900 dark:to-slate-800">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50/10 dark:from-slate-950 dark:to-slate-900">
       {/* Modern Header */}
       <header className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-slate-200/50 dark:border-slate-700/50 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -1126,7 +1126,7 @@ const TransactionHub = () => {
 
           {/* Main Content Area */}
           <div className="lg:col-span-4 space-y-6">
-            <Card className="border-0 shadow-md bg-gradient-to-br from-white via-slate-50 to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 overflow-hidden">
+            <Card className="border-0 shadow-md bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm overflow-hidden">
               <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-indigo-500/5"></div>
               <CardHeader className="relative pb-6 border-b border-slate-200/50 dark:border-slate-700/50">
                 <div className="flex items-center justify-between">
@@ -1147,7 +1147,7 @@ const TransactionHub = () => {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="relative bg-white/50 dark:bg-slate-950/50 p-0">
+              <CardContent className="relative bg-transparent p-0">
                 <TransactionList
                   refreshTrigger={refreshKey}
                   onCreateNew={handleCreateNew}
