@@ -147,10 +147,33 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel, prefilledCustomer = n
     const loanAmount = parseFloat(formData.loan_amount) || 0;
     const monthlyInterest = parseFloat(formData.monthly_interest_amount) || 0;
     
+    // Calculate maturity date (3 months from today)
+    const calculateMaturityDate = () => {
+      const today = new Date();
+      let year = today.getFullYear();
+      let month = today.getMonth() + 3; // Add 3 months
+      
+      // Handle year overflow
+      if (month > 11) {
+        year += Math.floor(month / 12);
+        month = month % 12;
+      }
+      
+      const maturityDate = new Date(year, month, today.getDate());
+      
+      // Format the date for display
+      return maturityDate.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      });
+    };
+    
     return {
       loanAmount,
       monthlyInterest,
-      totalWithInterest: loanAmount + monthlyInterest
+      totalWithInterest: loanAmount + monthlyInterest,
+      maturityDate: calculateMaturityDate()
     };
   }, [formData.loan_amount, formData.monthly_interest_amount]);
 
@@ -1126,8 +1149,8 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel, prefilledCustomer = n
                     <Separator />
                     <div className="flex justify-between items-center">
                       <span className="text-sm text-pawn-medium dark:text-pawn-light/80">Maturity Date:</span>
-                      <span className="font-medium text-pawn-medium dark:text-pawn-light/80 italic">
-                        Calculated after submission
+                      <span className="font-medium text-pawn-dark dark:text-pawn-light">
+                        {loanCalculations.maturityDate}
                       </span>
                     </div>
                     <Separator />
@@ -1357,8 +1380,8 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel, prefilledCustomer = n
                     </div>
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-pawn-medium dark:text-pawn-light/80 font-medium">Maturity Date:</span>
-                      <Badge variant="outline" className="text-sm px-3 py-1 border-pawn-medium text-pawn-medium">
-                        System Calculated
+                      <Badge variant="outline" className="text-sm px-3 py-1 border-pawn-accent text-pawn-accent bg-pawn-accent/5">
+                        {loanCalculations.maturityDate}
                       </Badge>
                     </div>
                     <div className="flex justify-between items-center p-2 bg-pawn-accent/10 rounded-lg border border-pawn-accent/30">
