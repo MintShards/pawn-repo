@@ -1010,7 +1010,7 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
 
       {/* Create Transaction Dialog */}
       <Dialog open={showCreateForm} onOpenChange={setShowCreateForm}>
-        <DialogContent className="max-w-6xl max-h-[95vh] overflow-y-auto p-0 border-0 bg-transparent" showCloseButton={false}>
+        <DialogContent className="max-w-6xl max-h-[95vh] overflow-y-auto p-0 border-0 bg-transparent shadow-none" showCloseButton={false}>
           <DialogHeader className="sr-only">
             <DialogTitle>Create New Pawn Transaction</DialogTitle>
             <DialogDescription>Create a new pawn transaction for {selectedCustomer?.first_name} {selectedCustomer?.last_name}</DialogDescription>
@@ -1025,7 +1025,7 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
 
       {/* Payment Dialog */}
       <Dialog open={showPaymentForm} onOpenChange={setShowPaymentForm}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0 border-0 bg-transparent" showCloseButton={false}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0 border-0 bg-transparent shadow-none" showCloseButton={false}>
           <DialogHeader className="sr-only">
             <DialogTitle>Process Payment</DialogTitle>
             <DialogDescription>Process payment for transaction</DialogDescription>
@@ -1042,7 +1042,7 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
 
       {/* Extension Dialog */}
       <Dialog open={showExtensionForm} onOpenChange={setShowExtensionForm}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0 border-0 bg-transparent" showCloseButton={false}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0 border-0 bg-transparent shadow-none" showCloseButton={false}>
           <DialogHeader className="sr-only">
             <DialogTitle>Extend Loan</DialogTitle>
             <DialogDescription>Extend loan period for transaction</DialogDescription>

@@ -1166,7 +1166,7 @@ const TransactionHub = () => {
 
       {/* Create Transaction Form */}
       <Dialog open={showCreateForm} onOpenChange={setShowCreateForm}>
-        <DialogContent className="max-w-6xl max-h-[95vh] overflow-y-auto p-0 border-0 bg-transparent" showCloseButton={false}>
+        <DialogContent className="max-w-6xl max-h-[95vh] overflow-y-auto p-0 border-0 bg-transparent shadow-none" showCloseButton={false}>
           <DialogHeader className="sr-only">
             <DialogTitle>Create New Pawn Transaction</DialogTitle>
             <DialogDescription>Create a new pawn transaction with customer and item details</DialogDescription>
@@ -1180,7 +1180,7 @@ const TransactionHub = () => {
 
       {/* Payment Dialog */}
       <Dialog open={showPaymentForm} onOpenChange={setShowPaymentForm}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0 border-0 bg-transparent" showCloseButton={false}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0 border-0 bg-transparent shadow-none" showCloseButton={false}>
           <DialogHeader className="sr-only">
             <DialogTitle>Quick Payment</DialogTitle>
             <DialogDescription>Process payment for selected transaction</DialogDescription>
@@ -1197,7 +1197,7 @@ const TransactionHub = () => {
 
       {/* Extension Dialog */}
       <Dialog open={showExtensionForm} onOpenChange={setShowExtensionForm}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0 border-0 bg-transparent" showCloseButton={false}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0 border-0 bg-transparent shadow-none" showCloseButton={false}>
           <DialogHeader className="sr-only">
             <DialogTitle>Quick Extension</DialogTitle>
             <DialogDescription>Extend loan period for selected transaction</DialogDescription>

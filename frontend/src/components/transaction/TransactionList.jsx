@@ -91,12 +91,12 @@ const TransactionList = ({
   const [showItemsDialog, setShowItemsDialog] = useState(false);
   const [selectedTransactionItems, setSelectedTransactionItems] = useState(null);
   const [allTransactionsCounts, setAllTransactionsCounts] = useState({
-    all: 0,
-    active: 0,
-    overdue: 0,
-    extended: 0,
-    redeemed: 0,
-    sold: 0
+    all: undefined,
+    active: undefined,
+    overdue: undefined,
+    extended: undefined,
+    redeemed: undefined,
+    sold: undefined
   });
   
   // Advanced search fields
@@ -1781,7 +1781,7 @@ const TransactionList = ({
       )}
 
       {/* Enhanced Empty State */}
-      {!loading && effectiveTotalTransactions === 0 && !error && (
+      {!loading && effectiveTotalTransactions === 0 && !error && allTransactionsCounts.all !== undefined && (
         <Card className="border-0 shadow-xl bg-gradient-to-br from-white/90 to-slate-50/90 dark:from-slate-900/90 dark:to-slate-800/90 backdrop-blur-sm">
           <CardContent className="text-center py-16">
             <div className="relative mb-8">
