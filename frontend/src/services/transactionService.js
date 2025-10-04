@@ -190,6 +190,25 @@ class TransactionService {
     }
   }
 
+  // Bulk update transaction status
+  async bulkUpdateStatus({ transaction_ids, new_status, notes }) {
+    try {
+      const result = await authService.apiRequest('/api/v1/pawn-transaction/bulk-status-update', {
+        method: 'POST',
+        body: JSON.stringify({
+          transaction_ids,
+          new_status,
+          notes
+        }),
+      });
+      this.clearTransactionCache();
+      return result;
+    } catch (error) {
+      // Error handled
+      throw error;
+    }
+  }
+
   // Void transaction (Admin only)
   async voidTransaction(transactionId, voidData) {
     try {

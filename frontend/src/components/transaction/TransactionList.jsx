@@ -52,6 +52,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog';
 import TransactionCard from './TransactionCard';
 import StatusBadge from './components/StatusBadge';
+import BulkStatusUpdateDialog from './BulkStatusUpdateDialog';
 import transactionService from '../../services/transactionService';
 import customerService from '../../services/customerService';
 import extensionService from '../../services/extensionService';
@@ -90,6 +91,7 @@ const TransactionList = ({
   const [transactionBalances, setTransactionBalances] = useState({});
   const [showItemsDialog, setShowItemsDialog] = useState(false);
   const [selectedTransactionItems, setSelectedTransactionItems] = useState(null);
+  const [showBulkStatusDialog, setShowBulkStatusDialog] = useState(false);
   const [allTransactionsCounts, setAllTransactionsCounts] = useState({
     all: undefined,
     active: undefined,
@@ -1452,6 +1454,14 @@ const TransactionList = ({
                     {selectedTransactionIds.length} selected
                   </Badge>
                   <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowBulkStatusDialog(true)}
+                    className="h-8 px-3 bg-blue-500 text-white hover:bg-blue-600 border-blue-600"
+                  >
+                    Update Status
+                  </Button>
+                  <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => setSelectedTransactionIds([])}
@@ -1960,6 +1970,17 @@ const TransactionList = ({
           )}
         </div>
       )}
+
+      {/* Bulk Status Update Dialog */}
+      <BulkStatusUpdateDialog
+        isOpen={showBulkStatusDialog}
+        onClose={() => setShowBulkStatusDialog(false)}
+        selectedTransactions={transactions.filter(t => selectedTransactionIds.includes(t.transaction_id))}
+        onSuccess={() => {
+          setSelectedTransactionIds([]);
+          handleRefresh();
+        }}
+      />
 
       {/* Items Dialog */}
       <Dialog open={showItemsDialog} onOpenChange={setShowItemsDialog}>

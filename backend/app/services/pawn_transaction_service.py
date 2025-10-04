@@ -528,15 +528,15 @@ class PawnTransactionService:
         valid_transitions = {
             TransactionStatus.ACTIVE: [
                 TransactionStatus.OVERDUE, TransactionStatus.EXTENDED, 
-                TransactionStatus.REDEEMED, TransactionStatus.HOLD
+                TransactionStatus.FORFEITED, TransactionStatus.HOLD
             ],
             TransactionStatus.OVERDUE: [
-                TransactionStatus.EXTENDED, TransactionStatus.REDEEMED, 
-                TransactionStatus.FORFEITED, TransactionStatus.HOLD
+                TransactionStatus.EXTENDED, TransactionStatus.FORFEITED, 
+                TransactionStatus.HOLD
             ],
             TransactionStatus.EXTENDED: [
-                TransactionStatus.OVERDUE, TransactionStatus.REDEEMED, 
-                TransactionStatus.FORFEITED, TransactionStatus.HOLD
+                TransactionStatus.OVERDUE, TransactionStatus.FORFEITED, 
+                TransactionStatus.HOLD
             ],
             TransactionStatus.HOLD: [
                 TransactionStatus.ACTIVE, TransactionStatus.OVERDUE, 
