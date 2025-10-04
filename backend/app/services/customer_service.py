@@ -553,9 +553,8 @@ class CustomerService:
         if loan_amount is not None:
             if loan_amount > credit_available:
                 eligibility["eligible"] = False
-                if credit_available <= 0:
-                    eligibility["reasons"].append("No available credit remaining")
-                else:
+                # Only add specific message if we haven't already added the general credit message
+                if credit_available > 0:
                     eligibility["reasons"].append(f"Loan amount ${loan_amount:,.2f} exceeds available credit of ${credit_available:,.2f}")
         
         return eligibility

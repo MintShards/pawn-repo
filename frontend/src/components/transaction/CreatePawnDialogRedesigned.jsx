@@ -1154,22 +1154,106 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel, prefilledCustomer = n
                 )}
 
                 {eligibilityData && (
-                  <Alert variant={eligibilityData.eligible ? "default" : "destructive"}>
-                    {eligibilityData.eligible ? <CheckCircle className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
-                    <AlertDescription>
-                      <div className="space-y-2">
-                        <div className="font-medium">
-                          {eligibilityData.eligible ? 'Loan Approved' : 'Loan Denied'}
+                  <Card className={`${eligibilityData.eligible ? 'border-green-500 bg-green-50 dark:bg-green-950/20' : 'border-red-500 bg-red-50 dark:bg-red-950/20'}`}>
+                    <CardContent className="p-4">
+                      {eligibilityData.eligible ? (
+                        <div className="space-y-3">
+                          {/* Header with Icon and Status */}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                              <div className="p-1.5 bg-green-100 dark:bg-green-900/30 rounded-full">
+                                <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
+                              </div>
+                              <span className="text-lg font-semibold text-green-800 dark:text-green-200">
+                                Loan Approved
+                              </span>
+                            </div>
+                            <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200 border-0">
+                              Eligible
+                            </Badge>
+                          </div>
+                          
+                          {/* Credit and Slot Info Grid */}
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="bg-white dark:bg-gray-800/50 rounded-lg p-3 border border-green-200 dark:border-green-800">
+                              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Credit Status</div>
+                              <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                ${eligibilityData.available_credit?.toLocaleString()} available
+                              </div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400">
+                                of ${eligibilityData.credit_limit?.toLocaleString()} limit
+                              </div>
+                            </div>
+                            <div className="bg-white dark:bg-gray-800/50 rounded-lg p-3 border border-green-200 dark:border-green-800">
+                              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Loan Slots</div>
+                              <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                {eligibilityData.slots_available || (eligibilityData.max_loans - eligibilityData.active_loans) || 0} available
+                              </div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400">
+                                {eligibilityData.active_loans || eligibilityData.slots_used || 0} of {eligibilityData.max_loans || 0} used
+                              </div>
+                            </div>
+                          </div>
                         </div>
-                        <div className="text-sm">
-                          Credit Limit: ${eligibilityData.credit_limit?.toLocaleString()}
+                      ) : (
+                        <div className="space-y-3">
+                          {/* Header with Icon and Status */}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                              <div className="p-1.5 bg-red-100 dark:bg-red-900/30 rounded-full">
+                                <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
+                              </div>
+                              <span className="text-lg font-semibold text-red-800 dark:text-red-200">
+                                Loan Denied
+                              </span>
+                            </div>
+                            <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200 border-0">
+                              Not Eligible
+                            </Badge>
+                          </div>
+                          
+                          {/* Credit and Slot Info Grid */}
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="bg-white dark:bg-gray-800/50 rounded-lg p-3 border border-red-200 dark:border-red-800">
+                              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Credit Status</div>
+                              <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                ${eligibilityData.available_credit?.toLocaleString()} available
+                              </div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400">
+                                of ${eligibilityData.credit_limit?.toLocaleString()} limit
+                              </div>
+                            </div>
+                            <div className="bg-white dark:bg-gray-800/50 rounded-lg p-3 border border-red-200 dark:border-red-800">
+                              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Loan Slots</div>
+                              <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                {eligibilityData.slots_available || (eligibilityData.max_loans - eligibilityData.active_loans) || 0} available
+                              </div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400">
+                                {eligibilityData.active_loans || eligibilityData.slots_used || 0} of {eligibilityData.max_loans || 0} used
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* Denial Reasons */}
+                          {eligibilityData.reasons && eligibilityData.reasons.length > 0 && (
+                            <div className="bg-red-100 dark:bg-red-900/20 rounded-lg p-3">
+                              <div className="text-sm font-medium text-red-800 dark:text-red-200 mb-2">
+                                Reasons for Denial:
+                              </div>
+                              <ul className="space-y-1">
+                                {eligibilityData.reasons.map((reason, index) => (
+                                  <li key={index} className="flex items-start">
+                                    <span className="text-red-600 dark:text-red-400 mr-2 text-sm">•</span>
+                                    <span className="text-sm text-red-700 dark:text-red-300">{reason}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
                         </div>
-                        <div className="text-sm">
-                          Available: ${eligibilityData.available_credit?.toLocaleString()}
-                        </div>
-                      </div>
-                    </AlertDescription>
-                  </Alert>
+                      )}
+                    </CardContent>
+                  </Card>
                 )}
               </div>
             </div>
@@ -1187,8 +1271,8 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel, prefilledCustomer = n
               <Button
                 type="button"
                 onClick={() => handleTabChange('review')}
-                disabled={!formData.loan_amount || !formData.monthly_interest_amount}
-                className="bg-pawn-accent hover:bg-pawn-accent/90 text-white"
+                disabled={!formData.loan_amount || !formData.monthly_interest_amount || (eligibilityData && !eligibilityData.eligible)}
+                className="bg-pawn-accent hover:bg-pawn-accent/90 text-white disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Review Transaction
                 <ArrowRight className="w-4 h-4 ml-2" />
@@ -1350,29 +1434,106 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel, prefilledCustomer = n
             <div className="space-y-4">
               {/* Eligibility Status */}
               {eligibilityData && (
-                <Alert variant={eligibilityData.eligible ? "default" : "destructive"} className="border-2">
-                  {eligibilityData.eligible ? (
-                    <div className="flex items-center">
-                      <CheckCircle className="h-5 w-5 text-green-500 mr-2" />
-                      <div>
-                        <div className="font-bold text-green-800 dark:text-green-200">✓ Loan Approved</div>
-                        <div className="text-sm text-green-700 dark:text-green-300">
-                          Credit available: ${eligibilityData.available_credit?.toLocaleString()} of ${eligibilityData.credit_limit?.toLocaleString()}
+                <Card className={`${eligibilityData.eligible ? 'border-green-500 bg-green-50 dark:bg-green-950/20' : 'border-red-500 bg-red-50 dark:bg-red-950/20'} border-2`}>
+                  <CardContent className="p-4">
+                    {eligibilityData.eligible ? (
+                      <div className="space-y-3">
+                        {/* Header with Icon and Status */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <div className="p-1.5 bg-green-100 dark:bg-green-900/30 rounded-full">
+                              <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
+                            </div>
+                            <span className="text-lg font-semibold text-green-800 dark:text-green-200">
+                              Loan Approved
+                            </span>
+                          </div>
+                          <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200 border-0">
+                            Ready to Process
+                          </Badge>
+                        </div>
+                        
+                        {/* Credit and Slot Info Grid */}
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="bg-white dark:bg-gray-800/50 rounded-lg p-3 border border-green-200 dark:border-green-800">
+                            <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Credit Status</div>
+                            <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                              ${eligibilityData.available_credit?.toLocaleString()} available
+                            </div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400">
+                              of ${eligibilityData.credit_limit?.toLocaleString()} limit
+                            </div>
+                          </div>
+                          <div className="bg-white dark:bg-gray-800/50 rounded-lg p-3 border border-green-200 dark:border-green-800">
+                            <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Loan Slots</div>
+                            <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                              {eligibilityData.slots_available || (eligibilityData.max_loans - eligibilityData.active_loans) || 0} available
+                            </div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400">
+                              {eligibilityData.active_loans || eligibilityData.slots_used || 0} of {eligibilityData.max_loans || 0} used
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ) : (
-                    <div className="flex items-center">
-                      <AlertCircle className="h-5 w-5 text-red-500 mr-2" />
-                      <div>
-                        <div className="font-bold text-red-800 dark:text-red-200">✗ Loan Denied</div>
-                        <div className="text-sm text-red-700 dark:text-red-300">
-                          Exceeds available credit of ${eligibilityData.available_credit?.toLocaleString()}
+                    ) : (
+                      <div className="space-y-3">
+                        {/* Header with Icon and Status */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <div className="p-1.5 bg-red-100 dark:bg-red-900/30 rounded-full">
+                              <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
+                            </div>
+                            <span className="text-lg font-semibold text-red-800 dark:text-red-200">
+                              Loan Denied
+                            </span>
+                          </div>
+                          <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200 border-0">
+                            Cannot Process
+                          </Badge>
                         </div>
+                        
+                        {/* Credit and Slot Info Grid */}
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="bg-white dark:bg-gray-800/50 rounded-lg p-3 border border-red-200 dark:border-red-800">
+                            <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Credit Status</div>
+                            <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                              ${eligibilityData.available_credit?.toLocaleString()} available
+                            </div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400">
+                              of ${eligibilityData.credit_limit?.toLocaleString()} limit
+                            </div>
+                          </div>
+                          <div className="bg-white dark:bg-gray-800/50 rounded-lg p-3 border border-red-200 dark:border-red-800">
+                            <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Loan Slots</div>
+                            <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                              {eligibilityData.slots_available || (eligibilityData.max_loans - eligibilityData.active_loans) || 0} available
+                            </div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400">
+                              {eligibilityData.active_loans || eligibilityData.slots_used || 0} of {eligibilityData.max_loans || 0} used
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Denial Reasons */}
+                        {eligibilityData.reasons && eligibilityData.reasons.length > 0 && (
+                          <div className="bg-red-100 dark:bg-red-900/20 rounded-lg p-3">
+                            <div className="text-sm font-medium text-red-800 dark:text-red-200 mb-2">
+                              Issues Preventing Approval:
+                            </div>
+                            <ul className="space-y-1">
+                              {eligibilityData.reasons.map((reason, index) => (
+                                <li key={index} className="flex items-start">
+                                  <span className="text-red-600 dark:text-red-400 mr-2 text-sm">•</span>
+                                  <span className="text-sm text-red-700 dark:text-red-300">{reason}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  )}
-                </Alert>
+                    )}
+                  </CardContent>
+                </Card>
               )}
 
               {/* Security Notice */}
