@@ -14,8 +14,6 @@ import {
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Input } from '../ui/input';
-import { Label } from '../ui/label';
 import { Separator } from '../ui/separator';
 import {
   Dialog,
@@ -40,8 +38,6 @@ const LoanEligibilityManager = ({ customer, onEligibilityUpdate }) => {
   const [showCustomCreditDialog, setShowCustomCreditDialog] = useState(false);
   const [showDetailsDialog, setShowDetailsDialog] = useState(false);
   const [showCustomLimitDialog, setShowCustomLimitDialog] = useState(false);
-  const [showConfirmation, setShowConfirmation] = useState(false);
-  const [pendingUpdate, setPendingUpdate] = useState(null);
 
   const isAdmin = isAdminRole(user);
 
@@ -81,7 +77,7 @@ const LoanEligibilityManager = ({ customer, onEligibilityUpdate }) => {
   // Real-time update listener for customer data changes
   useEffect(() => {
     const handleCustomerDataUpdate = (event) => {
-      const { customer: updatedCustomer, type } = event.detail;
+      const { customer: updatedCustomer } = event.detail;
       
       // Only refresh if this is the same customer
       if (updatedCustomer?.phone_number === customer?.phone_number) {

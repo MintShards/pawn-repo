@@ -52,7 +52,6 @@ const CustomLoanLimitDialog = ({
   const [reason, setReason] = useState('');
   const [systemDefault, setSystemDefault] = useState(8); // Still used for calculations
   const [selectedUseCase, setSelectedUseCase] = useState(null);
-  const [hasUserInput, setHasUserInput] = useState(false);
   const [localEligibilityData, setLocalEligibilityData] = useState(eligibilityData);
 
   const isAdmin = isAdminRole(user);
@@ -103,7 +102,6 @@ const CustomLoanLimitDialog = ({
       setCustomLimit('');
       setReason('');
       setSelectedUseCase(null);
-      setHasUserInput(false); // Reset user input flag when dialog opens
       
       // Load system default for calculations (not display)
       loadSystemDefault();
@@ -111,7 +109,7 @@ const CustomLoanLimitDialog = ({
       // Ensure we have the latest eligibility data when dialog opens
       setLocalEligibilityData(eligibilityData);
     }
-  }, [open, customer?.custom_loan_limit, eligibilityData]); // Re-initialize when dialog opens or when customer loan limit changes
+  }, [open, customer, eligibilityData]); // Re-initialize when dialog opens or when customer loan limit changes
   
   // Sync local eligibility data when prop changes
   useEffect(() => {
@@ -361,7 +359,6 @@ const CustomLoanLimitDialog = ({
   
   // Fix: Handle empty input and ensure proper number comparison
   const limitValue = customLimit && customLimit.trim() !== '' ? parseInt(customLimit) : null;
-  const effectiveLimitValue = limitValue !== null ? limitValue : systemDefault;
   const isIncrease = limitValue !== null && limitValue > currentEffectiveLimit;
   const isDecrease = limitValue !== null && limitValue < currentEffectiveLimit;
 
@@ -496,7 +493,6 @@ const CustomLoanLimitDialog = ({
                       onChange={(e) => {
                         setCustomLimit(e.target.value);
                         setSelectedUseCase(null);
-                        setHasUserInput(true); // Mark that user has started typing
                       }}
                       placeholder="Enter custom limit or leave empty for default"
                       className="pr-20 pl-12 h-12 text-lg font-medium border-2 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"

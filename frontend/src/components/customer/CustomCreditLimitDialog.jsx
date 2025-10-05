@@ -3,7 +3,6 @@ import {
   DollarSign,
   Save,
   RotateCcw,
-  AlertTriangle,
   Info,
   User,
   Loader2,
@@ -26,11 +25,6 @@ import {
   DialogTitle,
   DialogDescription,
 } from '../ui/dialog';
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-} from '../ui/alert';
 import { Badge } from '../ui/badge';
 import { Separator } from '../ui/separator';
 import { Progress } from '../ui/progress';
@@ -51,9 +45,8 @@ const CustomCreditLimitDialog = ({
   const [loading, setLoading] = useState(false);
   const [customLimit, setCustomLimit] = useState('');
   const [reason, setReason] = useState('');
-  const [systemDefault, setSystemDefault] = useState(3000); // Still used for calculations
+  const [systemDefault] = useState(3000); // Still used for calculations
   const [selectedUseCase, setSelectedUseCase] = useState(null);
-  const [hasUserInput, setHasUserInput] = useState(false);
   const [localEligibilityData, setLocalEligibilityData] = useState(eligibilityData);
 
   const isAdmin = isAdminRole(user);
@@ -104,12 +97,11 @@ const CustomCreditLimitDialog = ({
       setCustomLimit('');
       setReason('');
       setSelectedUseCase(null);
-      setHasUserInput(false); // Reset user input flag when dialog opens
       
       // Ensure we have the latest eligibility data when dialog opens
       setLocalEligibilityData(eligibilityData);
     }
-  }, [open, customer?.credit_limit, eligibilityData]); // Re-initialize when dialog opens or when customer credit limit changes
+  }, [open, customer, eligibilityData]); // Re-initialize when dialog opens or when customer credit limit changes
   
   // Sync local eligibility data when prop changes
   useEffect(() => {
@@ -298,7 +290,6 @@ const CustomCreditLimitDialog = ({
   
   // Fix: Handle empty input and ensure proper number comparison
   const limitValue = customLimit && customLimit.trim() !== '' ? parseFloat(customLimit) : null;
-  const effectiveLimitValue = limitValue !== null ? limitValue : systemDefault;
   const isIncrease = limitValue !== null && limitValue > currentEffectiveLimit;
   const isDecrease = limitValue !== null && limitValue < currentEffectiveLimit;
 
@@ -423,7 +414,6 @@ const CustomCreditLimitDialog = ({
                     value={customLimit}
                     onChange={(e) => {
                       setCustomLimit(e.target.value);
-                      setHasUserInput(true); // Mark that user has started typing
                     }}
                     placeholder="Enter custom limit or leave empty for default"
                     className="pr-20 pl-12 h-12 text-lg font-medium border-2 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"

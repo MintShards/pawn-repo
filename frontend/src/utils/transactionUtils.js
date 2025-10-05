@@ -120,13 +120,11 @@ export const initializeSequenceNumbers = (transactions) => {
   let hasNewSequences = false;
   
   // Assign sequence numbers in chronological order
-  let newAssignments = 0;
   sortedTransactions.forEach((transaction, index) => {
     if (transaction.transaction_id && !transactionSequence.has(transaction.transaction_id)) {
       const assignedNumber = nextSequenceNumber++;
       transactionSequence.set(transaction.transaction_id, assignedNumber);
       hasNewSequences = true;
-      newAssignments++;
       
     }
     

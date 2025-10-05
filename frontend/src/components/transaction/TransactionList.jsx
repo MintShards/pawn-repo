@@ -237,7 +237,7 @@ const TransactionList = ({
   }, []);
   
   // Memoized check for frontend filters to optimize performance
-  const needsAllTransactionsMemo = useMemo(() => false, [searchFields]);
+  const needsAllTransactionsMemo = useMemo(() => false, []);
   
   // Debounced search to reduce API calls (but not for filters)
   useEffect(() => {
@@ -271,61 +271,10 @@ const TransactionList = ({
   }, []);
 
   // Constants for improved maintainability
-  const DAYS_MS = 1000 * 60 * 60 * 24;
   const API_DELAY_MS = 500;
   const MAX_PAGE_SIZE = 100;
   
-  // Memoized utility functions
-  const calculateDaysOverdue = useCallback((maturityDate) => {
-    if (!maturityDate) return 0;
-    
-    const maturity = new Date(maturityDate);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    maturity.setHours(0, 0, 0, 0);
-    
-    if (isNaN(maturity.getTime())) return 0;
-    
-    const overdueStartDate = new Date(maturity);
-    overdueStartDate.setDate(overdueStartDate.getDate() + 1);
-    
-    const daysOverdue = Math.floor((today - overdueStartDate) / DAYS_MS);
-    return Math.max(0, daysOverdue);
-  }, []);
   
-  // Memoized filter logic
-  const applyDaysOverdueFilter = useCallback((transaction, minDays, maxDays) => {
-    if (transaction.status?.toLowerCase() !== 'overdue') {
-      // Non-overdue transactions have 0 days overdue
-      return !(minDays && minDays > 0);
-    }
-    
-    const daysOverdue = calculateDaysOverdue(transaction.maturity_date);
-    
-    if (minDays && daysOverdue < minDays) return false;
-    if (maxDays && daysOverdue > maxDays) return false;
-    
-    return true;
-  }, [calculateDaysOverdue]);
-  
-  const applyMaturityDateFilter = useCallback((transaction, fromDate, toDate) => {
-    if (!transaction.maturity_date) return true;
-    
-    const maturityDate = new Date(transaction.maturity_date);
-    if (isNaN(maturityDate.getTime())) return true;
-    
-    if (fromDate) {
-      const from = new Date(fromDate + 'T00:00:00');
-      if (!isNaN(from.getTime()) && maturityDate < from) return false;
-    }
-    
-    if (toDate) {
-      const to = new Date(toDate + 'T23:59:59');
-      if (!isNaN(to.getTime()) && maturityDate > to) return false;
-    }
-    
-    return true;
-  }, []);
   
   // Since all filtering is now done on the backend, just sort the transactions
   const filteredAndSortedTransactions = useMemo(() => {
@@ -487,7 +436,7 @@ const TransactionList = ({
     } finally {
       setLoading(false);
     }
-  }, [filters.status, activeSearchTerm, currentPage, transactionsPerPage, sortField, sortDirection, fetchCustomerNames, debouncedSearchFields.minLoanAmount, debouncedSearchFields.maxLoanAmount, debouncedSearchFields.pawnDateFrom, debouncedSearchFields.pawnDateTo, debouncedSearchFields.maturityDateFrom, debouncedSearchFields.maturityDateTo, debouncedSearchFields.minDaysOverdue, debouncedSearchFields.maxDaysOverdue, needsAllTransactionsMemo]);
+  }, [filters, activeSearchTerm, currentPage, transactionsPerPage, sortField, sortDirection, fetchCustomerNames, debouncedSearchFields.minLoanAmount, debouncedSearchFields.maxLoanAmount, debouncedSearchFields.pawnDateFrom, debouncedSearchFields.pawnDateTo, debouncedSearchFields.maturityDateFrom, debouncedSearchFields.maturityDateTo, debouncedSearchFields.minDaysOverdue, debouncedSearchFields.maxDaysOverdue, needsAllTransactionsMemo]);
 
   const fetchAllTransactionsCounts = useCallback(async (immediate = false) => {
     try {
@@ -713,7 +662,7 @@ const TransactionList = ({
       // Cleanup timeout on unmount or when refreshTrigger changes
       return () => clearTimeout(performRefresh);
     }
-  }, [refreshTrigger, filters.status, transactionsPerPage, sortField, sortDirection, activeSearchTerm, Object.keys(customerData).length, fetchAllTransactionsCounts]);
+  }, [refreshTrigger, filters, customerData, transactionsPerPage, sortField, sortDirection, activeSearchTerm, fetchAllTransactionsCounts]);
 
   // Calculate total pages for pagination
   // Check if any advanced filters are active

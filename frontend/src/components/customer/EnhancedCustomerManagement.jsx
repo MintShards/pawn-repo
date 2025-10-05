@@ -3355,17 +3355,13 @@ const EnhancedCustomerManagement = () => {
               });
               
               let transactionArray = [];
-              let totalCount = 0;
               
               if (Array.isArray(response)) {
                 transactionArray = response;
-                totalCount = response.length;
               } else if (response && Array.isArray(response.transactions)) {
                 transactionArray = response.transactions;
-                totalCount = response.total_count || response.transactions.length;
               } else if (response && Array.isArray(response.data)) {
                 transactionArray = response.data;
-                totalCount = response.total || response.total_count || response.data.length;
               }
               
               allTransactions = allTransactions.concat(transactionArray);
@@ -3467,7 +3463,7 @@ const EnhancedCustomerManagement = () => {
       window.removeEventListener('transaction-created', handleTransactionUpdate);
       clearTimeout(window.customerListRefreshTimeout);
     };
-  }, [selectedCustomer?.phone_number, activeTab, refreshOverviewTransactions, currentPage, statusFilter, alertFilter, loadCustomerList, getCurrentSearchTerm]);
+  }, [selectedCustomer?.phone_number, activeTab, refreshOverviewTransactions, currentPage, statusFilter, alertFilter, loadCustomerList, getCurrentSearchTerm, currentCustomers, loadCustomerActivities]);
 
   const handleSelectAll = (checked) => {
     if (checked) {
