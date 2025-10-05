@@ -22,9 +22,10 @@ from app.schemas.pawn_transaction_schema import (
     PawnTransactionCreate, PawnTransactionResponse, PawnTransactionListResponse,
     TransactionStatusUpdate, BalanceResponse, InterestBreakdownResponse,
     PayoffAmountResponse, TransactionSummaryResponse, TransactionSearchFilters,
-    BulkStatusUpdateRequest, BulkStatusUpdateResponse, TransactionVoidRequest,
-    TransactionCancelRequest, TransactionVoidResponse, UnifiedSearchRequest,
-    UnifiedSearchResponse, BatchStatusCountResponse, UnifiedSearchType
+    BulkStatusUpdateRequest, BulkStatusUpdateResponse, BulkNotesRequest, 
+    BulkNotesResponse, TransactionVoidRequest, TransactionCancelRequest, 
+    TransactionVoidResponse, UnifiedSearchRequest, UnifiedSearchResponse, 
+    BatchStatusCountResponse, UnifiedSearchType
 )
 from app.schemas.receipt_schema import (
     InitialPawnReceiptResponse, PaymentReceiptResponse, ExtensionReceiptResponse,
@@ -834,6 +835,61 @@ async def bulk_update_transaction_status(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to perform bulk status update: {str(e)}"
+        )
+
+
+@pawn_transaction_router.post(
+    "/bulk-add-notes",
+    response_model=BulkNotesResponse,
+    summary="Bulk add notes to transactions",
+    description="Add the same note to multiple transactions (Staff and Admin access)",
+    responses={
+        200: {"description": "Bulk notes addition completed"},
+        400: {"description": "Bad request - Invalid data"},
+        422: {"description": "Validation error"},
+        500: {"description": "Internal server error"}
+    }
+)
+async def bulk_add_notes_to_transactions(
+    bulk_notes: BulkNotesRequest,
+    current_user: User = Depends(get_staff_or_admin_user)
+) -> BulkNotesResponse:
+    """Add the same note to multiple transactions"""
+    try:
+        result = await PawnTransactionService.bulk_add_notes(
+            transaction_ids=bulk_notes.transaction_ids,
+            note=bulk_notes.note,
+            added_by_user_id=current_user.user_id
+        )
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except PawnTransactionError as e:
+        # Handle transaction not found or business logic errors
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except StaffValidationError as e:
+        # Staff user validation errors
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Staff validation error: {str(e)}"
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        # Log unexpected errors for debugging
+        import traceback
+        transaction_logger.error("Unexpected error in bulk_add_notes_to_transactions", error=str(e), traceback=traceback.format_exc())
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to add notes to transactions: {str(e)}"
         )
 
 

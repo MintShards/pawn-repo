@@ -347,6 +347,32 @@ class BulkStatusUpdateResponse(BaseModel):
     failed_updates: List[Dict[str, str]] = Field(..., description="Failed updates with error messages")
 
 
+class BulkNotesRequest(BaseModel):
+    """Schema for bulk notes addition"""
+    transaction_ids: List[str] = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="List of transaction IDs to add notes to (max 100)"
+    )
+    note: str = Field(
+        ...,
+        min_length=1,
+        max_length=1000,
+        description="Note to add to all transactions"
+    )
+
+
+class BulkNotesResponse(BaseModel):
+    """Schema for bulk notes addition results"""
+    success_count: int = Field(..., description="Number of transactions successfully updated")
+    error_count: int = Field(..., description="Number of failed updates")
+    total_requested: int = Field(..., description="Total number of transactions requested")
+    
+    successful_updates: List[str] = Field(..., description="Transaction IDs that were updated")
+    failed_updates: List[Dict[str, str]] = Field(..., description="Failed updates with error messages")
+
+
 class TransactionVoidRequest(BaseModel):
     """Schema for voiding a transaction (Admin only)"""
     void_reason: str = Field(

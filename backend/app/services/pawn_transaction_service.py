@@ -1114,6 +1114,77 @@ class PawnTransactionService:
         )
     
     @staticmethod
+    async def bulk_add_notes(
+        transaction_ids: List[str],
+        note: str,
+        added_by_user_id: str
+    ) -> Dict[str, Any]:
+        """
+        Add the same note to multiple transactions.
+        
+        Args:
+            transaction_ids: List of transaction IDs to add notes to
+            note: Note text to add
+            added_by_user_id: User ID adding the notes
+            
+        Returns:
+            Dictionary with update results
+        """
+        from app.schemas.pawn_transaction_schema import BulkNotesResponse
+        
+        success_count = 0
+        error_count = 0
+        successful_updates = []
+        failed_updates = []
+        
+        # Validate user
+        staff_user = await User.find_one(User.user_id == added_by_user_id)
+        if not staff_user or staff_user.status != UserStatus.ACTIVE:
+            raise StaffValidationError(f"Staff user {added_by_user_id} not found or inactive")
+        
+        for transaction_id in transaction_ids:
+            try:
+                # Get transaction
+                transaction = await PawnTransaction.find_one(PawnTransaction.transaction_id == transaction_id)
+                if not transaction:
+                    error_count += 1
+                    failed_updates.append({
+                        "transaction_id": transaction_id,
+                        "error": "Transaction not found"
+                    })
+                    continue
+                
+                # Add note to transaction using the new manual notes system
+                transaction.add_manual_note(note, added_by_user_id)
+                
+                await transaction.save()
+                
+                success_count += 1
+                successful_updates.append(transaction_id)
+                
+                # Log successful note addition
+                logger.info(f"✅ BULK NOTE: Added note to transaction {transaction_id} by user {added_by_user_id}")
+                
+            except Exception as e:
+                error_count += 1
+                failed_updates.append({
+                    "transaction_id": transaction_id,
+                    "error": str(e)
+                })
+                logger.error(f"❌ BULK NOTE ERROR: Failed to add note to {transaction_id}", error=str(e))
+        
+        # Clear caches after bulk note addition
+        await _invalidate_all_transaction_caches()
+        
+        return BulkNotesResponse(
+            success_count=success_count,
+            error_count=error_count,
+            total_requested=len(transaction_ids),
+            successful_updates=successful_updates,
+            failed_updates=failed_updates
+        )
+    
+    @staticmethod
     async def redeem_transaction(
         transaction_id: str,
         redeemed_by_user_id: str

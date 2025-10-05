@@ -53,6 +53,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import TransactionCard from './TransactionCard';
 import StatusBadge from './components/StatusBadge';
 import BulkStatusUpdateDialog from './BulkStatusUpdateDialog';
+import BulkNotesDialog from './BulkNotesDialog';
 import transactionService from '../../services/transactionService';
 import customerService from '../../services/customerService';
 import extensionService from '../../services/extensionService';
@@ -92,6 +93,7 @@ const TransactionList = ({
   const [showItemsDialog, setShowItemsDialog] = useState(false);
   const [selectedTransactionItems, setSelectedTransactionItems] = useState(null);
   const [showBulkStatusDialog, setShowBulkStatusDialog] = useState(false);
+  const [showBulkNotesDialog, setShowBulkNotesDialog] = useState(false);
   const [allTransactionsCounts, setAllTransactionsCounts] = useState({
     all: undefined,
     active: undefined,
@@ -1462,6 +1464,14 @@ const TransactionList = ({
                     Update Status
                   </Button>
                   <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowBulkNotesDialog(true)}
+                    className="h-8 px-3 bg-green-500 text-white hover:bg-green-600 border-green-600"
+                  >
+                    Add Notes
+                  </Button>
+                  <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => setSelectedTransactionIds([])}
@@ -1975,6 +1985,17 @@ const TransactionList = ({
       <BulkStatusUpdateDialog
         isOpen={showBulkStatusDialog}
         onClose={() => setShowBulkStatusDialog(false)}
+        selectedTransactions={transactions.filter(t => selectedTransactionIds.includes(t.transaction_id))}
+        onSuccess={() => {
+          setSelectedTransactionIds([]);
+          handleRefresh();
+        }}
+      />
+
+      {/* Bulk Notes Dialog */}
+      <BulkNotesDialog
+        isOpen={showBulkNotesDialog}
+        onClose={() => setShowBulkNotesDialog(false)}
         selectedTransactions={transactions.filter(t => selectedTransactionIds.includes(t.transaction_id))}
         onSuccess={() => {
           setSelectedTransactionIds([]);

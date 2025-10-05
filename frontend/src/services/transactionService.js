@@ -209,6 +209,24 @@ class TransactionService {
     }
   }
 
+  // Bulk add notes to transactions
+  async bulkAddNotes({ transaction_ids, note }) {
+    try {
+      const result = await authService.apiRequest('/api/v1/pawn-transaction/bulk-add-notes', {
+        method: 'POST',
+        body: JSON.stringify({
+          transaction_ids,
+          note
+        }),
+      });
+      this.clearTransactionCache();
+      return result;
+    } catch (error) {
+      // Error handled
+      throw error;
+    }
+  }
+
   // Void transaction (Admin only)
   async voidTransaction(transactionId, voidData) {
     try {
