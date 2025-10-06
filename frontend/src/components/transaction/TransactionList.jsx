@@ -54,6 +54,7 @@ import TransactionCard from './TransactionCard';
 import StatusBadge from './components/StatusBadge';
 import BulkStatusUpdateDialog from './BulkStatusUpdateDialog';
 import BulkNotesDialog from './BulkNotesDialog';
+import BulkRedemptionDialog from './BulkRedemptionDialog';
 import transactionService from '../../services/transactionService';
 import customerService from '../../services/customerService';
 import extensionService from '../../services/extensionService';
@@ -94,6 +95,7 @@ const TransactionList = ({
   const [selectedTransactionItems, setSelectedTransactionItems] = useState(null);
   const [showBulkStatusDialog, setShowBulkStatusDialog] = useState(false);
   const [showBulkNotesDialog, setShowBulkNotesDialog] = useState(false);
+  const [showBulkRedemptionDialog, setShowBulkRedemptionDialog] = useState(false);
   const [allTransactionsCounts, setAllTransactionsCounts] = useState({
     all: undefined,
     active: undefined,
@@ -1421,6 +1423,15 @@ const TransactionList = ({
                     Add Notes
                   </Button>
                   <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowBulkRedemptionDialog(true)}
+                    className="h-8 px-3 bg-emerald-600 text-white hover:bg-emerald-700 border-emerald-600"
+                  >
+                    <Banknote className="mr-1 h-3 w-3" />
+                    Process Redemption
+                  </Button>
+                  <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => setSelectedTransactionIds([])}
@@ -1945,6 +1956,17 @@ const TransactionList = ({
       <BulkNotesDialog
         isOpen={showBulkNotesDialog}
         onClose={() => setShowBulkNotesDialog(false)}
+        selectedTransactions={transactions.filter(t => selectedTransactionIds.includes(t.transaction_id))}
+        onSuccess={() => {
+          setSelectedTransactionIds([]);
+          handleRefresh();
+        }}
+      />
+
+      {/* Bulk Redemption Dialog */}
+      <BulkRedemptionDialog
+        isOpen={showBulkRedemptionDialog}
+        onClose={() => setShowBulkRedemptionDialog(false)}
         selectedTransactions={transactions.filter(t => selectedTransactionIds.includes(t.transaction_id))}
         onSuccess={() => {
           setSelectedTransactionIds([]);

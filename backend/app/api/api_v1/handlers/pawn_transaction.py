@@ -23,7 +23,8 @@ from app.schemas.pawn_transaction_schema import (
     TransactionStatusUpdate, BalanceResponse, InterestBreakdownResponse,
     PayoffAmountResponse, TransactionSummaryResponse, TransactionSearchFilters,
     BulkStatusUpdateRequest, BulkStatusUpdateResponse, BulkNotesRequest, 
-    BulkNotesResponse, TransactionVoidRequest, TransactionCancelRequest, 
+    BulkNotesResponse, BulkRedemptionRequest, BulkRedemptionResponse,
+    TransactionVoidRequest, TransactionCancelRequest, 
     TransactionVoidResponse, UnifiedSearchRequest, UnifiedSearchResponse, 
     BatchStatusCountResponse, UnifiedSearchType
 )
@@ -46,6 +47,7 @@ from app.core.exceptions import (
     CustomerNotFoundError, DatabaseError, AuthorizationError, AuthenticationError
 )
 from app.models.customer_model import Customer
+from app.models.pawn_transaction_model import PawnTransaction
 
 # Configure logger
 transaction_logger = structlog.get_logger("pawn_transaction_api")
@@ -890,6 +892,176 @@ async def bulk_add_notes_to_transactions(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to add notes to transactions: {str(e)}"
+        )
+
+
+@pawn_transaction_router.post(
+    "/bulk-redemption",
+    response_model=BulkRedemptionResponse,
+    summary="Bulk process redemption payments",
+    description="Process cash redemption payments for multiple transactions with validation (Staff and Admin access)",
+    responses={
+        200: {"description": "Bulk redemption completed"},
+        400: {"description": "Bad request - Invalid transactions or payment data"},
+        500: {"description": "Internal server error"}
+    }
+)
+async def bulk_process_redemption(
+    bulk_redemption: BulkRedemptionRequest,
+    current_user: User = Depends(get_staff_or_admin_user)
+) -> BulkRedemptionResponse:
+    """
+    Process cash redemption payments for multiple transactions.
+
+    Performs pre-flight validation, processes payments sequentially,
+    and provides detailed error reporting for each transaction.
+
+    Valid statuses for redemption: Active, Overdue, Extended
+    """
+    try:
+        # Pre-flight validation: Check all transactions before processing any
+        validation_errors = []
+        valid_transaction_ids = []
+        redeemable_statuses = {TransactionStatus.ACTIVE, TransactionStatus.OVERDUE, TransactionStatus.EXTENDED}
+
+        transaction_logger.info(
+            "Starting bulk redemption pre-flight validation",
+            transaction_count=len(bulk_redemption.transaction_ids),
+            user_id=current_user.user_id
+        )
+
+        for transaction_id in bulk_redemption.transaction_ids:
+            try:
+                # Validate transaction exists
+                transaction = await PawnTransactionService.get_transaction_by_id(transaction_id)
+                if not transaction:
+                    validation_errors.append(f"{transaction_id}: Transaction not found")
+                    continue
+
+                # Validate transaction status is redeemable
+                if transaction.status not in redeemable_statuses:
+                    validation_errors.append(
+                        f"{transaction_id}: Cannot redeem '{transaction.status}' status (must be active, overdue, or extended)"
+                    )
+                    continue
+
+                # Validate transaction has outstanding balance
+                balance_info = await PawnTransactionService.calculate_current_balance(transaction_id)
+                if balance_info["current_balance"] <= 0:
+                    validation_errors.append(
+                        f"{transaction_id}: Already paid off (balance: ${balance_info['current_balance']})"
+                    )
+                    continue
+
+                # Transaction is valid for redemption
+                valid_transaction_ids.append(transaction_id)
+
+            except Exception as e:
+                validation_errors.append(f"{transaction_id}: Validation failed - {str(e)}")
+
+        # Log validation summary
+        transaction_logger.info(
+            "Bulk redemption validation complete",
+            valid_count=len(valid_transaction_ids),
+            invalid_count=len(validation_errors),
+            total_requested=len(bulk_redemption.transaction_ids)
+        )
+
+        # Process payments for valid transactions
+        results = []
+        processing_errors = []
+        total_amount = 0
+
+        for transaction_id in valid_transaction_ids:
+            try:
+                # Get current balance for payment processing
+                balance_info = await PawnTransactionService.calculate_current_balance(transaction_id)
+                payoff_amount = balance_info["current_balance"]
+
+                transaction_logger.info(
+                    "Processing bulk redemption payment",
+                    transaction_id=transaction_id,
+                    payoff_amount=payoff_amount,
+                    user_id=current_user.user_id
+                )
+
+                # Process payment (always cash for bulk redemption)
+                payment_result = await PaymentService.process_payment(
+                    transaction_id=transaction_id,
+                    payment_amount=payoff_amount,
+                    processed_by_user_id=current_user.user_id,
+                    client_timezone=None  # Use UTC for bulk operations
+                )
+
+                # Add notes if provided (non-blocking)
+                if bulk_redemption.notes and bulk_redemption.notes.strip():
+                    try:
+                        await PawnTransactionService.bulk_add_notes(
+                            transaction_ids=[transaction_id],
+                            note=f"Bulk redemption: {bulk_redemption.notes.strip()}",
+                            added_by_user_id=current_user.user_id
+                        )
+                    except Exception as note_error:
+                        # Log note failure but don't block redemption
+                        transaction_logger.warning(
+                            "Note addition failed for bulk redemption",
+                            transaction_id=transaction_id,
+                            error=str(note_error)
+                        )
+
+                # Track successful redemption
+                results.append({
+                    "transaction_id": transaction_id,
+                    "payment_id": payment_result.payment_id,
+                    "amount_paid": payoff_amount,
+                    "status": "redeemed"
+                })
+                total_amount += payoff_amount
+
+            except Exception as e:
+                error_msg = f"{transaction_id}: Payment processing failed - {str(e)}"
+                processing_errors.append(error_msg)
+                transaction_logger.error(
+                    "Bulk redemption payment failed",
+                    transaction_id=transaction_id,
+                    error=str(e)
+                )
+
+        # Combine all errors (validation + processing)
+        all_errors = validation_errors + processing_errors
+
+        # Log completion summary
+        transaction_logger.info(
+            "Bulk redemption operation complete",
+            total_requested=len(bulk_redemption.transaction_ids),
+            successful=len(results),
+            failed=len(all_errors),
+            total_amount=total_amount
+        )
+
+        return BulkRedemptionResponse(
+            total_requested=len(bulk_redemption.transaction_ids),
+            success_count=len(results),
+            error_count=len(all_errors),
+            total_amount_processed=total_amount,
+            successful_redemptions=results,
+            errors=all_errors
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Log unexpected errors for debugging
+        import traceback
+        transaction_logger.error(
+            "Unexpected error in bulk_process_redemption",
+            error=str(e),
+            traceback=traceback.format_exc(),
+            user_id=current_user.user_id
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to process bulk redemption: {str(e)}"
         )
 
 

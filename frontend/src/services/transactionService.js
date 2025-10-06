@@ -227,6 +227,55 @@ class TransactionService {
     }
   }
 
+  // Bulk process redemption payments
+  async bulkProcessRedemption({ transaction_ids, notes }) {
+    try {
+      // Client-side validation before API call
+      if (!Array.isArray(transaction_ids) || transaction_ids.length === 0) {
+        throw new Error('At least one transaction must be selected');
+      }
+
+      if (transaction_ids.length > 50) {
+        throw new Error('Cannot process more than 50 transactions at once');
+      }
+
+      const result = await authService.apiRequest('/api/v1/pawn-transaction/bulk-redemption', {
+        method: 'POST',
+        body: JSON.stringify({
+          transaction_ids,
+          notes
+        }),
+      });
+      this.clearTransactionCache();
+      return result;
+    } catch (error) {
+      // Error handled
+      throw error;
+    }
+  }
+
+  // Validate if transactions can be redeemed (pre-check before dialog)
+  validateRedeemableTransactions(transactions) {
+    const redeemableStatuses = ['active', 'overdue', 'extended'];
+
+    const redeemable = transactions.filter(t =>
+      redeemableStatuses.includes(t.status)
+    );
+
+    const nonRedeemable = transactions.filter(t =>
+      !redeemableStatuses.includes(t.status)
+    );
+
+    return {
+      canRedeem: redeemable.length > 0,
+      redeemableCount: redeemable.length,
+      nonRedeemableCount: nonRedeemable.length,
+      redeemableTransactions: redeemable,
+      nonRedeemableTransactions: nonRedeemable,
+      exceedsLimit: redeemable.length > 50
+    };
+  }
+
   // Void transaction (Admin only)
   async voidTransaction(transactionId, voidData) {
     try {

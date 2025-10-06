@@ -112,7 +112,12 @@ class PawnTransactionResponse(PawnTransactionBase):
     formatted_id: Optional[str] = Field(None, description="Display-friendly transaction ID (e.g., 'PW000105')")
     customer_id: str = Field(..., description="Customer phone number")
     created_by_user_id: str = Field(..., description="Staff member who created transaction")
-    
+
+    # Customer information (optional, populated when available)
+    customer_first_name: Optional[str] = Field(None, description="Customer first name")
+    customer_last_name: Optional[str] = Field(None, description="Customer last name")
+    customer_name: Optional[str] = Field(None, description="Customer full name")
+
     # Items information
     items: Optional[List[PawnItemResponse]] = Field(
         default_factory=list,
@@ -636,3 +641,37 @@ class BatchStatusCountResponse(BaseModel):
             }
         }
     )
+
+
+class BulkRedemptionRequest(BaseModel):
+    """Schema for bulk redemption processing"""
+    transaction_ids: List[str] = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+        description="Transaction IDs to process for redemption (max 50)"
+    )
+    notes: Optional[str] = Field(
+        None,
+        max_length=500,
+        description="Optional notes for all redemption payments"
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "transaction_ids": ["TXN-2024-001", "TXN-2024-002"],
+                "notes": "Bulk redemption - cash payment processed"
+            }
+        }
+    )
+
+
+class BulkRedemptionResponse(BaseModel):
+    """Schema for bulk redemption response"""
+    total_requested: int = Field(..., description="Total transactions requested")
+    success_count: int = Field(..., description="Number of successful redemptions")
+    error_count: int = Field(..., description="Number of failed redemptions")
+    total_amount_processed: int = Field(..., description="Total amount in dollars processed")
+    successful_redemptions: List[Dict[str, Any]] = Field(..., description="Details of successful redemptions")
+    errors: List[str] = Field(..., description="Error messages for failed redemptions")

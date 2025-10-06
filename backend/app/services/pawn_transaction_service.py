@@ -1002,20 +1002,30 @@ class PawnTransactionService:
             )
             if not transaction:
                 raise PawnTransactionError(f"Transaction {transaction_id} not found")
-            
+
+            # Get customer information
+            from app.models.customer_model import Customer
+            customer = await Customer.find_one(Customer.phone_number == transaction.customer_id)
+
             # Get transaction items
             items = await PawnItem.find(
                 PawnItem.transaction_id == transaction_id
             ).sort(PawnItem.item_number).to_list()
-            
+
             # Convert to response schemas
             transaction_dict = transaction.model_dump()
-            
+
+            # Add customer name to transaction dict if customer found
+            if customer:
+                transaction_dict['customer_first_name'] = customer.first_name
+                transaction_dict['customer_last_name'] = customer.last_name
+                transaction_dict['customer_name'] = f"{customer.first_name} {customer.last_name}"
+
             item_responses = []
             for item in items:
                 item_dict = item.model_dump()
                 item_responses.append(PawnItemResponse.model_validate(item_dict))
-            
+
             # Add items to transaction response
             transaction_dict['items'] = item_responses
             transaction_response = PawnTransactionResponse.model_validate(transaction_dict)
