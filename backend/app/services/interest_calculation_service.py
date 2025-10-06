@@ -634,20 +634,23 @@ class InterestCalculationService:
         # Calculate basic balance components
         loan_amount = transaction.loan_amount
         monthly_interest = transaction.monthly_interest_amount
-        
+
         # Calculate months elapsed using calendar month logic
         months_elapsed = transaction.calculate_months_elapsed(as_of_date)
-        
+
         # Apply 3-month interest cap (business rule)
         capped_months = min(months_elapsed, 3)
         total_interest_due = monthly_interest * capped_months
-        
+
         # Extension fees are handled separately by the extension system
         # Regular payments only cover principal + interest
         total_extension_fees = 0
-        
-        # Calculate total due EXCLUDING extension fees (only principal + interest)
-        total_due = loan_amount + total_interest_due
+
+        # Get manually-entered overdue fee
+        overdue_fee = getattr(transaction, 'overdue_fee', 0)
+
+        # Calculate total due INCLUDING overdue fee (principal + interest + overdue fee)
+        total_due = loan_amount + total_interest_due + overdue_fee
         
         # Calculate total payments (defensive programming) - exclude voided payments
         try:
@@ -667,23 +670,28 @@ class InterestCalculationService:
         
         # Calculate current balance
         current_balance = max(0, total_due - total_paid)
-        
-        # Payment allocation (priority: interest → principal)
+
+        # Payment allocation (priority: interest → overdue fee → principal)
         # Extension fees are handled separately by the extension system
         remaining_payments = total_paid
-        
+
         # 1. Pay interest first
         interest_paid = min(remaining_payments, total_interest_due)
         remaining_payments -= interest_paid
-        
-        # 2. Pay principal second (extension fees not included)
+
+        # 2. Pay overdue fee second
+        overdue_fee_paid = min(remaining_payments, overdue_fee)
+        remaining_payments -= overdue_fee_paid
+
+        # 3. Pay principal third (extension fees not included)
         principal_paid = min(remaining_payments, loan_amount)
-        
+
         # Extension fees are handled by extension system, not regular payments
         extension_fees_paid = 0
-        
+
         # Remaining balances (extension fees not included in payment balance)
         interest_balance = max(0, total_interest_due - interest_paid)
+        overdue_fee_balance = max(0, overdue_fee - overdue_fee_paid)
         extension_fees_balance = 0  # Extension fees handled separately
         principal_balance = max(0, loan_amount - principal_paid)
         
@@ -718,34 +726,37 @@ class InterestCalculationService:
         return BalanceResponse(
             transaction_id=transaction_id,
             as_of_date=as_of_date.date().isoformat(),
-            
+
             # Main balance components
             loan_amount=loan_amount,
             monthly_interest=monthly_interest,
             total_due=total_due,
             total_paid=total_paid,
             current_balance=current_balance,
-            
+
             # Payment allocation breakdown
             principal_due=loan_amount,
             interest_due=total_interest_due,
             extension_fees_due=total_extension_fees,
+            overdue_fee_due=overdue_fee,
             principal_paid=principal_paid,
             interest_paid=interest_paid,
             extension_fees_paid=extension_fees_paid,
+            overdue_fee_paid=overdue_fee_paid,
             principal_balance=principal_balance,
             interest_balance=interest_balance,
             extension_fees_balance=extension_fees_balance,
-            
+            overdue_fee_balance=overdue_fee_balance,
+
             # Transaction details
             payment_count=len(payments),
             status=transaction.status,
-            
+
             # Date information
             pawn_date=transaction.pawn_date.date().isoformat() if transaction.pawn_date else None,
             maturity_date=maturity_date.date().isoformat() if maturity_date else None,
             grace_period_end=grace_period_end.date().isoformat() if grace_period_end else None,
-            
+
             # Status flags
             is_overdue=is_overdue,
             is_in_grace_period=is_in_grace_period,

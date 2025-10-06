@@ -177,12 +177,15 @@ class BalanceResponse(BaseModel):
     principal_due: int = Field(..., description="Total principal due")
     interest_due: int = Field(..., description="Total interest due")
     extension_fees_due: int = Field(default=0, description="Total extension fees due")
+    overdue_fee_due: int = Field(default=0, description="Manually-entered overdue fee")
     principal_paid: int = Field(..., description="Principal payments made")
     interest_paid: int = Field(..., description="Interest payments made")
     extension_fees_paid: int = Field(default=0, description="Extension fee payments made")
+    overdue_fee_paid: int = Field(default=0, description="Overdue fee payments made")
     principal_balance: int = Field(..., description="Remaining principal balance")
     interest_balance: int = Field(..., description="Remaining interest balance")
     extension_fees_balance: int = Field(default=0, description="Remaining extension fees balance")
+    overdue_fee_balance: int = Field(default=0, description="Remaining overdue fee balance")
     
     # Transaction details
     payment_count: int = Field(..., description="Number of payments made")

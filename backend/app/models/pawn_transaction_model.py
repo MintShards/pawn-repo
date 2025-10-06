@@ -80,6 +80,11 @@ class PawnTransaction(Document):
         ge=0,
         description="Fixed monthly interest fee in whole dollars"
     )
+    overdue_fee: int = Field(
+        default=0,
+        ge=0,
+        description="Manually entered overdue fee for overdue transactions (whole dollars)"
+    )
     total_due: int = Field(
         default=0,
         description="Total amount due (calculated field)"

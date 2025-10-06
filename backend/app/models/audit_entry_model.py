@@ -23,6 +23,8 @@ class AuditActionType(str, Enum):
     ITEM_UPDATED = "item_updated"
     REDEMPTION_COMPLETED = "redemption_completed"
     SYSTEM_NOTIFICATION = "system_notification"
+    OVERDUE_FEE_SET = "overdue_fee_set"
+    OVERDUE_FEE_CLEARED = "overdue_fee_cleared"
 
 
 class AuditEntry(BaseModel):

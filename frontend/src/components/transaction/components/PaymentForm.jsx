@@ -9,7 +9,7 @@ import { Alert, AlertDescription } from '../../ui/alert';
 import paymentService from '../../../services/paymentService';
 import transactionService from '../../../services/transactionService';
 import { formatTransactionId, formatCurrency } from '../../../utils/transactionUtils';
-import { useFormValidation, validateAmount, validatePayment } from '../../../utils/formValidation';
+import { useFormValidation, validateAmount } from '../../../utils/formValidation';
 import { handleError, handleSuccess } from '../../../utils/errorHandling';
 import ConfirmationDialog from '../../common/ConfirmationDialog';
 import LoadingDialog from '../../common/LoadingDialog';
@@ -21,13 +21,7 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
   // Form validation setup
   const formValidators = {
     payment_amount: (value, data) => {
-      const amountResult = validateAmount(value, 'Payment amount', { min: 0.01, max: 50000 });
-      if (!amountResult.isValid) return amountResult;
-      
-      if (balance) {
-        return validatePayment(value, balance);
-      }
-      return amountResult;
+      return validateAmount(value, 'Payment amount', { min: 0.01, max: 50000 });
     }
   };
 
