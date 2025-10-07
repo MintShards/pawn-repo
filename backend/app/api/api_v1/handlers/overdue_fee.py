@@ -25,6 +25,7 @@ from app.services.overdue_fee_service import (
     OverdueFeeValidationError
 )
 from app.core.auth import get_current_user
+from app.models.user_model import User
 
 # Configure logger
 logger = structlog.get_logger("overdue_fee_api")
@@ -37,7 +38,7 @@ router = APIRouter(prefix="/overdue-fee", tags=["overdue_fee"])
 async def set_overdue_fee(
     transaction_id: str,
     request: OverdueFeeSetRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: User = Depends(get_current_user)
 ):
     """
     Set or update overdue fee for a transaction (staff/admin only).
@@ -53,7 +54,7 @@ async def set_overdue_fee(
     - Audit trail entry created
     """
     try:
-        user_id = current_user.get("user_id")
+        user_id = current_user.user_id
 
         transaction = await OverdueFeeService.set_overdue_fee(
             transaction_id=transaction_id,
@@ -64,26 +65,26 @@ async def set_overdue_fee(
 
         return OverdueFeeResponse(
             success=True,
-            message=f"Overdue fee set to ${request.overdue_fee}",
+            message=f"Overdue fee: ${request.overdue_fee}",
             transaction_id=transaction_id,
             overdue_fee=transaction.overdue_fee,
             status=transaction.status
         )
 
     except TransactionNotFoundError as e:
-        logger.error(f"Transaction not found: {transaction_id}", error=str(e))
+        logger.error(f"Transaction not found: {transaction_id}")
         raise HTTPException(status_code=404, detail=str(e))
 
     except StaffValidationError as e:
-        logger.error(f"Staff validation failed", error=str(e))
+        logger.error(f"Staff validation failed: {str(e)}")
         raise HTTPException(status_code=403, detail=str(e))
 
     except OverdueFeeValidationError as e:
-        logger.error(f"Overdue fee validation failed", error=str(e))
+        logger.error(f"Overdue fee validation failed: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
 
     except Exception as e:
-        logger.error(f"Error setting overdue fee", error=str(e))
+        logger.error(f"Error setting overdue fee: {type(e).__name__}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to set overdue fee: {str(e)}")
 
 
@@ -91,7 +92,7 @@ async def set_overdue_fee(
 async def clear_overdue_fee(
     transaction_id: str,
     request: OverdueFeeClearRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: User = Depends(get_current_user)
 ):
     """
     Clear/remove overdue fee from a transaction (staff/admin only).
@@ -105,7 +106,7 @@ async def clear_overdue_fee(
     - Updated transaction with overdue fee cleared
     """
     try:
-        user_id = current_user.get("user_id")
+        user_id = current_user.user_id
 
         transaction = await OverdueFeeService.clear_overdue_fee(
             transaction_id=transaction_id,
@@ -141,7 +142,7 @@ async def clear_overdue_fee(
 @router.get("/{transaction_id}/info", response_model=OverdueFeeInfoResponse)
 async def get_overdue_fee_info(
     transaction_id: str,
-    current_user: dict = Depends(get_current_user)
+    current_user: User = Depends(get_current_user)
 ):
     """
     Get overdue fee information for a transaction.
@@ -169,7 +170,7 @@ async def get_overdue_fee_info(
 @router.get("/{transaction_id}/total", response_model=OverdueFeeTotalResponse)
 async def get_total_with_overdue_fee(
     transaction_id: str,
-    current_user: dict = Depends(get_current_user)
+    current_user: User = Depends(get_current_user)
 ):
     """
     Calculate total redemption amount including overdue fee.
@@ -198,7 +199,7 @@ async def get_total_with_overdue_fee(
 async def validate_overdue_fee(
     transaction_id: str,
     request: OverdueFeeValidationRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: User = Depends(get_current_user)
 ):
     """
     Validate proposed overdue fee amount before setting.

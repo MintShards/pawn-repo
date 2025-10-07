@@ -171,22 +171,27 @@ class PaymentService:
             balance_info = await PaymentService._get_balance_info(transaction_id)
             current_balance = balance_info["current_balance"]
             
-            # Allow overpayments but warn
-            balance_after_payment = max(0, current_balance - payment_amount)
+            # Calculate balance after payment (can be negative for overpayments)
+            balance_after_payment = current_balance - payment_amount
             is_overpayment = payment_amount > current_balance
             
-            # Calculate payment allocation (priority: interest → principal)
+            # Calculate payment allocation (priority: interest → overdue fees → principal)
             # Extension fees are handled separately by the extension system
             interest_due = balance_info.get("interest_balance", 0)
+            overdue_fee_due = balance_info.get("overdue_fee_balance", 0)
             principal_due = balance_info.get("principal_balance", 0)
-            
+
             # 1. Apply payment to interest first
             interest_portion = min(payment_amount, interest_due)
             remaining_payment = payment_amount - interest_portion
-            
-            # 2. Apply remaining to principal
+
+            # 2. Apply remaining to overdue fees
+            overdue_fee_portion = min(remaining_payment, overdue_fee_due)
+            remaining_payment = remaining_payment - overdue_fee_portion
+
+            # 3. Apply remaining to principal
             principal_portion = min(remaining_payment, principal_due)
-            
+
             # Extension fees are not included in regular payment allocation
             extension_fees_portion = 0
             
@@ -207,6 +212,7 @@ class PaymentService:
                 principal_portion=principal_portion,
                 interest_portion=interest_portion,
                 extension_fees_portion=extension_fees_portion,
+                overdue_fee_portion=overdue_fee_portion,
                 payment_method="cash",
                 payment_date=payment_date_utc
             )
@@ -219,7 +225,18 @@ class PaymentService:
                 PawnTransaction.transaction_id == transaction_id,
                 session=session
             )
-            
+
+            # Reduce overdue fee if payment included overdue fee portion
+            if overdue_fee_portion > 0:
+                fresh_transaction.overdue_fee = max(0, fresh_transaction.overdue_fee - overdue_fee_portion)
+                import structlog
+                logger = structlog.get_logger("payment_service")
+                logger.info(
+                    f"Reduced overdue fee by ${overdue_fee_portion} on transaction {transaction_id}",
+                    overdue_fee_paid=overdue_fee_portion,
+                    remaining_overdue_fee=fresh_transaction.overdue_fee
+                )
+
             # Add payment audit entry using new notes service
             await notes_service.add_payment_audit(
                 transaction=fresh_transaction,
@@ -230,8 +247,8 @@ class PaymentService:
                 save_immediately=False  # Save with session
             )
             
-            # Update transaction status if fully paid
-            if balance_after_payment == 0:
+            # Update transaction status if fully paid or overpaid
+            if balance_after_payment <= 0:
                 fresh_transaction.status = TransactionStatus.REDEEMED
                 # Add redemption audit entry using new notes service
                 await notes_service.add_redemption_audit(

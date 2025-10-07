@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { CreditCard, X, AlertCircle, CheckCircle, DollarSign, Calculator } from 'lucide-react';
+import { CreditCard, X, AlertCircle, CheckCircle, DollarSign } from 'lucide-react';
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
@@ -22,6 +22,13 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
   const formValidators = {
     payment_amount: (value, data) => {
       return validateAmount(value, 'Payment amount', { min: 0.01, max: 50000 });
+    },
+    overdue_fee: (value, data) => {
+      // Optional field - return valid result for empty values
+      if (!value || value === '' || value === '0') {
+        return { isValid: true, message: null, suggestions: [] };
+      }
+      return validateAmount(value, 'Overdue fee', { min: 0, max: 10000 });
     }
   };
 
@@ -34,7 +41,8 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
     getFieldSuggestions,
     isFormValid
   } = useFormValidation({
-    payment_amount: ''
+    payment_amount: '',
+    overdue_fee: ''
   }, formValidators);
   
   const [balance, setBalance] = useState(null);
@@ -56,32 +64,37 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
     }
   }, [transaction.transaction_id]);
 
-  const calculatePaymentBreakdown = useCallback(async (amount) => {
+  const calculatePaymentBreakdown = useCallback(async (amount, overdueFeeAmount = 0) => {
     if (!amount || !balance) return;
-    
+
     try {
+      const overdueFee = parseFloat(overdueFeeAmount) || 0;
+      const totalBalance = balance.current_balance + overdueFee;
+
       const breakdown = {
         paymentAmount: parseFloat(amount),
         currentBalance: balance.current_balance || 0,
         principalDue: balance.principal_balance || 0,
         interestDue: balance.interest_due || 0,
-        isFullPayment: parseFloat(amount) >= balance.current_balance
+        overdueFee: overdueFee,
+        totalWithFee: totalBalance,
+        isFullPayment: parseFloat(amount) >= totalBalance
       };
-      
+
       // Calculate payment allocation (interest → principal only)
       // Extension fees are handled separately by the extension system
       let remainingPayment = parseFloat(amount);
       let interestPaid = Math.min(remainingPayment, breakdown.interestDue);
       remainingPayment -= interestPaid;
-      
+
       let principalPaid = Math.min(remainingPayment, breakdown.principalDue);
-      
+
       breakdown.allocation = {
         interest: interestPaid,
         principal: principalPaid,
         overpayment: Math.max(0, remainingPayment - principalPaid)
       };
-      
+
       setPaymentBreakdown(breakdown);
     } catch (err) {
       // Error calculating payment breakdown - clear breakdown
@@ -91,12 +104,16 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
 
   const handleInputChange = useCallback((field, value) => {
     updateField(field, value);
-    
-    // Calculate payment breakdown for amount changes
+
+    // Calculate payment breakdown for amount or overdue fee changes
     if (field === 'payment_amount' && value) {
-      calculatePaymentBreakdown(value);
+      calculatePaymentBreakdown(value, formData.overdue_fee);
+    } else if (field === 'overdue_fee') {
+      if (formData.payment_amount) {
+        calculatePaymentBreakdown(formData.payment_amount, value);
+      }
     }
-  }, [updateField, calculatePaymentBreakdown]);
+  }, [updateField, calculatePaymentBreakdown, formData.payment_amount, formData.overdue_fee]);
 
   const validateFormExtended = useCallback(() => {
     const isBasicValid = validateAll();
@@ -121,10 +138,18 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
     }
     
     const amount = parseFloat(formData.payment_amount);
-    if (amount > (balance.current_balance + 100)) { // Allow $100 overpayment
-      handleError({ 
-        message: `Payment amount $${amount.toFixed(2)} exceeds balance $${balance.current_balance.toFixed(2)} plus $100 allowable overpayment`,
-        status: 422 
+
+    // Allow overpayments for cash businesses, but prevent obvious typos
+    // (e.g., paying $10,000 on a $50 balance is likely a mistake)
+    const maxReasonablePayment = Math.max(
+      balance.current_balance * 5,
+      balance.current_balance + 1000
+    );
+
+    if (amount > maxReasonablePayment) {
+      handleError({
+        message: `Payment amount $${amount.toFixed(2)} seems unusually large for balance $${balance.current_balance.toFixed(2)}. Please verify the amount.`,
+        status: 422
       }, 'Payment validation');
       return false;
     }
@@ -136,26 +161,46 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
     try {
       setSubmitting(true);
 
+      const overdueFeeAmount = parseFloat(formData.overdue_fee) || 0;
+
+      // Step 1: Set overdue fee on transaction if provided (must be OVERDUE status)
+      if (overdueFeeAmount > 0 && transaction.status === 'overdue') {
+        await paymentService.setOverdueFee(
+          transaction.transaction_id,
+          overdueFeeAmount,
+          null  // No automatic notes
+        );
+      }
+
+      // Step 2: Process payment (backend now knows about the overdue fee)
       const paymentData = {
         transaction_id: transaction.transaction_id,
         payment_amount: Math.round(parseFloat(formData.payment_amount)) // Convert to integer dollars
       };
 
       const result = await paymentService.processPayment(paymentData);
-      
+
       // Trigger immediate stats refresh after successful payment
       triggerRefresh();
-      
+
       // Immediately refresh balance after successful payment
       await loadBalance();
-      
+
       const isFullPayment = paymentBreakdown && paymentBreakdown.isFullPayment;
-      const message = isFullPayment 
-        ? `Payment processed - Transaction redeemed!` 
-        : `Payment of $${parseFloat(formData.payment_amount).toFixed(2)} processed successfully`;
-      
+
+      let message = '';
+      if (isFullPayment) {
+        message = overdueFeeAmount > 0
+          ? `Payment of $${parseFloat(formData.payment_amount).toFixed(2)} processed (includes $${overdueFeeAmount.toFixed(2)} overdue fee) - Transaction redeemed!`
+          : `Payment processed - Transaction redeemed!`;
+      } else {
+        message = overdueFeeAmount > 0
+          ? `Payment of $${parseFloat(formData.payment_amount).toFixed(2)} processed (includes $${overdueFeeAmount.toFixed(2)} overdue fee)`
+          : `Payment of $${parseFloat(formData.payment_amount).toFixed(2)} processed successfully`;
+      }
+
       handleSuccess(message);
-      
+
       if (onSuccess) {
         onSuccess(result, true); // Pass flag to indicate balance should be refreshed
       }
@@ -221,80 +266,129 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
       </CardHeader>
       
       <CardContent>
-        {/* Transaction Info Banner */}
-        <div className="mb-6 p-4 bg-payment-light dark:bg-payment-medium/30 rounded-xl border border-payment-medium/20 shadow-sm">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold text-payment-dark dark:text-payment-secondary flex items-center">
-              <DollarSign className="w-5 h-5 mr-2" />
-              Transaction Details
-            </h3>
-            <Badge variant="outline" className="border-payment-accent dark:border-amber-700 text-green-700 dark:text-green-300">
-              #{formatTransactionId(transaction)}
-            </Badge>
-          </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <div className="text-sm text-green-700 dark:text-green-300">Customer: <span className="font-medium">{transaction?.customer_id || 'N/A'}</span></div>
-              <div className="text-sm text-green-700 dark:text-green-300">Status: <span className="capitalize font-medium">{transaction?.status || 'N/A'}</span></div>
+        {/* Transaction Info Banner - Simplified */}
+        <div className="mb-4 p-3 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Badge variant="outline" className="text-xs">
+                #{formatTransactionId(transaction)}
+              </Badge>
+              <span className="text-sm text-slate-600 dark:text-slate-400">
+                {transaction?.customer_id}
+              </span>
             </div>
-            
-            <div className="p-3 bg-white/70 dark:bg-slate-800/70 rounded-lg border border-payment-medium/20 dark:border-payment-medium/40">
-              <div className="text-sm text-payment-accent dark:text-amber-400 font-medium">Current Balance</div>
-              {loadingBalance ? (
-                <div className="flex items-center text-green-700 dark:text-green-300">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600 mr-2"></div>
-                  Loading...
-                </div>
-              ) : balance ? (
-                <>
-                  <div className="font-bold text-2xl text-payment-dark dark:text-payment-secondary">
-                    {formatCurrency(balance.current_balance)}
-                  </div>
-                  {balance.current_balance <= 0 && (
-                    <div className="mt-2 p-2 bg-green-50 dark:bg-green-950/50 rounded border border-green-200 dark:border-green-800">
-                      <div className="flex items-center text-green-700 dark:text-green-300 text-sm">
-                        <CheckCircle className="w-4 h-4 mr-2" />
-                        This transaction is fully paid. No payment needed.
-                      </div>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="text-slate-500 dark:text-slate-400">Unable to load</div>
-              )}
-            </div>
+            {loadingBalance && (
+              <div className="flex items-center text-xs text-slate-500">
+                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-slate-600 mr-2"></div>
+                Loading...
+              </div>
+            )}
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-5">
+          {/* Amount Summary Card */}
+          <Card className="bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-900 border-slate-200 dark:border-slate-700">
+            <CardContent className="pt-4 pb-3">
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-slate-600 dark:text-slate-400">Current Balance:</span>
+                  <span className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                    {balance ? formatCurrency(balance.current_balance) : '...'}
+                  </span>
+                </div>
+
+                {formData.overdue_fee && parseFloat(formData.overdue_fee) > 0 && (
+                  <>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-amber-700 dark:text-amber-400">Overdue Fee:</span>
+                      <span className="text-lg font-bold text-amber-800 dark:text-amber-300">
+                        +{formatCurrency(parseFloat(formData.overdue_fee))}
+                      </span>
+                    </div>
+                    <div className="border-t border-slate-300 dark:border-slate-600 pt-2">
+                      <div className="flex justify-between items-center">
+                        <span className="text-base font-semibold text-slate-900 dark:text-slate-100">Total Amount Due:</span>
+                        <span className="text-xl font-bold text-green-700 dark:text-green-400">
+                          {formatCurrency(balance ? balance.current_balance + parseFloat(formData.overdue_fee) : 0)}
+                        </span>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Overdue Fee Input - Only for overdue transactions */}
+          {transaction.status === 'overdue' && (
+            <div className="space-y-2">
+              <Label htmlFor="overdue_fee" className="flex items-center gap-2">
+                <span>Additional Overdue Fee ($)</span>
+                <Badge variant="outline" className="text-xs">Optional</Badge>
+              </Label>
+              <Input
+                id="overdue_fee"
+                type="number"
+                step="1"
+                min="0"
+                max="10000"
+                value={formData.overdue_fee}
+                onChange={(e) => handleInputChange('overdue_fee', e.target.value)}
+                onBlur={() => touchField('overdue_fee')}
+                placeholder="0"
+                disabled={loadingBalance || (balance && balance.current_balance <= 0)}
+                className={getFieldError('overdue_fee') ? 'border-red-500 text-lg h-12' : 'border-slate-300 text-lg h-12'}
+              />
+              {getFieldError('overdue_fee') && (
+                <div className="text-xs text-red-600 mt-1">
+                  {getFieldError('overdue_fee')}
+                </div>
+              )}
+              {!formData.overdue_fee || parseFloat(formData.overdue_fee) === 0 ? (
+                <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" />
+                  <span>Add extra fee for late payment if applicable</span>
+                </div>
+              ) : (
+                <div className="text-xs text-amber-700 dark:text-amber-400 font-medium flex items-center gap-1">
+                  <CheckCircle className="w-3 h-3" />
+                  <span>Overdue fee will be added to transaction balance</span>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Payment Amount */}
           <div className="space-y-2">
-            <Label htmlFor="payment_amount">Payment Amount ($) *</Label>
+            <Label htmlFor="payment_amount" className="text-base font-semibold">Payment Amount ($) *</Label>
             <div className="relative">
               <Input
                 id="payment_amount"
                 type="number"
                 step="1"
                 min="1"
-                max={balance ? balance.current_balance + 100 : 50000}
+                max={balance ? balance.current_balance + parseFloat(formData.overdue_fee || 0) + 100 : 50000}
                 value={formData.payment_amount}
                 onChange={(e) => handleInputChange('payment_amount', e.target.value)}
                 onBlur={() => touchField('payment_amount')}
                 placeholder="0"
                 disabled={loadingBalance || (balance && balance.current_balance <= 0)}
-                className={getFieldError('payment_amount') ? 'border-red-500 focus:border-red-500 focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 ring-0 ring-offset-0' : 'border-slate-300 focus:border-payment-accent focus:ring-0 focus:ring-offset-0 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ring-0 ring-offset-0'}
+                className={getFieldError('payment_amount') ? 'border-red-500 text-2xl font-bold h-14 pr-24' : 'border-slate-300 text-2xl font-bold h-14 pr-24'}
                 aria-invalid={!!getFieldError('payment_amount')}
                 aria-describedby={getFieldError('payment_amount') ? 'payment_amount_error' : undefined}
               />
               {balance && (
-                <div className="absolute right-8 top-1/2 transform -translate-y-1/2">
+                <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
                   <Button
                     type="button"
-                    variant="ghost"
+                    variant="default"
                     size="sm"
-                    className="h-6 px-2 text-xs"
-                    onClick={() => handleInputChange('payment_amount', balance.current_balance.toString())}
+                    className="h-8 px-3 text-xs font-semibold bg-green-600 hover:bg-green-700"
+                    onClick={() => {
+                      const totalWithFee = balance.current_balance + parseFloat(formData.overdue_fee || 0);
+                      handleInputChange('payment_amount', totalWithFee.toString());
+                    }}
                   >
                     Pay Full
                   </Button>
@@ -306,75 +400,26 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
                 {getFieldError('payment_amount')}
               </div>
             )}
-            {balance && formData.payment_amount && (
-              <div className="flex justify-between text-sm text-slate-600 dark:text-slate-400">
-                <span>Remaining balance:</span>
-                <span className="font-medium">
-                  {formatCurrency(Math.max(0, balance.current_balance - parseFloat(formData.payment_amount || 0)))}
-                </span>
-              </div>
-            )}
-            {balance && (
-              <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400">
-                <span>Current balance:</span>
-                <span>{formatCurrency(balance.current_balance)}</span>
-              </div>
-            )}
           </div>
 
-          {/* Payment Breakdown Display */}
-          {paymentBreakdown && formData.payment_amount && (
-            <Card className="bg-payment-light dark:bg-payment-medium/20 border-payment-medium/20 dark:border-payment-medium/40 shadow-lg">
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center text-lg">
-                  <div className="p-2 rounded-lg bg-payment-accent text-white shadow-md mr-3">
-                    <Calculator className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <div className="text-payment-dark dark:text-payment-secondary">Payment Breakdown</div>
-                    <div className="text-sm font-normal text-payment-accent dark:text-amber-400">Payment allocation details</div>
-                  </div>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0">
-                <div className="space-y-3">
-                  {paymentBreakdown.allocation.interest > 0 && (
-                    <div className="flex justify-between items-center p-2 bg-white/70 dark:bg-slate-800/70 rounded-lg">
-                      <span className="text-slate-700 dark:text-slate-300">Interest Payment:</span>
-                      <span className="font-bold text-green-700 dark:text-green-300">{formatCurrency(paymentBreakdown.allocation.interest)}</span>
-                    </div>
-                  )}
-                  {paymentBreakdown.allocation.principal > 0 && (
-                    <div className="flex justify-between items-center p-2 bg-white/70 dark:bg-slate-800/70 rounded-lg">
-                      <span className="text-slate-700 dark:text-slate-300">Principal Payment:</span>
-                      <span className="font-bold text-green-700 dark:text-green-300">{formatCurrency(paymentBreakdown.allocation.principal)}</span>
-                    </div>
-                  )}
-                  {paymentBreakdown.allocation.overpayment > 0 && (
-                    <div className="flex justify-between items-center p-2 bg-green-100 dark:bg-green-950/30 rounded-lg border border-green-300 dark:border-green-700">
-                      <span className="text-green-700 dark:text-green-300">Overpayment:</span>
-                      <span className="font-bold text-payment-dark dark:text-payment-secondary">+{formatCurrency(paymentBreakdown.allocation.overpayment)}</span>
-                    </div>
-                  )}
-                  
-                  <div className="border-t border-payment-accent dark:border-amber-700 pt-3">
-                    <div className="flex justify-between items-center p-3 bg-gradient-to-r from-gray-100 to-amber-100 dark:from-gray-800/50 dark:to-amber-950/50 rounded-lg border border-payment-accent dark:border-amber-700">
-                      <span className="font-semibold text-payment-dark dark:text-payment-secondary">Remaining Balance:</span>
-                      <span className="font-bold text-xl text-green-900 dark:text-green-100">
-                        {formatCurrency(Math.max(0, paymentBreakdown.currentBalance - paymentBreakdown.paymentAmount))}
-                      </span>
-                    </div>
-                  </div>
-                  
-                  {paymentBreakdown.isFullPayment && (
-                    <div className="flex items-center justify-center p-3 bg-gradient-to-r from-amber-100 to-gray-100 dark:from-amber-950/50 dark:to-gray-800/50 rounded-lg border border-payment-accent dark:border-amber-700">
-                      <CheckCircle className="h-5 w-5 mr-2 text-payment-accent dark:text-amber-400" />
-                      <span className="font-bold text-payment-dark dark:text-payment-secondary">Transaction will be fully redeemed!</span>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+          {/* Payment Result - Simplified */}
+          {paymentBreakdown && formData.payment_amount && !paymentBreakdown.isFullPayment && (
+            <div className="p-3 bg-blue-50 dark:bg-blue-950/30 rounded-lg border border-blue-200 dark:border-blue-800">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-blue-900 dark:text-blue-100">Balance After Payment:</span>
+                <span className="text-xl font-bold text-blue-700 dark:text-blue-300">
+                  {formatCurrency(Math.max(0, paymentBreakdown.totalWithFee - paymentBreakdown.paymentAmount))}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Full Payment Badge */}
+          {paymentBreakdown && paymentBreakdown.isFullPayment && (
+            <div className="flex items-center justify-center gap-2 p-4 bg-gradient-to-r from-green-500 to-emerald-600 rounded-lg shadow-md">
+              <CheckCircle className="h-6 w-6 text-white" />
+              <span className="font-bold text-white">✓ Transaction Will Be Fully Redeemed</span>
+            </div>
           )}
 
 

@@ -113,8 +113,8 @@ class OverdueFeeService:
         audit_entry = create_audit_entry(
             action_type=AuditActionType.OVERDUE_FEE_SET,
             staff_member=set_by_user_id,
-            action_summary=f"Overdue fee set to ${overdue_fee}",
-            details=f"Changed from ${old_fee} to ${overdue_fee}" + (f". Notes: {notes}" if notes else ""),
+            action_summary=f"Overdue fee: ${overdue_fee}",
+            details=None,  # No details section for cleaner timeline
             amount=overdue_fee
         )
         transaction.add_system_audit_entry(audit_entry)
@@ -122,7 +122,7 @@ class OverdueFeeService:
         # Add manual note if provided
         if notes:
             transaction.add_manual_note(
-                f"Overdue fee set to ${overdue_fee}. {notes}",
+                f"Overdue fee: ${overdue_fee}. {notes}",
                 set_by_user_id
             )
 
@@ -190,7 +190,7 @@ class OverdueFeeService:
             action_type=AuditActionType.OVERDUE_FEE_CLEARED,
             staff_member=cleared_by_user_id,
             action_summary=f"Overdue fee cleared (was ${old_fee})",
-            details=f"Cleared ${old_fee} overdue fee" + (f". Reason: {reason}" if reason else ""),
+            details=None,  # No details section for cleaner timeline
             amount=0
         )
         transaction.add_system_audit_entry(audit_entry)

@@ -649,8 +649,9 @@ class InterestCalculationService:
         # Get manually-entered overdue fee
         overdue_fee = getattr(transaction, 'overdue_fee', 0)
 
-        # Calculate total due INCLUDING overdue fee (principal + interest + overdue fee)
-        total_due = loan_amount + total_interest_due + overdue_fee
+        # Calculate total due (principal + interest + extension fees)
+        # Note: overdue_fee is tracked separately, not included in total_due
+        total_due = loan_amount + total_interest_due + total_extension_fees
         
         # Calculate total payments (defensive programming) - exclude voided payments
         try:

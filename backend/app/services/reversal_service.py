@@ -145,15 +145,30 @@ class ReversalService:
         
         # Store original values for response
         original_amount = payment.payment_amount
-        
+        overdue_fee_portion = payment.overdue_fee_portion or 0
+
         # Void the payment directly (bypass heavy PaymentService.void_payment for performance)
         payment.void_payment(
             voided_by_user_id=current_user.user_id,
             void_reason=f"REVERSAL: {reversal_reason}"
         )
-        
+
+        # Restore overdue fee if payment included overdue fee portion
+        if overdue_fee_portion > 0:
+            transaction.overdue_fee = transaction.overdue_fee + overdue_fee_portion
+            logger.info(
+                "Restoring overdue fee during payment reversal",
+                payment_id=payment_id,
+                transaction_id=transaction.transaction_id,
+                overdue_fee_restored=overdue_fee_portion,
+                new_overdue_fee_balance=transaction.overdue_fee
+            )
+
         # Update transaction notes
-        reversal_note = f"\n--- PAYMENT REVERSED by {current_user.user_id} on {datetime.now(UTC).strftime('%Y-%m-%d %H:%M')} ---\nAmount: ${original_amount}\nReason: {reversal_reason}"
+        reversal_note = f"\n--- PAYMENT REVERSED by {current_user.user_id} on {datetime.now(UTC).strftime('%Y-%m-%d %H:%M')} ---\nAmount: ${original_amount}"
+        if overdue_fee_portion > 0:
+            reversal_note += f"\nOverdue fee restored: ${overdue_fee_portion}"
+        reversal_note += f"\nReason: {reversal_reason}"
         if staff_notes:
             reversal_note += f"\nStaff notes: {staff_notes}"
         
@@ -228,6 +243,7 @@ class ReversalService:
             "transaction_id": payment.transaction_id,
             "original_amount": original_amount,
             "balance_restored": original_amount,
+            "overdue_fee_restored": overdue_fee_portion,
             "reversal_date": datetime.now(UTC),
             "reversed_by_user_id": current_user.user_id,
             "reversal_reason": reversal_reason

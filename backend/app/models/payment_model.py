@@ -43,13 +43,11 @@ class Payment(Document):
     )
     balance_before_payment: int = Field(
         ...,
-        ge=0,
-        description="Balance before this payment was applied"
+        description="Balance before this payment was applied (can be negative if overpaid then fees added)"
     )
     balance_after_payment: int = Field(
         ...,
-        ge=0,
-        description="Remaining balance after this payment"
+        description="Remaining balance after this payment (can be negative for overpayments)"
     )
     principal_portion: int = Field(
         default=0,
@@ -66,7 +64,12 @@ class Payment(Document):
         ge=0,
         description="Amount of payment applied to extension fees"
     )
-    
+    overdue_fee_portion: int = Field(
+        default=0,
+        ge=0,
+        description="Amount of payment applied to overdue fees"
+    )
+
     # Payment metadata
     payment_method: str = Field(
         default="cash",
@@ -137,22 +140,25 @@ class Payment(Document):
             raise ValueError('Payment amount cannot exceed $50,000')
         return v
     
-    @field_validator('balance_before_payment')
-    @classmethod
-    def validate_balance_before_payment(cls, v: int) -> int:
-        """Ensure balance before payment is non-negative"""
-        if v < 0:
-            raise ValueError('Balance before payment cannot be negative')
-        return v
-    
-    @field_validator('balance_after_payment')
-    @classmethod
-    def validate_balance_after_payment(cls, v: int) -> int:
-        """Ensure balance after payment is non-negative"""
-        if v < 0:
-            raise ValueError('Balance after payment cannot be negative')
-        return v
-    
+    # Removed validator to allow negative balance_before_payment
+    # (can be negative if overpaid then fees added)
+    # @field_validator('balance_before_payment')
+    # @classmethod
+    # def validate_balance_before_payment(cls, v: int) -> int:
+    #     """Ensure balance before payment is non-negative"""
+    #     if v < 0:
+    #         raise ValueError('Balance before payment cannot be negative')
+    #     return v
+
+    # Removed validator to allow negative balances for overpayments
+    # @field_validator('balance_after_payment')
+    # @classmethod
+    # def validate_balance_after_payment(cls, v: int) -> int:
+    #     """Ensure balance after payment is non-negative"""
+    #     if v < 0:
+    #         raise ValueError('Balance after payment cannot be negative')
+    #     return v
+
     @field_validator('payment_method')
     @classmethod
     def validate_payment_method(cls, v: str) -> str:
@@ -219,12 +225,19 @@ class Payment(Document):
                 f'should equal {expected_balance}, but balance_after_payment is {self.balance_after_payment}'
             )
         
-        # Validate that payment portions sum to total payment amount
-        total_portions = self.principal_portion + self.interest_portion + self.extension_fees_portion
-        if total_portions != self.payment_amount:
+        # Validate that payment portions sum to total payment amount (or less for overpayments)
+        total_portions = self.principal_portion + self.interest_portion + self.extension_fees_portion + self.overdue_fee_portion
+        # Allow portions to be less than payment_amount for overpayments (when balance_after_payment < 0)
+        if total_portions > self.payment_amount:
+            raise ValueError(
+                f'Payment portions exceed payment amount: principal ({self.principal_portion}) + interest ({self.interest_portion}) + '
+                f'extension fees ({self.extension_fees_portion}) + overdue fee ({self.overdue_fee_portion}) = {total_portions}, but payment_amount is {self.payment_amount}'
+            )
+        # For exact or normal payments, portions should equal payment amount
+        if self.balance_after_payment >= 0 and total_portions != self.payment_amount:
             raise ValueError(
                 f'Payment portions incorrect: principal ({self.principal_portion}) + interest ({self.interest_portion}) + '
-                f'extension fees ({self.extension_fees_portion}) = {total_portions}, but payment_amount is {self.payment_amount}'
+                f'extension fees ({self.extension_fees_portion}) + overdue fee ({self.overdue_fee_portion}) = {total_portions}, but payment_amount is {self.payment_amount}'
             )
     
     def void_payment(self, voided_by_user_id: str, void_reason: Optional[str] = None) -> None:

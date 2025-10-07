@@ -103,8 +103,8 @@ class PawnTransaction(Document):
     # Legacy combined notes field (maintained for backward compatibility)
     internal_notes: Optional[str] = Field(
         default=None,
-        max_length=500,
-        description="Legacy combined notes field for backward compatibility"
+        max_length=10000,
+        description="Legacy combined notes field for backward compatibility (increased limit to prevent truncation)"
     )
     
     # New separate notes architecture
@@ -235,19 +235,19 @@ class PawnTransaction(Document):
     
     def calculate_total_due(self, as_of_date: Optional[datetime] = None) -> int:
         """
-        Calculate total amount due including interest.
-        
+        Calculate total amount due including interest and overdue fees.
+
         Args:
             as_of_date: Date to calculate total due (defaults to current date)
-            
+
         Returns:
             Total amount due in whole dollars
         """
         # Use the new calculate_months_elapsed method
         months_elapsed = self.calculate_months_elapsed(as_of_date)
-        
-        # Total due = principal + (monthly interest * months)
-        self.total_due = self.loan_amount + (self.monthly_interest_amount * months_elapsed)
+
+        # Total due = principal + (monthly interest * months) + overdue fee
+        self.total_due = self.loan_amount + (self.monthly_interest_amount * months_elapsed) + self.overdue_fee
         return self.total_due
     
     def calculate_months_elapsed(self, as_of_date: Optional[datetime] = None) -> int:

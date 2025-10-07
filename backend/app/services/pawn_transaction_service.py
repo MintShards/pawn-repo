@@ -420,13 +420,34 @@ class PawnTransactionService:
         # Calculate total due with interest accrual
         total_due = transaction.calculate_total_due(as_of_date)
         
-        # Calculate total payments made (defensive programming) - exclude voided payments
+        # Calculate total payments made and payment portions (defensive programming)
+        # Exclude voided payments from all calculations
         try:
             total_paid = sum(
-                payment.payment_amount 
-                for payment in payments 
+                payment.payment_amount
+                for payment in payments
                 if not getattr(payment, 'is_voided', False)
             ) if payments else 0
+
+            # Sum up payment portions from actual payment records
+            interest_paid = sum(
+                getattr(payment, 'interest_portion', 0)
+                for payment in payments
+                if not getattr(payment, 'is_voided', False)
+            ) if payments else 0
+
+            overdue_fee_paid = sum(
+                getattr(payment, 'overdue_fee_portion', 0)
+                for payment in payments
+                if not getattr(payment, 'is_voided', False)
+            ) if payments else 0
+
+            principal_paid = sum(
+                getattr(payment, 'principal_portion', 0)
+                for payment in payments
+                if not getattr(payment, 'is_voided', False)
+            ) if payments else 0
+
         except (AttributeError, TypeError) as e:
             logger.warning(
                 "Error calculating total payments for transaction",
@@ -434,30 +455,23 @@ class PawnTransactionService:
                 error=str(e)
             )
             total_paid = 0
-        
+            interest_paid = 0
+            overdue_fee_paid = 0
+            principal_paid = 0
+
         # Calculate current balance
         current_balance = total_due - total_paid
-        
+
         # Calculate interest portion
         pawn_date_aware = ensure_timezone_aware(transaction.pawn_date)
-        interest_due = transaction.monthly_interest_amount * max(1, min(3, 
-            ((as_of_date.year - pawn_date_aware.year) * 12 + 
-             (as_of_date.month - pawn_date_aware.month)) + 
+        interest_due = transaction.monthly_interest_amount * max(1, min(3,
+            ((as_of_date.year - pawn_date_aware.year) * 12 +
+             (as_of_date.month - pawn_date_aware.month)) +
             (1 if as_of_date.day > pawn_date_aware.day else 0)
         ))
-        
+
         principal_due = transaction.loan_amount
-        interest_paid = 0
-        principal_paid = 0
-        
-        # Calculate interest vs principal payments (interest paid first)
-        remaining_payments = total_paid
-        if remaining_payments > 0:
-            interest_paid = min(remaining_payments, interest_due)
-            remaining_payments -= interest_paid
-            if remaining_payments > 0:
-                principal_paid = min(remaining_payments, principal_due)
-        
+
         balance_data = {
             "transaction_id": transaction_id,
             "as_of_date": as_of_date.isoformat(),
@@ -468,10 +482,13 @@ class PawnTransactionService:
             "current_balance": current_balance,
             "principal_due": principal_due,
             "interest_due": interest_due,
+            "overdue_fee_due": transaction.overdue_fee,
             "principal_paid": principal_paid,
             "interest_paid": interest_paid,
+            "overdue_fee_paid": overdue_fee_paid,
             "principal_balance": principal_due - principal_paid,
             "interest_balance": interest_due - interest_paid,
+            "overdue_fee_balance": transaction.overdue_fee - overdue_fee_paid,
             "payment_count": len(payments),
             "status": transaction.status,
             "pawn_date": ensure_timezone_aware(transaction.pawn_date).isoformat(),

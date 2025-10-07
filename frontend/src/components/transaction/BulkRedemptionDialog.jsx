@@ -8,6 +8,7 @@ import {
 } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Label } from '../ui/label';
+import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
 import { Alert, AlertDescription } from '../ui/alert';
 import { Loader2, CheckCircle2, Banknote, DollarSign, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
@@ -44,27 +45,40 @@ export default function BulkRedemptionDialog({
   const [showTransactionList, setShowTransactionList] = useState(true); // Default to showing list
   const [transactionDetails, setTransactionDetails] = useState({});
   const [loadingDetails, setLoadingDetails] = useState(false);
+  const [overdueFees, setOverdueFees] = useState({}); // Store overdue fees per transaction
 
   // Filter to only redeemable transactions
   const redeemableTransactions = selectedTransactions.filter(t =>
     ['active', 'overdue', 'extended'].includes(t.status)
   );
 
-  // Calculate totals from loaded transaction details
+  // Calculate totals from loaded transaction details and manual overdue fees
   const calculateTotals = () => {
     const totals = {
       totalPrincipal: 0,
       totalInterest: 0,
+      totalOverdueFee: 0,
       totalDue: 0,
       transactionCount: redeemableTransactions.length
     };
 
-    Object.values(transactionDetails).forEach(detail => {
+    redeemableTransactions.forEach(transaction => {
+      const detail = transactionDetails[transaction.transaction_id];
       if (detail && detail.balance) {
         // Use correct BalanceResponse fields
         totals.totalPrincipal += detail.balance?.principal_balance || 0;
         totals.totalInterest += detail.balance?.interest_balance || 0;
-        totals.totalDue += detail.balance?.current_balance || 0;
+
+        // Use manually entered overdue fee only (0 if not entered)
+        const manualFee = overdueFees[transaction.transaction_id];
+        const overdueFee = manualFee !== undefined && manualFee !== '' ? parseInt(manualFee) || 0 : 0;
+        totals.totalOverdueFee += overdueFee;
+
+        // Total due = current balance (without existing overdue fee) + manual overdue fee
+        const baseBalance = detail.balance?.current_balance || 0;
+        const existingOverdueFee = detail.balance?.overdue_fee_balance || 0;
+        const balanceWithoutOverdueFee = baseBalance - existingOverdueFee;
+        totals.totalDue += balanceWithoutOverdueFee + overdueFee;
       }
     });
 
@@ -144,9 +158,19 @@ export default function BulkRedemptionDialog({
 
     try {
       const transactionIds = redeemableTransactions.map(t => t.transaction_id);
+
+      // Prepare overdue fees object (only include transactions with manually entered fees)
+      const overdueFeeData = {};
+      Object.entries(overdueFees).forEach(([transactionId, fee]) => {
+        if (fee !== undefined && fee !== '' && parseInt(fee) > 0) {
+          overdueFeeData[transactionId] = parseInt(fee);
+        }
+      });
+
       const response = await transactionService.bulkProcessRedemption({
         transaction_ids: transactionIds,
-        notes: notes.trim() || undefined
+        notes: notes.trim() || undefined,
+        overdue_fees: Object.keys(overdueFeeData).length > 0 ? overdueFeeData : undefined
       });
 
       setResult(response);
@@ -186,6 +210,7 @@ export default function BulkRedemptionDialog({
     setResult(null);
     setTransactionDetails({});
     setShowTransactionList(true);
+    setOverdueFees({}); // Clear overdue fees
     onClose();
   };
 
@@ -257,6 +282,14 @@ export default function BulkRedemptionDialog({
                           ${totals.totalInterest.toLocaleString()}
                         </p>
                       </div>
+                      {totals.totalOverdueFee > 0 && (
+                        <div className="col-span-2">
+                          <p className="text-xs text-slate-500 dark:text-slate-400">Overdue Fees</p>
+                          <p className="text-lg font-semibold text-amber-700 dark:text-amber-400">
+                            ${totals.totalOverdueFee.toLocaleString()}
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </>
@@ -324,26 +357,54 @@ export default function BulkRedemptionDialog({
                         </div>
 
                         {/* Transaction Financial Details */}
-                        <div className="flex items-center justify-between text-sm border-t border-slate-200 dark:border-slate-700 pt-2">
-                          <div className="flex gap-4">
-                            <div>
-                              <p className="text-xs text-slate-500 dark:text-slate-400">Principal</p>
-                              <p className="font-medium text-blue-700 dark:text-blue-400">
-                                ${(balance.principal_balance || 0).toLocaleString()}
+                        <div className="space-y-2 border-t border-slate-200 dark:border-slate-700 pt-2">
+                          <div className="flex items-center justify-between text-sm">
+                            <div className="flex gap-4">
+                              <div className="flex flex-col">
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Principal</p>
+                                <p className="font-medium text-blue-700 dark:text-blue-400">
+                                  ${(balance.principal_balance || 0).toLocaleString()}
+                                </p>
+                              </div>
+                              <div className="flex flex-col">
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Interest</p>
+                                <p className="font-medium text-orange-700 dark:text-orange-400">
+                                  ${(balance.interest_balance || 0).toLocaleString()}
+                                </p>
+                              </div>
+                              {/* Overdue Fee Input - Show for overdue transactions */}
+                              {transaction.status === 'overdue' && (
+                                <div className="flex flex-col">
+                                  <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Overdue Fee</p>
+                                  <Input
+                                    id={`overdue-fee-${transaction.transaction_id}`}
+                                    type="number"
+                                    min="0"
+                                    max="10000"
+                                    placeholder="0"
+                                    value={overdueFees[transaction.transaction_id] || ''}
+                                    onChange={(e) => setOverdueFees(prev => ({
+                                      ...prev,
+                                      [transaction.transaction_id]: e.target.value
+                                    }))}
+                                    className="h-6 text-sm w-20 font-medium"
+                                  />
+                                </div>
+                              )}
+                            </div>
+                            <div className="text-right">
+                              <p className="text-xs text-slate-500 dark:text-slate-400">Total Due</p>
+                              <p className="text-lg font-bold text-green-700 dark:text-green-400">
+                                ${(() => {
+                                  const manualFee = overdueFees[transaction.transaction_id];
+                                  const overdueFee = manualFee !== undefined && manualFee !== '' ? parseInt(manualFee) || 0 : 0;
+                                  const baseBalance = balance.current_balance || 0;
+                                  const existingOverdueFee = balance.overdue_fee_balance || 0;
+                                  const total = baseBalance - existingOverdueFee + overdueFee;
+                                  return total.toLocaleString();
+                                })()}
                               </p>
                             </div>
-                            <div>
-                              <p className="text-xs text-slate-500 dark:text-slate-400">Interest</p>
-                              <p className="font-medium text-orange-700 dark:text-orange-400">
-                                ${(balance.interest_balance || 0).toLocaleString()}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-xs text-slate-500 dark:text-slate-400">Total Due</p>
-                            <p className="text-lg font-bold text-green-700 dark:text-green-400">
-                              ${(balance.current_balance || 0).toLocaleString()}
-                            </p>
                           </div>
                         </div>
                       </div>

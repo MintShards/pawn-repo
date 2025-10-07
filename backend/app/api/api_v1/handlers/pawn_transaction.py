@@ -974,7 +974,33 @@ async def bulk_process_redemption(
 
         for transaction_id in valid_transaction_ids:
             try:
-                # Get current balance for payment processing
+                # Set overdue fee if provided for this transaction
+                if bulk_redemption.overdue_fees and transaction_id in bulk_redemption.overdue_fees:
+                    from app.services.overdue_fee_service import OverdueFeeService
+                    overdue_fee_amount = bulk_redemption.overdue_fees[transaction_id]
+
+                    if overdue_fee_amount > 0:
+                        try:
+                            await OverdueFeeService.set_overdue_fee(
+                                transaction_id=transaction_id,
+                                overdue_fee=overdue_fee_amount,
+                                set_by_user_id=current_user.user_id,
+                                notes=None  # No automatic notes for bulk operations
+                            )
+                            transaction_logger.info(
+                                "Set overdue fee in bulk redemption",
+                                transaction_id=transaction_id,
+                                overdue_fee=overdue_fee_amount
+                            )
+                        except Exception as fee_error:
+                            # Log but don't block redemption if fee setting fails
+                            transaction_logger.warning(
+                                "Overdue fee setting failed in bulk redemption",
+                                transaction_id=transaction_id,
+                                error=str(fee_error)
+                            )
+
+                # Get current balance for payment processing (after setting overdue fee)
                 balance_info = await PawnTransactionService.calculate_current_balance(transaction_id)
                 payoff_amount = balance_info["current_balance"]
 

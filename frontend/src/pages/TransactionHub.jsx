@@ -178,8 +178,14 @@ const TransactionHub = () => {
       
       // Trigger immediate TransactionList refresh to show updated balance
       setRefreshKey(prev => prev + 1);
-      
-      handleSuccess(`Payment reversed successfully. ${formatCurrency(paymentReversalEligibility?.payment_amount || 0)} has been credited back to the transaction balance.`);
+
+      // Build success message with overdue fee info if applicable
+      let successMessage = `Payment reversed successfully. ${formatCurrency(paymentReversalEligibility?.payment_amount || 0)} has been credited back to the transaction balance.`;
+      if (data.result?.overdue_fee_restored > 0) {
+        successMessage += ` Overdue fee of ${formatCurrency(data.result.overdue_fee_restored)} has been restored.`;
+      }
+
+      handleSuccess(successMessage);
     }
   });
   
@@ -2166,53 +2172,117 @@ const TransactionHub = () => {
                                             </div>
                                           ) : (
                                             // Other Audit Timeline Entries
-                                            <div className="flex space-x-3 group hover:bg-slate-50/50 dark:hover:bg-slate-800/50 rounded-lg p-2 -m-2 transition-colors">
-                                              <div className="flex-shrink-0 mt-1.5">
-                                                {(() => {
-                                                  // Use specific icons for audit entries based on action_summary
-                                                  if (event.data.action_summary === 'Transaction Redeemed') {
-                                                    return (
-                                                      <div className="w-6 h-6 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-                                                        <CheckCircle className="w-3 h-3 text-green-600 dark:text-green-400" />
+                                            (() => {
+                                              // Check if this specific overdue fee was reversed
+                                              const isOverdueFeeReversed = (() => {
+                                                const isOverdueFeeEntry =
+                                                  event.data.action_summary?.startsWith('Overdue fee:') ||
+                                                  event.data.action_summary?.startsWith('Overdue fee set') ||
+                                                  event.data.action_summary?.startsWith('Overdue fee added');
+
+                                                if (!isOverdueFeeEntry) return false;
+
+                                                // Get the overdue fee entry timestamp
+                                                const feeTimestamp = new Date(event.data.timestamp || event.data.created_at).getTime();
+
+                                                // Find the first payment AFTER this overdue fee that has overdue_fee_portion
+                                                const subsequentPayment = paymentHistory?.payments
+                                                  ?.filter(p => p.overdue_fee_portion > 0)
+                                                  ?.filter(p => new Date(p.payment_date).getTime() > feeTimestamp)
+                                                  ?.sort((a, b) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime())[0];
+
+                                                // Only mark as reversed if that specific payment was voided
+                                                return subsequentPayment?.is_voided || false;
+                                              })();
+
+                                              return (
+                                                <div className="flex space-x-3 group hover:bg-slate-50/50 dark:hover:bg-slate-800/50 rounded-lg p-2 -m-2 transition-colors">
+                                                  <div className="flex-shrink-0 mt-1.5">
+                                                    {(() => {
+                                                      // Use specific icons for audit entries based on action_summary
+                                                      if (event.data.action_summary === 'Transaction Redeemed') {
+                                                        return (
+                                                          <div className="w-6 h-6 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                                                            <CheckCircle className="w-3 h-3 text-green-600 dark:text-green-400" />
+                                                          </div>
+                                                        );
+                                                      } else if (event.data.action_summary === 'Transaction Created') {
+                                                        return (
+                                                          <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                                                            <Plus className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+                                                          </div>
+                                                        );
+                                                      } else if (event.data.action_summary?.startsWith('Overdue fee:')) {
+                                                        return (
+                                                          <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                                                            isOverdueFeeReversed
+                                                              ? 'bg-red-100 dark:bg-red-900/30'
+                                                              : 'bg-amber-100 dark:bg-amber-900/30'
+                                                          }`}>
+                                                            <DollarSign className={`w-3 h-3 ${
+                                                              isOverdueFeeReversed
+                                                                ? 'text-red-600 dark:text-red-400'
+                                                                : 'text-amber-600 dark:text-amber-400'
+                                                            }`} />
+                                                          </div>
+                                                        );
+                                                      } else {
+                                                        // Default audit entry styling
+                                                        return (
+                                                          <div className="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                                                            <FileText className="w-3 h-3 text-slate-600 dark:text-slate-400" />
+                                                          </div>
+                                                        );
+                                                      }
+                                                    })()}
+                                                  </div>
+                                                  <div className="flex-1">
+                                                    <div className="flex items-center justify-between">
+                                                      <div className={`text-sm font-medium ${
+                                                        isOverdueFeeReversed
+                                                          ? 'text-red-600 dark:text-red-400 line-through'
+                                                          : 'text-slate-900 dark:text-slate-100'
+                                                      }`}>
+                                                        {event.data.action_summary}
+                                                        {isOverdueFeeReversed && (
+                                                          <span className="ml-2 px-2 py-0.5 text-xs bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-full border border-red-200 dark:border-red-800">
+                                                            REVERSED
+                                                          </span>
+                                                        )}
                                                       </div>
-                                                    );
-                                                  } else if (event.data.action_summary === 'Transaction Created') {
-                                                    return (
-                                                      <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                                                        <Plus className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+                                                    </div>
+                                                    <div className={`text-xs mt-1 ${
+                                                      isOverdueFeeReversed
+                                                        ? 'text-red-600 dark:text-red-400'
+                                                        : 'text-slate-600 dark:text-slate-400'
+                                                    }`}>
+                                                      {formatBusinessDate(event.data.timestamp || event.data.created_at)}
+                                                    </div>
+                                                    {(event.data.staff_member || event.data.user_id) && (
+                                                      <div className={`text-xs ${
+                                                        isOverdueFeeReversed
+                                                          ? 'text-red-600 dark:text-red-400'
+                                                          : 'text-slate-600 dark:text-slate-400'
+                                                      }`}>
+                                                        by User #{event.data.staff_member || event.data.user_id}
                                                       </div>
-                                                    );
-                                                  } else {
-                                                    // Default audit entry styling
-                                                    return (
-                                                      <div className="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
-                                                        <FileText className="w-3 h-3 text-slate-600 dark:text-slate-400" />
+                                                    )}
+                                                    {event.data.details &&
+                                                      !event.data.action_summary?.startsWith('Overdue fee:') &&
+                                                      !event.data.action_summary?.startsWith('Overdue fee set') &&
+                                                      !event.data.action_summary?.startsWith('Overdue fee added') && (
+                                                      <div className={`text-xs mt-1 ${
+                                                        isOverdueFeeReversed
+                                                          ? 'text-red-600 dark:text-red-400'
+                                                          : 'text-slate-600 dark:text-slate-400'
+                                                      }`}>
+                                                        {event.data.details}
                                                       </div>
-                                                    );
-                                                  }
-                                                })()}
-                                              </div>
-                                              <div className="flex-1">
-                                                <div className="flex items-center justify-between">
-                                                  <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                                                    {event.data.action_summary}
+                                                    )}
                                                   </div>
                                                 </div>
-                                                <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-                                                  {formatBusinessDate(event.data.timestamp || event.data.created_at)}
-                                                </div>
-                                                {(event.data.staff_member || event.data.user_id) && (
-                                                  <div className="text-xs text-slate-600 dark:text-slate-400">
-                                                    by User #{event.data.staff_member || event.data.user_id}
-                                                  </div>
-                                                )}
-                                                {event.data.details && (
-                                                  <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-                                                    {event.data.details}
-                                                  </div>
-                                                )}
-                                              </div>
-                                            </div>
+                                              );
+                                            })()
                                           )
                                         ) : null}
                                       </React.Fragment>

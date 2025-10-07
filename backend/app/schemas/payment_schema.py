@@ -40,6 +40,7 @@ class PaymentResponse(PaymentBase):
     principal_portion: int = Field(..., description="Amount applied to principal")
     interest_portion: int = Field(..., description="Amount applied to interest")
     extension_fees_portion: int = Field(default=0, description="Amount applied to extension fees")
+    overdue_fee_portion: int = Field(default=0, description="Amount applied to overdue fees")
     
     # Payment details
     payment_type: str = Field(..., description="Payment type (always 'cash')")
@@ -78,12 +79,14 @@ class PaymentSummaryResponse(BaseModel):
     total_principal_paid: int = Field(..., description="Total principal payments")
     total_interest_paid: int = Field(..., description="Total interest payments")
     total_extension_fees_paid: int = Field(default=0, description="Total extension fee payments")
-    
+    total_overdue_fees_paid: int = Field(default=0, description="Total overdue fee payments")
+
     # Current balance information
     current_balance: int = Field(..., description="Remaining balance")
     principal_balance: int = Field(..., description="Remaining principal balance")
     interest_balance: int = Field(..., description="Remaining interest balance")
     extension_fees_balance: int = Field(default=0, description="Remaining extension fees balance")
+    overdue_fee_balance: int = Field(default=0, description="Remaining overdue fees balance")
 
 
 class PaymentReceiptResponse(BaseModel):
@@ -110,8 +113,10 @@ class PaymentReceiptResponse(BaseModel):
     # Payment allocation
     principal_portion: int = Field(..., description="Principal portion")
     interest_portion: int = Field(..., description="Interest portion")
+    overdue_fee_portion: int = Field(default=0, description="Overdue fee portion")
     principal_portion_formatted: str = Field(..., description="Formatted principal portion")
     interest_portion_formatted: str = Field(..., description="Formatted interest portion")
+    overdue_fee_portion_formatted: str = Field(default="$0", description="Formatted overdue fee portion")
     
     # Staff information
     processed_by: str = Field(..., description="Staff member who processed payment")

@@ -659,12 +659,17 @@ class BulkRedemptionRequest(BaseModel):
         max_length=500,
         description="Optional notes for all redemption payments"
     )
+    overdue_fees: Optional[Dict[str, int]] = Field(
+        None,
+        description="Optional overdue fees to set per transaction (transaction_id: amount)"
+    )
 
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
                 "transaction_ids": ["TXN-2024-001", "TXN-2024-002"],
-                "notes": "Bulk redemption - cash payment processed"
+                "notes": "Bulk redemption - cash payment processed",
+                "overdue_fees": {"TXN-2024-001": 50, "TXN-2024-002": 25}
             }
         }
     )

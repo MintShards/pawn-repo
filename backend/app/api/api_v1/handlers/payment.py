@@ -104,21 +104,25 @@ async def process_payment(
                 }
             )
         
-        # Validate payment amount against current balance
+        # Validate payment amount is reasonable (sanity check to prevent typos)
         try:
             balance_response = await InterestCalculationService.calculate_current_balance(payment_data.transaction_id)
             # balance_response is a BalanceResponse object, not a dict
             current_balance_amount = balance_response.current_balance
-            max_allowed_payment = current_balance_amount + 100  # Allow $1 overpayment
-            
-            if payment_data.payment_amount > max_allowed_payment:
+
+            # Allow overpayments for cash businesses, but prevent obvious typos
+            # (e.g., paying $10,000 on a $50 balance is likely a mistake)
+            max_reasonable_payment = max(current_balance_amount * 5, current_balance_amount + 1000)
+
+            if payment_data.payment_amount > max_reasonable_payment:
                 raise BusinessRuleError(
-                    "Payment amount exceeds current balance plus allowable overpayment",
+                    "Payment amount seems unusually large. Please verify the amount.",
                     error_code="EXCESSIVE_PAYMENT",
                     details={
                         "current_balance": current_balance_amount,
                         "payment_amount": payment_data.payment_amount,
-                        "max_allowed": max_allowed_payment
+                        "max_reasonable": max_reasonable_payment,
+                        "note": "This is a safety check to prevent typos. Contact support if this payment amount is correct."
                     }
                 )
         except BusinessRuleError:
