@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { 
-  Receipt, 
-  DollarSign, 
-  Clock, 
+import {
+  Receipt,
+  DollarSign,
+  Clock,
   Plus,
   LayoutDashboard,
   Zap,
@@ -28,6 +28,7 @@ import {
   Circle,
   AlertCircle,
   ShoppingBag,
+  Tag,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -278,8 +279,39 @@ const TransactionHub = () => {
       });
     }
     
-    // Sort all events by date (most recent first)
-    return timelineEvents.sort((a, b) => b.date - a.date);
+    // Sort all events by date (most recent first), with secondary sort by type
+    // to ensure proper order: Transaction Redeemed -> Payment -> Discount
+    return timelineEvents.sort((a, b) => {
+      // Primary sort: by date (most recent first)
+      const dateDiff = b.date - a.date;
+
+      // If dates are equal or within same second (1000ms), apply secondary sort
+      if (Math.abs(dateDiff) < 1000) {
+        // Define type priority to control display order:
+        // 1. Transaction Redeemed audits (show first)
+        // 2. Payments (show after redeemed)
+        // 3. Discount audits (show after payments)
+        // 4. Extensions and other audits (default priority)
+        const getPriority = (event) => {
+          if (event.type === 'audit') {
+            const summary = event.data.action_summary?.toLowerCase() || '';
+            // "Transaction Redeemed" should come first
+            if (summary.includes('redeemed') || event.data.action_type === 'redemption_completed') return 1;
+            // Discount audits should come after payments
+            if (summary.includes('discount')) return 3;
+            // Other audits have default priority
+            return 4;
+          }
+          if (event.type === 'payment') return 2;
+          if (event.type === 'extension') return 4;
+          return 5;
+        };
+
+        return getPriority(a) - getPriority(b);
+      }
+
+      return dateDiff;
+    });
   }, [
     paymentHistory?.payments,
     selectedTransaction?.extensions,
@@ -2195,6 +2227,20 @@ const TransactionHub = () => {
                                                 return subsequentPayment?.is_voided || false;
                                               })();
 
+                                              // Check if this discount's associated payment was reversed
+                                              const isDiscountReversed = (() => {
+                                                const isDiscountEntry = event.data.action_summary?.toLowerCase().includes('discount');
+                                                if (!isDiscountEntry) return false;
+
+                                                // Find the payment associated with this discount via related_id
+                                                const relatedPaymentId = event.data.related_id;
+                                                if (!relatedPaymentId) return false;
+
+                                                // Check if that payment is voided
+                                                const relatedPayment = paymentHistory?.payments?.find(p => p.payment_id === relatedPaymentId);
+                                                return relatedPayment?.is_voided || false;
+                                              })();
+
                                               return (
                                                 <div className="flex space-x-3 group hover:bg-slate-50/50 dark:hover:bg-slate-800/50 rounded-lg p-2 -m-2 transition-colors">
                                                   <div className="flex-shrink-0 mt-1.5">
@@ -2210,6 +2256,20 @@ const TransactionHub = () => {
                                                         return (
                                                           <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
                                                             <Plus className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+                                                          </div>
+                                                        );
+                                                      } else if (event.data.action_summary?.toLowerCase().includes('discount')) {
+                                                        return (
+                                                          <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                                                            isDiscountReversed
+                                                              ? 'bg-red-100 dark:bg-red-900/30'
+                                                              : 'bg-purple-100 dark:bg-purple-900/30'
+                                                          }`}>
+                                                            <Tag className={`w-3 h-3 ${
+                                                              isDiscountReversed
+                                                                ? 'text-red-600 dark:text-red-400'
+                                                                : 'text-purple-600 dark:text-purple-400'
+                                                            }`} />
                                                           </div>
                                                         );
                                                       } else if (event.data.action_summary?.startsWith('Overdue fee:')) {
@@ -2239,20 +2299,64 @@ const TransactionHub = () => {
                                                   <div className="flex-1">
                                                     <div className="flex items-center justify-between">
                                                       <div className={`text-sm font-medium ${
-                                                        isOverdueFeeReversed
+                                                        isOverdueFeeReversed || isDiscountReversed
                                                           ? 'text-red-600 dark:text-red-400 line-through'
                                                           : 'text-slate-900 dark:text-slate-100'
                                                       }`}>
-                                                        {event.data.action_summary}
-                                                        {isOverdueFeeReversed && (
+                                                        {(() => {
+                                                          // Custom formatting for discount entries - title only
+                                                          if (event.data.action_summary?.toLowerCase().includes('discount')) {
+                                                            return 'Discount applied';
+                                                          }
+                                                          // Custom formatting for overdue fee entries - title only
+                                                          if (event.data.action_summary?.startsWith('Overdue fee:')) {
+                                                            return 'Overdue fee';
+                                                          }
+                                                          return event.data.action_summary;
+                                                        })()}
+                                                        {(isOverdueFeeReversed || isDiscountReversed) && (
                                                           <span className="ml-2 px-2 py-0.5 text-xs bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-full border border-red-200 dark:border-red-800">
                                                             REVERSED
                                                           </span>
                                                         )}
                                                       </div>
+                                                      {(() => {
+                                                        // Display discount amount on the right (like payment amount)
+                                                        if (event.data.action_summary?.toLowerCase().includes('discount')) {
+                                                          const discountAmount = event.data.amount || 0;
+                                                          // Amount is already in dollars, just format it
+                                                          const formattedAmount = formatCurrency(discountAmount);
+                                                          return (
+                                                            <div className={`text-sm font-medium ${
+                                                              isDiscountReversed
+                                                                ? 'text-red-600 dark:text-red-400 line-through'
+                                                                : 'text-purple-600 dark:text-purple-400'
+                                                            }`}>
+                                                              {formattedAmount}
+                                                            </div>
+                                                          );
+                                                        }
+
+                                                        // Display overdue fee amount on the right (like payment amount)
+                                                        if (event.data.action_summary?.startsWith('Overdue fee:')) {
+                                                          const feeAmount = event.data.amount || 0;
+                                                          // Amount is already in dollars, just format it
+                                                          const formattedAmount = formatCurrency(feeAmount);
+                                                          return (
+                                                            <div className={`text-sm font-medium ${
+                                                              isOverdueFeeReversed
+                                                                ? 'text-red-600 dark:text-red-400 line-through'
+                                                                : 'text-amber-600 dark:text-amber-400'
+                                                            }`}>
+                                                              {formattedAmount}
+                                                            </div>
+                                                          );
+                                                        }
+                                                        return null;
+                                                      })()}
                                                     </div>
                                                     <div className={`text-xs mt-1 ${
-                                                      isOverdueFeeReversed
+                                                      isOverdueFeeReversed || isDiscountReversed
                                                         ? 'text-red-600 dark:text-red-400'
                                                         : 'text-slate-600 dark:text-slate-400'
                                                     }`}>
@@ -2260,7 +2364,7 @@ const TransactionHub = () => {
                                                     </div>
                                                     {(event.data.staff_member || event.data.user_id) && (
                                                       <div className={`text-xs ${
-                                                        isOverdueFeeReversed
+                                                        isOverdueFeeReversed || isDiscountReversed
                                                           ? 'text-red-600 dark:text-red-400'
                                                           : 'text-slate-600 dark:text-slate-400'
                                                       }`}>
@@ -2272,11 +2376,27 @@ const TransactionHub = () => {
                                                       !event.data.action_summary?.startsWith('Overdue fee set') &&
                                                       !event.data.action_summary?.startsWith('Overdue fee added') && (
                                                       <div className={`text-xs mt-1 ${
-                                                        isOverdueFeeReversed
+                                                        isOverdueFeeReversed || isDiscountReversed
                                                           ? 'text-red-600 dark:text-red-400'
                                                           : 'text-slate-600 dark:text-slate-400'
                                                       }`}>
-                                                        {event.data.details}
+                                                        {(() => {
+                                                          // Special formatting for discount details - split into 2 lines
+                                                          if (event.data.action_summary?.toLowerCase().includes('discount') && event.data.details) {
+                                                            const details = event.data.details;
+                                                            // Split at ". Reason:" to separate approval info from reason
+                                                            const parts = details.split('. Reason: ');
+                                                            if (parts.length === 2) {
+                                                              return (
+                                                                <>
+                                                                  <div>{parts[0]}.</div>
+                                                                  <div>Reason: {parts[1]}</div>
+                                                                </>
+                                                              );
+                                                            }
+                                                          }
+                                                          return event.data.details;
+                                                        })()}
                                                       </div>
                                                     )}
                                                   </div>

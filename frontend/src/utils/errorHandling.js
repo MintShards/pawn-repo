@@ -34,6 +34,20 @@ export const parseApiError = (error) => {
 
   // Authentication errors
   if (error.status === 401 || error.status === 403) {
+    // Check if it's an admin PIN error (not a session expiration)
+    const errorMessage = error.response?.data?.message || error.message || '';
+    const isAdminPinError = errorMessage.toLowerCase().includes('admin pin') ||
+                           errorMessage.toLowerCase().includes('invalid pin');
+
+    if (isAdminPinError) {
+      return {
+        message: errorMessage,
+        type: ERROR_TYPES.VALIDATION,
+        severity: ERROR_SEVERITY.MEDIUM,
+        actions: ['fix']
+      }
+    }
+
     return {
       message: 'Session expired. Please log in again.',
       type: ERROR_TYPES.AUTH,

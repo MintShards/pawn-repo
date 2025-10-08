@@ -55,7 +55,13 @@ class PaymentResponse(PaymentBase):
     voided_date: Optional[datetime] = Field(None, description="Date payment was voided")
     voided_by_user_id: Optional[str] = Field(None, description="User who voided payment")
     void_reason: Optional[str] = Field(None, description="Reason for voiding payment")
-    
+
+    # Discount functionality
+    discount_amount: int = Field(default=0, description="Discount amount applied")
+    discount_reason: Optional[str] = Field(None, description="Reason for discount")
+    discount_approved_by: Optional[str] = Field(None, description="Admin who approved discount")
+    discount_approved_at: Optional[datetime] = Field(None, description="Date discount was approved")
+
     model_config = ConfigDict(from_attributes=True)
 
 

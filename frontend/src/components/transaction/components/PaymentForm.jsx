@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { CreditCard, X, AlertCircle, CheckCircle, DollarSign } from 'lucide-react';
+import { CreditCard, X, AlertCircle, CheckCircle, DollarSign, Percent } from 'lucide-react';
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
@@ -14,10 +14,16 @@ import { handleError, handleSuccess } from '../../../utils/errorHandling';
 import ConfirmationDialog from '../../common/ConfirmationDialog';
 import LoadingDialog from '../../common/LoadingDialog';
 import { useStatsPolling } from '../../../hooks/useStatsPolling';
+import { useAuth } from '../../../context/AuthContext';
+import DiscountDialog from './DiscountDialog';
 
 const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
   const { triggerRefresh } = useStatsPolling();
-  
+  const { user } = useAuth();
+
+  // Check if user is admin
+  const isAdmin = user?.role === 'admin';
+
   // Form validation setup
   const formValidators = {
     payment_amount: (value, data) => {
@@ -50,6 +56,7 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
   const [submitting, setSubmitting] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [paymentBreakdown, setPaymentBreakdown] = useState(null);
+  const [showDiscountDialog, setShowDiscountDialog] = useState(false);
 
   // Define functions before use
   const loadBalance = useCallback(async () => {
@@ -163,13 +170,19 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
 
       const overdueFeeAmount = parseFloat(formData.overdue_fee) || 0;
 
-      // Step 1: Set overdue fee on transaction if provided (must be OVERDUE status)
-      if (overdueFeeAmount > 0 && transaction.status === 'overdue') {
-        await paymentService.setOverdueFee(
-          transaction.transaction_id,
-          overdueFeeAmount,
-          null  // No automatic notes
-        );
+      // Step 1: Set overdue fee on transaction if provided
+      if (overdueFeeAmount > 0) {
+        try {
+          await paymentService.setOverdueFee(
+            transaction.transaction_id,
+            overdueFeeAmount,
+            null  // No automatic notes
+          );
+        } catch (err) {
+          // If overdue fee can't be set (e.g., wrong status), continue with payment
+          // Backend will validate and reject if needed
+          console.warn('Could not set overdue fee:', err.message);
+        }
       }
 
       // Step 2: Process payment (backend now knows about the overdue fee)
@@ -212,9 +225,23 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
     }
   }, [formData, transaction, paymentBreakdown, onSuccess, triggerRefresh, loadBalance]);
 
+  const handleDiscountSuccess = useCallback(async (result) => {
+    // Trigger immediate stats refresh after successful discount payment
+    triggerRefresh();
+
+    // Immediately refresh balance after successful payment
+    await loadBalance();
+
+    handleSuccess('Payment with discount processed - Transaction redeemed!');
+
+    if (onSuccess) {
+      onSuccess(result, true); // Pass flag to indicate balance should be refreshed
+    }
+  }, [triggerRefresh, loadBalance, onSuccess]);
+
   const handleSubmit = useCallback(async (e) => {
     e.preventDefault();
-    
+
     if (!validateFormExtended()) {
       return;
     }
@@ -379,7 +406,7 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
                 aria-describedby={getFieldError('payment_amount') ? 'payment_amount_error' : undefined}
               />
               {balance && (
-                <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                <div className="absolute right-3 top-1/2 transform -translate-y-1/2 flex gap-2">
                   <Button
                     type="button"
                     variant="default"
@@ -392,6 +419,18 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
                   >
                     Pay Full
                   </Button>
+                  {isAdmin && paymentBreakdown?.isFullPayment && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 px-3 text-xs font-semibold bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-300"
+                      onClick={() => setShowDiscountDialog(true)}
+                    >
+                      <Percent className="h-3 w-3 mr-1" />
+                      Discount
+                    </Button>
+                  )}
                 </div>
               )}
             </div>
@@ -534,11 +573,26 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
       <LoadingDialog
         open={submitting && !showConfirmation}
         title={paymentBreakdown?.isFullPayment ? "Processing Redemption" : "Processing Payment"}
-        description={paymentBreakdown?.isFullPayment 
+        description={paymentBreakdown?.isFullPayment
           ? "Completing transaction redemption..."
           : "Processing your payment..."
         }
       />
+
+      {/* Discount Dialog - Admin Only */}
+      {isAdmin && (
+        <DiscountDialog
+          open={showDiscountDialog}
+          onOpenChange={setShowDiscountDialog}
+          transaction={transaction}
+          paymentAmount={parseFloat(formData.payment_amount || 0)}
+          currentBalance={balance?.current_balance ?
+            balance.current_balance + parseFloat(formData.overdue_fee || 0) : 0
+          }
+          overdueFee={parseFloat(formData.overdue_fee || 0)}
+          onSuccess={handleDiscountSuccess}
+        />
+      )}
     </Card>
   );
 };

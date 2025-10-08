@@ -11,12 +11,13 @@ from typing import Optional, List, Dict, Tuple, Any
 from datetime import datetime, UTC
 
 from app.models.audit_entry_model import (
-    AuditEntry, 
+    AuditEntry,
     AuditActionType,
     create_payment_audit,
     create_extension_audit,
     create_status_change_audit,
-    create_redemption_audit
+    create_redemption_audit,
+    create_discount_audit
 )
 from app.models.pawn_transaction_model import PawnTransaction
 
@@ -218,12 +219,51 @@ class NotesService:
         """
         audit_entry = create_redemption_audit(staff_member, total_paid)
         transaction.add_system_audit_entry(audit_entry)
-        
+
         if save_immediately:
             await transaction.save()
-        
+
         return audit_entry
-    
+
+    @staticmethod
+    async def add_discount_audit(
+        transaction: PawnTransaction,
+        staff_member: str,
+        discount_amount: int,
+        discount_reason: str,
+        approved_by: str,
+        payment_id: str,
+        save_immediately: bool = True
+    ) -> AuditEntry:
+        """
+        Add a discount application audit entry.
+
+        Args:
+            transaction: PawnTransaction to add audit entry to
+            staff_member: User ID who processed the payment with discount
+            discount_amount: Discount amount applied
+            discount_reason: Reason for discount
+            approved_by: Admin user ID who approved the discount
+            payment_id: ID of the payment with discount
+            save_immediately: Whether to save immediately
+
+        Returns:
+            Created AuditEntry
+        """
+        audit_entry = create_discount_audit(
+            staff_member=staff_member,
+            discount_amount=discount_amount,
+            discount_reason=discount_reason,
+            approved_by=approved_by,
+            payment_id=payment_id
+        )
+        transaction.add_system_audit_entry(audit_entry)
+
+        if save_immediately:
+            await transaction.save()
+
+        return audit_entry
+
     @staticmethod
     def parse_legacy_internal_notes(legacy_notes: str) -> Tuple[List[str], List[Dict[str, Any]]]:
         """

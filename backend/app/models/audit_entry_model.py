@@ -25,6 +25,7 @@ class AuditActionType(str, Enum):
     SYSTEM_NOTIFICATION = "system_notification"
     OVERDUE_FEE_SET = "overdue_fee_set"
     OVERDUE_FEE_CLEARED = "overdue_fee_cleared"
+    DISCOUNT_APPLIED = "discount_applied"
 
 
 class AuditEntry(BaseModel):
@@ -250,4 +251,24 @@ def create_redemption_audit(staff_member: str, total_paid: int) -> AuditEntry:
         action_summary="Transaction redeemed",
         details="All amounts paid in full. Items ready for pickup",
         amount=total_paid
+    )
+
+
+def create_discount_audit(
+    staff_member: str,
+    discount_amount: int,
+    discount_reason: str,
+    approved_by: str,
+    payment_id: str
+) -> AuditEntry:
+    """Create audit entry for discount application."""
+    details = f"Discount approved by admin {approved_by}. Reason: {discount_reason}"
+
+    return create_audit_entry(
+        action_type=AuditActionType.DISCOUNT_APPLIED,
+        staff_member=staff_member,
+        action_summary="Discount applied to payment",
+        details=details,
+        amount=discount_amount,
+        related_id=payment_id
     )

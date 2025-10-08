@@ -1050,3 +1050,197 @@ class PaymentService:
             page_size=page_size,
             has_next=skip + page_size < total_count
         )
+
+    @staticmethod
+    async def process_payment_with_discount(
+        transaction_id: str,
+        payment_amount: int,
+        processed_by_user_id: str,
+        discount_amount: int = 0,
+        discount_reason: Optional[str] = None,
+        discount_approved_by: Optional[str] = None,
+        client_timezone: Optional[str] = None
+    ) -> Payment:
+        """
+        Process payment with admin-approved discount.
+        Discount reduces interest first, then principal.
+
+        Args:
+            transaction_id: Transaction to make payment on
+            payment_amount: Cash payment amount in whole dollars
+            processed_by_user_id: Staff member processing payment
+            discount_amount: Discount amount to apply
+            discount_reason: Reason for discount (required if discount > 0)
+            discount_approved_by: Admin user ID who approved discount
+            client_timezone: Client timezone for business date calculations
+
+        Returns:
+            Payment: Created payment record with discount applied
+
+        Raises:
+            TransactionNotFoundError: Transaction not found
+            StaffValidationError: Staff user validation failed
+            PaymentValidationError: Payment validation failed
+        """
+        # Pre-validation
+        transaction = await PawnTransaction.find_one(
+            PawnTransaction.transaction_id == transaction_id
+        )
+        if not transaction:
+            raise TransactionNotFoundError(f"Transaction {transaction_id} not found")
+
+        # Check if transaction can accept payments
+        if transaction.status in [TransactionStatus.SOLD, TransactionStatus.REDEEMED]:
+            raise PaymentValidationError(
+                f"Cannot process payment on {transaction.status} transaction"
+            )
+
+        # Validate staff user
+        staff_user = await User.find_one(User.user_id == processed_by_user_id)
+        if not staff_user:
+            raise StaffValidationError(f"Staff user {processed_by_user_id} not found")
+
+        if staff_user.status != UserStatus.ACTIVE:
+            raise StaffValidationError(
+                f"Staff user {staff_user.first_name} {staff_user.last_name} is not active"
+            )
+
+        # Validate payment amount
+        if payment_amount <= 0:
+            raise PaymentValidationError("Payment amount must be greater than 0")
+
+        if payment_amount > 50000:
+            raise PaymentValidationError("Payment amount cannot exceed $50,000")
+
+        # Execute payment processing
+        try:
+            # Get balance info
+            balance_info = await PaymentService._get_balance_info(transaction_id)
+            current_balance = balance_info["current_balance"]
+
+            # Calculate effective payment (cash + discount)
+            effective_payment = payment_amount + discount_amount
+            balance_after_payment = current_balance - effective_payment
+
+            # Get balance components
+            interest_due = balance_info.get("interest_balance", 0)
+            overdue_fee_due = balance_info.get("overdue_fee_balance", 0)
+            principal_due = balance_info.get("principal_balance", 0)
+
+            # DISCOUNT ALLOCATION (interest first!)
+            discount_on_interest = min(discount_amount, interest_due)
+            remaining_discount = discount_amount - discount_on_interest
+
+            discount_on_overdue = min(remaining_discount, overdue_fee_due)
+            remaining_discount -= discount_on_overdue
+
+            discount_on_principal = min(remaining_discount, principal_due)
+
+            # CASH PAYMENT ALLOCATION (same priority, after discount)
+            remaining_cash = payment_amount
+
+            # Pay interest (after discount)
+            interest_after_discount = interest_due - discount_on_interest
+            interest_payment = min(remaining_cash, interest_after_discount)
+            remaining_cash -= interest_payment
+
+            # Pay overdue fees (after discount)
+            overdue_after_discount = overdue_fee_due - discount_on_overdue
+            overdue_payment = min(remaining_cash, overdue_after_discount)
+            remaining_cash -= overdue_payment
+
+            # Pay principal (after discount)
+            principal_after_discount = principal_due - discount_on_principal
+            principal_payment = min(remaining_cash, principal_after_discount)
+
+            # Total portions (cash + discount)
+            interest_portion = interest_payment + discount_on_interest
+            overdue_fee_portion = overdue_payment + discount_on_overdue
+            principal_portion = principal_payment + discount_on_principal
+
+            # Get current timestamp in user's timezone
+            if client_timezone:
+                local_now = get_user_now(client_timezone)
+                payment_date_utc = user_timezone_to_utc(local_now, client_timezone)
+            else:
+                payment_date_utc = datetime.now(UTC)
+
+            # Create payment record
+            payment = Payment(
+                transaction_id=transaction_id,
+                processed_by_user_id=processed_by_user_id,
+                payment_amount=payment_amount,
+                balance_before_payment=current_balance,
+                balance_after_payment=balance_after_payment,
+                principal_portion=principal_portion,
+                interest_portion=interest_portion,
+                extension_fees_portion=0,
+                overdue_fee_portion=overdue_fee_portion,
+                payment_method="cash",
+                payment_date=payment_date_utc,
+                # Discount fields
+                discount_amount=discount_amount,
+                discount_reason=discount_reason,
+                discount_approved_by=discount_approved_by,
+                discount_approved_at=datetime.now(UTC) if discount_amount > 0 else None
+            )
+
+            await payment.save()
+
+            # Get fresh transaction
+            fresh_transaction = await PawnTransaction.find_one(
+                PawnTransaction.transaction_id == transaction_id
+            )
+
+            # Reduce overdue fee if payment included overdue fee portion
+            if overdue_fee_portion > 0:
+                fresh_transaction.overdue_fee = max(0, fresh_transaction.overdue_fee - overdue_fee_portion)
+
+            # Add payment audit entry
+            await notes_service.add_payment_audit(
+                transaction=fresh_transaction,
+                staff_member=processed_by_user_id,
+                amount=payment_amount,
+                balance_after=balance_after_payment,
+                payment_id=payment.payment_id,
+                save_immediately=False
+            )
+
+            # Add discount audit entry if discount applied
+            if discount_amount > 0:
+                await notes_service.add_discount_audit(
+                    transaction=fresh_transaction,
+                    staff_member=processed_by_user_id,
+                    discount_amount=discount_amount,
+                    discount_reason=discount_reason,
+                    approved_by=discount_approved_by,
+                    payment_id=payment.payment_id,
+                    save_immediately=False
+                )
+
+            # Update transaction status if fully paid
+            if balance_after_payment <= 0:
+                fresh_transaction.status = TransactionStatus.REDEEMED
+                await notes_service.add_redemption_audit(
+                    transaction=fresh_transaction,
+                    staff_member=processed_by_user_id,
+                    total_paid=effective_payment,
+                    save_immediately=False
+                )
+
+            await fresh_transaction.save()
+
+            # Invalidate caches
+            await PaymentService._invalidate_all_transaction_caches()
+            _invalidate_search_caches()
+
+            import structlog
+            logger = structlog.get_logger("payment_service")
+            logger.info(
+                f"✅ PAYMENT WITH DISCOUNT PROCESSED: ${payment_amount} + ${discount_amount} discount on {transaction_id}"
+            )
+
+            return payment
+
+        except Exception as e:
+            raise PaymentValidationError(f"Payment processing failed: {str(e)}")

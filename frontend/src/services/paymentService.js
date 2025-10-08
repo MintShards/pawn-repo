@@ -23,18 +23,46 @@ class PaymentService {
     return result;
   }
 
-  // Get payment history for transaction
+  // Get payment history for transaction with caching
   async getPaymentHistory(transactionId) {
-    return await authService.apiRequest(`/api/v1/payment/transaction/${transactionId}`, {
+    const cacheKey = `payment-history-${transactionId}`;
+    const cached = this.cache.get(cacheKey);
+
+    if (cached && Date.now() - cached.timestamp < this.cacheExpiry) {
+      return cached.data;
+    }
+
+    const data = await authService.apiRequest(`/api/v1/payment/transaction/${transactionId}`, {
       method: 'GET',
     });
+
+    this.cache.set(cacheKey, {
+      data,
+      timestamp: Date.now()
+    });
+
+    return data;
   }
 
-  // Get payment summary for transaction
+  // Get payment summary for transaction with caching
   async getPaymentSummary(transactionId) {
-    return await authService.apiRequest(`/api/v1/payment/transaction/${transactionId}/summary`, {
+    const cacheKey = `payment-summary-${transactionId}`;
+    const cached = this.cache.get(cacheKey);
+
+    if (cached && Date.now() - cached.timestamp < this.cacheExpiry) {
+      return cached.data;
+    }
+
+    const data = await authService.apiRequest(`/api/v1/payment/transaction/${transactionId}/summary`, {
       method: 'GET',
     });
+
+    this.cache.set(cacheKey, {
+      data,
+      timestamp: Date.now()
+    });
+
+    return data;
   }
 
   // Get payment by ID
@@ -96,6 +124,56 @@ class PaymentService {
         overdue_fee: Math.round(parseFloat(overdueFee)),
         notes: notes
       }),
+    });
+  }
+
+  // Validate discount eligibility
+  async validateDiscount(transactionId, paymentAmount, discountAmount) {
+    return await authService.apiRequest('/api/v1/discount/validate', {
+      method: 'POST',
+      body: JSON.stringify({
+        transaction_id: transactionId,
+        payment_amount: Math.round(parseFloat(paymentAmount)),
+        discount_amount: Math.round(parseFloat(discountAmount))
+      }),
+    });
+  }
+
+  // Process payment with admin-approved discount
+  async processPaymentWithDiscount(paymentData) {
+    const payload = {
+      transaction_id: paymentData.transaction_id,
+      payment_amount: Math.round(parseFloat(paymentData.payment_amount)),
+      discount_amount: Math.round(parseFloat(paymentData.discount_amount)),
+      discount_reason: paymentData.discount_reason,
+      admin_pin: paymentData.admin_pin
+    };
+
+    console.log('PaymentService sending discount request:', {
+      ...payload,
+      admin_pin: '****'
+    });
+
+    const result = await authService.apiRequest('/api/v1/discount/apply', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    this.clearPaymentCache();
+
+    // Clear transaction cache to ensure fresh data
+    const transactionService = await import('./transactionService');
+    if (transactionService.default) {
+      transactionService.default.clearTransactionCache();
+    }
+
+    return result;
+  }
+
+  // Get daily discount report (Admin only)
+  async getDailyDiscountReport(reportDate = null) {
+    const params = reportDate ? `?report_date=${reportDate}` : '';
+    return await authService.apiRequest(`/api/v1/discount/report/daily${params}`, {
+      method: 'GET',
     });
   }
 
