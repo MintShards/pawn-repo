@@ -6,8 +6,8 @@ including transaction creation, updates, responses, and balance calculations.
 """
 
 from datetime import datetime
-from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from typing import Optional, List, Dict, Any, Union
+from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 from enum import Enum
 
 from app.models.pawn_transaction_model import TransactionStatus
@@ -646,6 +646,20 @@ class BatchStatusCountResponse(BaseModel):
     )
 
 
+class BulkDiscountData(BaseModel):
+    """Discount data for a single transaction in bulk operation"""
+    amount: int = Field(..., gt=0, le=10000, description="Discount amount in whole dollars")
+    reason: str = Field(..., min_length=1, max_length=200, description="Discount reason")
+
+    @field_validator('reason')
+    @classmethod
+    def validate_reason(cls, v: str) -> str:
+        """Ensure discount reason is not empty"""
+        if not v or not v.strip():
+            raise ValueError('Discount reason is required')
+        return v.strip()
+
+
 class BulkRedemptionRequest(BaseModel):
     """Schema for bulk redemption processing"""
     transaction_ids: List[str] = Field(
@@ -663,13 +677,34 @@ class BulkRedemptionRequest(BaseModel):
         None,
         description="Optional overdue fees to set per transaction (transaction_id: amount)"
     )
+    discounts: Optional[Dict[str, BulkDiscountData]] = Field(
+        None,
+        description="Optional discounts per transaction (transaction_id: {amount, reason}). Requires admin_pin."
+    )
+    admin_pin: Optional[str] = Field(
+        None,
+        min_length=4,
+        max_length=4,
+        description="Admin PIN required when discounts are provided"
+    )
+
+    @model_validator(mode='after')
+    def validate_admin_pin_required(self):
+        """Require admin PIN when discounts are provided"""
+        if self.discounts and len(self.discounts) > 0 and not self.admin_pin:
+            raise ValueError('Admin PIN is required when discounts are provided')
+        return self
 
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
                 "transaction_ids": ["TXN-2024-001", "TXN-2024-002"],
                 "notes": "Bulk redemption - cash payment processed",
-                "overdue_fees": {"TXN-2024-001": 50, "TXN-2024-002": 25}
+                "overdue_fees": {"TXN-2024-001": 50, "TXN-2024-002": 25},
+                "discounts": {
+                    "TXN-2024-001": {"amount": 20, "reason": "Customer loyalty discount"}
+                },
+                "admin_pin": "6969"
             }
         }
     )

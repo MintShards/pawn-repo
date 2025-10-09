@@ -290,21 +290,24 @@ const TransactionHub = () => {
         // Define type priority to control display order:
         // 1. Transaction Redeemed audits (show first)
         // 2. Payments (show after redeemed)
-        // 3. Discount audits (show after payments)
-        // 4. Extensions and other audits (default priority)
+        // 3. Overdue fee audits (show after payments, before discounts)
+        // 4. Discount audits (show after overdue fees)
+        // 5. Extensions and other audits (default priority)
         const getPriority = (event) => {
           if (event.type === 'audit') {
             const summary = event.data.action_summary?.toLowerCase() || '';
             // "Transaction Redeemed" should come first
             if (summary.includes('redeemed') || event.data.action_type === 'redemption_completed') return 1;
-            // Discount audits should come after payments
-            if (summary.includes('discount')) return 3;
+            // Overdue fee audits should come after payments
+            if (summary.includes('overdue fee')) return 3;
+            // Discount audits should come after overdue fees
+            if (summary.includes('discount')) return 4;
             // Other audits have default priority
-            return 4;
+            return 5;
           }
           if (event.type === 'payment') return 2;
-          if (event.type === 'extension') return 4;
-          return 5;
+          if (event.type === 'extension') return 5;
+          return 6;
         };
 
         return getPriority(a) - getPriority(b);

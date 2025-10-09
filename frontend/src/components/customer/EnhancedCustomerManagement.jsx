@@ -387,9 +387,43 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
         key: `audit-${audit.related_id || i}-${audit.action_type}`
       });
     }
-    
-    // Sort all events by date (newest first) and return
-    return timelineEvents.sort((a, b) => b.date - a.date);
+
+    // Sort all events by date (newest first), with secondary sort by type
+    // to ensure proper order: Transaction Redeemed -> Payment -> Overdue Fee -> Discount
+    return timelineEvents.sort((a, b) => {
+      // Primary sort: by date (most recent first)
+      const dateDiff = b.date - a.date;
+
+      // If dates are equal or within same second (1000ms), apply secondary sort
+      if (Math.abs(dateDiff) < 1000) {
+        // Define type priority to control display order:
+        // 1. Transaction Redeemed audits (show first)
+        // 2. Payments (show after redeemed)
+        // 3. Overdue fee audits (show after payments, before discounts)
+        // 4. Discount audits (show after overdue fees)
+        // 5. Extensions and other audits (default priority)
+        const getPriority = (event) => {
+          if (event.type === 'audit') {
+            const summary = event.data.action_summary?.toLowerCase() || '';
+            // "Transaction Redeemed" should come first
+            if (summary.includes('redeemed') || event.data.action_type === 'redemption_completed') return 1;
+            // Overdue fee audits should come after payments
+            if (summary.includes('overdue fee')) return 3;
+            // Discount audits should come after overdue fees
+            if (summary.includes('discount')) return 4;
+            // Other audits have default priority
+            return 5;
+          }
+          if (event.type === 'payment') return 2;
+          if (event.type === 'extension') return 5;
+          return 6;
+        };
+
+        return getPriority(a) - getPriority(b);
+      }
+
+      return dateDiff;
+    });
   }, [paymentHistory, selectedTransaction, auditEntries]);
 
   // Fetch customer transactions

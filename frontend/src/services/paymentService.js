@@ -149,11 +149,6 @@ class PaymentService {
       admin_pin: paymentData.admin_pin
     };
 
-    console.log('PaymentService sending discount request:', {
-      ...payload,
-      admin_pin: '****'
-    });
-
     const result = await authService.apiRequest('/api/v1/discount/apply', {
       method: 'POST',
       body: JSON.stringify(payload),

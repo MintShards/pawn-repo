@@ -14,24 +14,7 @@ import { Alert, AlertDescription } from '../ui/alert';
 import { Loader2, CheckCircle2, Banknote, DollarSign, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import transactionService from '../../services/transactionService';
 import { toast } from 'sonner';
-
-const STATUS_COLORS = {
-  active: 'bg-green-100 text-green-800',
-  overdue: 'bg-red-100 text-red-800',
-  extended: 'bg-blue-100 text-blue-800',
-  forfeited: 'bg-gray-100 text-gray-800',
-  redeemed: 'bg-purple-100 text-purple-800',
-  sold: 'bg-orange-100 text-orange-800'
-};
-
-const STATUS_LABELS = {
-  active: 'Active',
-  overdue: 'Overdue',
-  extended: 'Extended',
-  forfeited: 'Forfeited',
-  redeemed: 'Redeemed',
-  sold: 'Sold'
-};
+import StatusBadge from './components/StatusBadge';
 
 export default function BulkRedemptionDialog({
   isOpen,
@@ -46,18 +29,21 @@ export default function BulkRedemptionDialog({
   const [transactionDetails, setTransactionDetails] = useState({});
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [overdueFees, setOverdueFees] = useState({}); // Store overdue fees per transaction
+  const [discounts, setDiscounts] = useState({}); // Store discounts per transaction {transactionId: {amount: 0, reason: ''}}
+  const [adminPin, setAdminPin] = useState(''); // Admin PIN for discount approval
 
   // Filter to only redeemable transactions
   const redeemableTransactions = selectedTransactions.filter(t =>
     ['active', 'overdue', 'extended'].includes(t.status)
   );
 
-  // Calculate totals from loaded transaction details and manual overdue fees
+  // Calculate totals from loaded transaction details, manual overdue fees, and discounts
   const calculateTotals = () => {
     const totals = {
       totalPrincipal: 0,
       totalInterest: 0,
       totalOverdueFee: 0,
+      totalDiscount: 0,
       totalDue: 0,
       transactionCount: redeemableTransactions.length
     };
@@ -74,11 +60,16 @@ export default function BulkRedemptionDialog({
         const overdueFee = manualFee !== undefined && manualFee !== '' ? parseInt(manualFee) || 0 : 0;
         totals.totalOverdueFee += overdueFee;
 
-        // Total due = current balance (without existing overdue fee) + manual overdue fee
+        // Get discount amount for this transaction
+        const discountData = discounts[transaction.transaction_id];
+        const discountAmount = discountData?.amount ? parseInt(discountData.amount) || 0 : 0;
+        totals.totalDiscount += discountAmount;
+
+        // Total due = current balance (without existing overdue fee) + manual overdue fee - discount
         const baseBalance = detail.balance?.current_balance || 0;
         const existingOverdueFee = detail.balance?.overdue_fee_balance || 0;
         const balanceWithoutOverdueFee = baseBalance - existingOverdueFee;
-        totals.totalDue += balanceWithoutOverdueFee + overdueFee;
+        totals.totalDue += Math.max(0, balanceWithoutOverdueFee + overdueFee - discountAmount);
       }
     });
 
@@ -104,10 +95,6 @@ export default function BulkRedemptionDialog({
         redeemableTransactions.map(async (transaction) => {
           try {
             const summary = await transactionService.getTransactionSummary(transaction.transaction_id);
-
-            // Debug log to see actual response structure
-            console.log('Transaction summary for', transaction.transaction_id, summary);
-
             details[transaction.transaction_id] = summary;
           } catch (error) {
             console.error(`Failed to load details for ${transaction.transaction_id}:`, error);
@@ -131,7 +118,6 @@ export default function BulkRedemptionDialog({
         })
       );
 
-      console.log('All transaction details loaded:', details);
       setTransactionDetails(details);
     } catch (error) {
       console.error('Failed to load transaction details:', error);
@@ -153,6 +139,25 @@ export default function BulkRedemptionDialog({
       return;
     }
 
+    // Validate discounts (amount requires reason)
+    const discountsWithAmount = Object.entries(discounts).filter(([_, d]) => d?.amount > 0);
+    if (discountsWithAmount.length > 0) {
+      // Check if any discount has amount but no reason
+      const missingReason = discountsWithAmount.some(([_, d]) => !d?.reason?.trim());
+      if (missingReason) {
+        toast.error('Discount reason is required when discount amount is entered');
+        return;
+      }
+
+      // Check admin PIN is provided
+      if (!adminPin) {
+        toast.error('Admin PIN is required when discounts are applied');
+        return;
+      }
+    }
+
+    const hasDiscounts = discountsWithAmount.length > 0;
+
     setIsSubmitting(true);
     setResult(null);
 
@@ -167,10 +172,23 @@ export default function BulkRedemptionDialog({
         }
       });
 
+      // Prepare discounts object (only include transactions with discounts)
+      const discountData = {};
+      Object.entries(discounts).forEach(([transactionId, discount]) => {
+        if (discount?.amount > 0 && discount?.reason?.trim()) {
+          discountData[transactionId] = {
+            amount: parseInt(discount.amount),
+            reason: discount.reason.trim()
+          };
+        }
+      });
+
       const response = await transactionService.bulkProcessRedemption({
         transaction_ids: transactionIds,
         notes: notes.trim() || undefined,
-        overdue_fees: Object.keys(overdueFeeData).length > 0 ? overdueFeeData : undefined
+        overdue_fees: Object.keys(overdueFeeData).length > 0 ? overdueFeeData : undefined,
+        discounts: Object.keys(discountData).length > 0 ? discountData : undefined,
+        admin_pin: hasDiscounts ? adminPin : undefined
       });
 
       setResult(response);
@@ -211,6 +229,8 @@ export default function BulkRedemptionDialog({
     setTransactionDetails({});
     setShowTransactionList(true);
     setOverdueFees({}); // Clear overdue fees
+    setDiscounts({}); // Clear discounts
+    setAdminPin(''); // Clear admin PIN
     onClose();
   };
 
@@ -283,10 +303,18 @@ export default function BulkRedemptionDialog({
                         </p>
                       </div>
                       {totals.totalOverdueFee > 0 && (
-                        <div className="col-span-2">
+                        <div>
                           <p className="text-xs text-slate-500 dark:text-slate-400">Overdue Fees</p>
                           <p className="text-lg font-semibold text-amber-700 dark:text-amber-400">
                             ${totals.totalOverdueFee.toLocaleString()}
+                          </p>
+                        </div>
+                      )}
+                      {totals.totalDiscount > 0 && (
+                        <div>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">Total Discount</p>
+                          <p className="text-lg font-semibold text-purple-700 dark:text-purple-400">
+                            -${totals.totalDiscount.toLocaleString()}
                           </p>
                         </div>
                       )}
@@ -339,72 +367,112 @@ export default function BulkRedemptionDialog({
                     return (
                       <div
                         key={transaction.transaction_id}
-                        className="bg-white dark:bg-slate-900 p-4 rounded-md border border-slate-200 dark:border-slate-700 space-y-3"
+                        className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-md transition-shadow duration-200"
                       >
                         {/* Transaction Header */}
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                        <div className="flex items-start justify-between gap-4 mb-6 pb-5 border-b-2 border-slate-100 dark:border-slate-800">
+                          <div className="flex-1 min-w-0 space-y-2">
+                            <p className="text-lg font-semibold text-slate-900 dark:text-slate-100 tracking-tight leading-tight">
                               {displayId}
                             </p>
-                            <p className="text-xs text-slate-600 dark:text-slate-400">
+                            <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
                               {customerName || `Customer ${transactionData.customer_id || transaction.customer_id || 'Unknown'}`}
                             </p>
                           </div>
-                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${STATUS_COLORS[transaction.status]}`}>
-                            {STATUS_LABELS[transaction.status]}
-                          </span>
+                          <StatusBadge status={transaction.status} />
                         </div>
 
-                        {/* Transaction Financial Details */}
-                        <div className="space-y-2 border-t border-slate-200 dark:border-slate-700 pt-2">
-                          <div className="flex items-center justify-between text-sm">
-                            <div className="flex gap-4">
-                              <div className="flex flex-col">
-                                <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Principal</p>
-                                <p className="font-medium text-blue-700 dark:text-blue-400">
-                                  ${(balance.principal_balance || 0).toLocaleString()}
-                                </p>
+                        {/* Payment Details - Compact */}
+                        <div className="mt-3 space-y-1 text-sm">
+                          <div className="flex justify-between py-1">
+                            <span className="text-slate-600 dark:text-slate-400">Principal</span>
+                            <span className="font-medium tabular-nums">${(balance.principal_balance || 0).toLocaleString()}</span>
+                          </div>
+
+                          <div className="flex justify-between py-1">
+                            <span className="text-slate-600 dark:text-slate-400">Interest</span>
+                            <span className="font-medium tabular-nums">${(balance.interest_balance || 0).toLocaleString()}</span>
+                          </div>
+
+                          {transaction.status === 'overdue' && (
+                            <div className="flex justify-between py-1">
+                              <span className="text-slate-600 dark:text-slate-400">Overdue Fee</span>
+                              <div className="relative w-24">
+                                <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-xs">$</span>
+                                <Input
+                                  id={`overdue-fee-${transaction.transaction_id}`}
+                                  type="number"
+                                  min="0"
+                                  max="10000"
+                                  placeholder="0"
+                                  value={overdueFees[transaction.transaction_id] || ''}
+                                  onChange={(e) => setOverdueFees(prev => ({
+                                    ...prev,
+                                    [transaction.transaction_id]: e.target.value
+                                  }))}
+                                  className="h-7 w-full pl-4 pr-1 text-xs font-medium text-right tabular-nums [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                />
                               </div>
-                              <div className="flex flex-col">
-                                <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Interest</p>
-                                <p className="font-medium text-orange-700 dark:text-orange-400">
-                                  ${(balance.interest_balance || 0).toLocaleString()}
-                                </p>
-                              </div>
-                              {/* Overdue Fee Input - Show for overdue transactions */}
-                              {transaction.status === 'overdue' && (
-                                <div className="flex flex-col">
-                                  <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Overdue Fee</p>
-                                  <Input
-                                    id={`overdue-fee-${transaction.transaction_id}`}
-                                    type="number"
-                                    min="0"
-                                    max="10000"
-                                    placeholder="0"
-                                    value={overdueFees[transaction.transaction_id] || ''}
-                                    onChange={(e) => setOverdueFees(prev => ({
-                                      ...prev,
-                                      [transaction.transaction_id]: e.target.value
-                                    }))}
-                                    className="h-6 text-sm w-20 font-medium"
-                                  />
-                                </div>
-                              )}
                             </div>
-                            <div className="text-right">
-                              <p className="text-xs text-slate-500 dark:text-slate-400">Total Due</p>
-                              <p className="text-lg font-bold text-green-700 dark:text-green-400">
-                                ${(() => {
-                                  const manualFee = overdueFees[transaction.transaction_id];
-                                  const overdueFee = manualFee !== undefined && manualFee !== '' ? parseInt(manualFee) || 0 : 0;
-                                  const baseBalance = balance.current_balance || 0;
-                                  const existingOverdueFee = balance.overdue_fee_balance || 0;
-                                  const total = baseBalance - existingOverdueFee + overdueFee;
-                                  return total.toLocaleString();
-                                })()}
-                              </p>
+                          )}
+
+                          <div className="flex justify-between py-1">
+                            <span className="text-slate-600 dark:text-slate-400">Discount</span>
+                            <div className="relative w-24">
+                              <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-xs">$</span>
+                              <Input
+                                id={`discount-amount-${transaction.transaction_id}`}
+                                type="number"
+                                min="0"
+                                max="10000"
+                                placeholder="0"
+                                value={discounts[transaction.transaction_id]?.amount || ''}
+                                onChange={(e) => setDiscounts(prev => ({
+                                  ...prev,
+                                  [transaction.transaction_id]: {
+                                    ...prev[transaction.transaction_id],
+                                    amount: e.target.value
+                                  }
+                                }))}
+                                className="h-7 w-full pl-4 pr-1 text-xs font-medium text-right tabular-nums [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              />
                             </div>
+                          </div>
+
+                          {discounts[transaction.transaction_id]?.amount && parseInt(discounts[transaction.transaction_id].amount) > 0 && (
+                            <div className="pt-1">
+                              <Input
+                                id={`discount-reason-${transaction.transaction_id}`}
+                                type="text"
+                                placeholder="Discount reason"
+                                maxLength={200}
+                                value={discounts[transaction.transaction_id]?.reason || ''}
+                                onChange={(e) => setDiscounts(prev => ({
+                                  ...prev,
+                                  [transaction.transaction_id]: {
+                                    ...prev[transaction.transaction_id],
+                                    reason: e.target.value
+                                  }
+                                }))}
+                                className="h-7 text-xs w-full"
+                              />
+                            </div>
+                          )}
+
+                          <div className="flex justify-between pt-2 mt-2 border-t border-slate-300 dark:border-slate-600">
+                            <span className="font-semibold">Total Due</span>
+                            <span className="text-lg font-bold text-green-600 dark:text-green-400 tabular-nums">
+                              ${(() => {
+                                const manualFee = overdueFees[transaction.transaction_id];
+                                const overdueFee = manualFee !== undefined && manualFee !== '' ? parseInt(manualFee) || 0 : 0;
+                                const discountData = discounts[transaction.transaction_id];
+                                const discountAmount = discountData?.amount ? parseInt(discountData.amount) || 0 : 0;
+                                const baseBalance = balance.current_balance || 0;
+                                const existingOverdueFee = balance.overdue_fee_balance || 0;
+                                const total = Math.max(0, baseBalance - existingOverdueFee + overdueFee - discountAmount);
+                                return total.toLocaleString();
+                              })()}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -427,6 +495,33 @@ export default function BulkRedemptionDialog({
                 Cannot redeem transactions with status: forfeited, redeemed, or sold
               </AlertDescription>
             </Alert>
+          )}
+
+          {/* Admin PIN Field - Show when valid discounts are applied (both amount and reason) */}
+          {Object.values(discounts).some(d => d?.amount > 0 && d?.reason?.trim()) && (
+            <div className="space-y-2 bg-purple-50 dark:bg-purple-900/20 p-4 rounded-lg border border-purple-200 dark:border-purple-800">
+              <div className="flex items-center gap-2 mb-2">
+                <AlertCircle className="h-4 w-4 text-purple-600" />
+                <p className="text-sm font-semibold text-purple-800 dark:text-purple-200">
+                  Admin PIN Required for Discounts
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="admin-pin">Admin PIN</Label>
+                <Input
+                  id="admin-pin"
+                  type="password"
+                  placeholder="Enter 4-digit admin PIN"
+                  maxLength={4}
+                  value={adminPin}
+                  onChange={(e) => setAdminPin(e.target.value)}
+                  className="w-40"
+                />
+                <p className="text-xs text-purple-700 dark:text-purple-300">
+                  Admin PIN is required to process payments with discounts.
+                </p>
+              </div>
+            </div>
           )}
 
           {/* Notes Field */}

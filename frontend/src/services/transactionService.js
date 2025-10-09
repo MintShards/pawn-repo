@@ -228,7 +228,7 @@ class TransactionService {
   }
 
   // Bulk process redemption payments
-  async bulkProcessRedemption({ transaction_ids, notes }) {
+  async bulkProcessRedemption({ transaction_ids, notes, overdue_fees, discounts, admin_pin }) {
     try {
       // Client-side validation before API call
       if (!Array.isArray(transaction_ids) || transaction_ids.length === 0) {
@@ -239,12 +239,28 @@ class TransactionService {
         throw new Error('Cannot process more than 50 transactions at once');
       }
 
+      // Build request payload
+      const payload = {
+        transaction_ids,
+        notes
+      };
+
+      // Add optional fields if provided
+      if (overdue_fees) {
+        payload.overdue_fees = overdue_fees;
+      }
+
+      if (discounts) {
+        payload.discounts = discounts;
+      }
+
+      if (admin_pin) {
+        payload.admin_pin = admin_pin;
+      }
+
       const result = await authService.apiRequest('/api/v1/pawn-transaction/bulk-redemption', {
         method: 'POST',
-        body: JSON.stringify({
-          transaction_ids,
-          notes
-        }),
+        body: JSON.stringify(payload),
       });
       this.clearTransactionCache();
       return result;

@@ -353,8 +353,29 @@ class AuthService {
     
     // If we get a 401 (token expired), try to refresh and retry once
     if (response.status === 401 && this.refreshToken) {
+      // Check if this is an admin PIN error, not a token expiration
+      const errorData = await response.clone().json().catch(() => ({}));
+      const errorMessage = errorData.details?.detail || errorData.details?.message || errorData.message || errorData.detail || '';
+
+      // Don't retry for admin PIN validation errors or other authentication errors
+      if (errorMessage.toLowerCase().includes('admin pin') ||
+          errorMessage.toLowerCase().includes('pin') ||
+          errorData.details?.error_code === 'INVALID_ADMIN_PIN' ||
+          errorData.error_code === 'INVALID_ADMIN_PIN') {
+        // This is an admin PIN error, not a token expiration - don't retry
+        const error = new Error(errorMessage || 'Authentication failed');
+        error.response = {
+          status: response.status,
+          statusText: response.statusText,
+          data: errorData
+        };
+        error.status = response.status;
+        throw error;
+      }
+
+      // Otherwise, treat as token expiration and try to refresh
       const refreshSuccess = await this.refreshAccessToken();
-      
+
       if (refreshSuccess) {
         config.headers.Authorization = `Bearer ${this.token}`;
         response = await fetch(url, config);

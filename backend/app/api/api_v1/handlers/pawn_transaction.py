@@ -52,6 +52,8 @@ from app.models.pawn_transaction_model import PawnTransaction
 # Configure logger
 transaction_logger = structlog.get_logger("pawn_transaction_api")
 
+
+
 # Create router
 pawn_transaction_router = APIRouter()
 
@@ -917,8 +919,44 @@ async def bulk_process_redemption(
     and provides detailed error reporting for each transaction.
 
     Valid statuses for redemption: Active, Overdue, Extended
+
+    If discounts are provided, requires admin role and PIN verification.
     """
     try:
+        # Verify admin PIN if discounts are provided
+        admin_user = None
+        if bulk_redemption.discounts and len(bulk_redemption.discounts) > 0:
+            # Validate admin PIN (same logic as single discount endpoint)
+            # Any user (staff or admin) can initiate, but admin PIN is required for approval
+
+            # Import here to avoid circular dependency
+            from app.models.user_model import User as UserModel
+
+            # Find admin user by PIN - check all admin users
+            all_admins = await UserModel.find(UserModel.role == "admin").to_list()
+            for user in all_admins:
+                if user.verify_pin(bulk_redemption.admin_pin):
+                    admin_user = user
+                    break
+
+            if not admin_user:
+                transaction_logger.warning(
+                    "Invalid admin PIN for bulk redemption with discounts",
+                    user_id=current_user.user_id,
+                    discount_count=len(bulk_redemption.discounts)
+                )
+                raise AuthenticationError(
+                    "Invalid admin PIN",
+                    error_code="INVALID_ADMIN_PIN"
+                )
+
+            transaction_logger.info(
+                "Admin PIN verified for bulk redemption with discounts",
+                user_id=current_user.user_id,
+                admin_user_id=admin_user.user_id,
+                discount_count=len(bulk_redemption.discounts)
+            )
+
         # Pre-flight validation: Check all transactions before processing any
         validation_errors = []
         valid_transaction_ids = []
@@ -947,10 +985,18 @@ async def bulk_process_redemption(
 
                 # Validate transaction has outstanding balance
                 balance_info = await PawnTransactionService.calculate_current_balance(transaction_id)
-                if balance_info["current_balance"] <= 0:
-                    validation_errors.append(
-                        f"{transaction_id}: Already paid off (balance: ${balance_info['current_balance']})"
-                    )
+                current_balance = balance_info["current_balance"]
+                if current_balance <= 0:
+                    if current_balance < 0:
+                        # Negative balance means overpaid
+                        validation_errors.append(
+                            f"{transaction_id}: Overpaid by ${abs(current_balance)} - cannot process redemption"
+                        )
+                    else:
+                        # Zero balance means fully paid
+                        validation_errors.append(
+                            f"{transaction_id}: Already fully paid - cannot process redemption"
+                        )
                     continue
 
                 # Transaction is valid for redemption
@@ -1002,22 +1048,72 @@ async def bulk_process_redemption(
 
                 # Get current balance for payment processing (after setting overdue fee)
                 balance_info = await PawnTransactionService.calculate_current_balance(transaction_id)
-                payoff_amount = balance_info["current_balance"]
+                full_balance = balance_info["current_balance"]
+
+                # Check if discount is provided for this transaction
+                discount_amount = 0
+                cash_payment = full_balance  # Default to full balance
+
+                if bulk_redemption.discounts and transaction_id in bulk_redemption.discounts:
+                    discount_data = bulk_redemption.discounts[transaction_id]
+                    discount_amount = discount_data.amount
+
+                    # Calculate cash payment amount (balance - discount)
+                    # Customer pays less cash, discount makes up the difference
+                    cash_payment = max(0, full_balance - discount_amount)
+
+                    transaction_logger.info(
+                        "Discount will be applied in bulk redemption",
+                        transaction_id=transaction_id,
+                        original_balance=full_balance,
+                        discount_amount=discount_amount,
+                        cash_payment=cash_payment,
+                        discount_reason=discount_data.reason
+                    )
 
                 transaction_logger.info(
                     "Processing bulk redemption payment",
                     transaction_id=transaction_id,
-                    payoff_amount=payoff_amount,
+                    full_balance=full_balance,
+                    cash_payment=cash_payment,
+                    discount_amount=discount_amount,
                     user_id=current_user.user_id
                 )
 
-                # Process payment (always cash for bulk redemption)
-                payment_result = await PaymentService.process_payment(
-                    transaction_id=transaction_id,
-                    payment_amount=payoff_amount,
-                    processed_by_user_id=current_user.user_id,
-                    client_timezone=None  # Use UTC for bulk operations
-                )
+                # Process payment with discount if applicable
+                if discount_amount > 0:
+                    discount_data = bulk_redemption.discounts[transaction_id]
+
+                    # Verify admin approval for this discount (same as normal discount flow)
+                    from app.services.discount_service import DiscountService
+                    await DiscountService.verify_admin_approval(
+                        admin_user=admin_user,
+                        admin_pin=bulk_redemption.admin_pin,
+                        discount_amount=discount_amount,
+                        discount_reason=discount_data.reason
+                    )
+
+                    # Use discount payment flow
+                    # payment_amount = cash customer pays
+                    # discount_amount = discount applied
+                    # effective payment = cash + discount (handled by service)
+                    payment_result = await PaymentService.process_payment_with_discount(
+                        transaction_id=transaction_id,
+                        payment_amount=cash_payment,
+                        processed_by_user_id=current_user.user_id,
+                        discount_amount=discount_amount,
+                        discount_reason=discount_data.reason,
+                        discount_approved_by=admin_user.user_id,
+                        client_timezone=None  # Use UTC for bulk operations
+                    )
+                else:
+                    # Process regular payment (always cash for bulk redemption)
+                    payment_result = await PaymentService.process_payment(
+                        transaction_id=transaction_id,
+                        payment_amount=cash_payment,
+                        processed_by_user_id=current_user.user_id,
+                        client_timezone=None  # Use UTC for bulk operations
+                    )
 
                 # Add notes if provided (non-blocking)
                 if bulk_redemption.notes and bulk_redemption.notes.strip():
@@ -1039,10 +1135,10 @@ async def bulk_process_redemption(
                 results.append({
                     "transaction_id": transaction_id,
                     "payment_id": payment_result.payment_id,
-                    "amount_paid": payoff_amount,
+                    "amount_paid": cash_payment,
                     "status": "redeemed"
                 })
-                total_amount += payoff_amount
+                total_amount += cash_payment
 
             except Exception as e:
                 error_msg = f"{transaction_id}: Payment processing failed - {str(e)}"
@@ -1076,6 +1172,40 @@ async def bulk_process_redemption(
 
     except HTTPException:
         raise
+    except AuthenticationError as e:
+        transaction_logger.warning(
+            "Authentication failed in bulk redemption",
+            error=str(e),
+            user_id=current_user.user_id
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "detail": str(e),
+                "error_code": e.error_code if hasattr(e, 'error_code') else "AUTH_FAILED",
+                "details": {"message": str(e)}
+            }
+        )
+    except ValidationError as e:
+        transaction_logger.warning(
+            "Validation failed in bulk redemption",
+            error=str(e),
+            user_id=current_user.user_id
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except BusinessRuleError as e:
+        transaction_logger.warning(
+            "Business rule violation in bulk redemption",
+            error=str(e),
+            user_id=current_user.user_id
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except Exception as e:
         # Log unexpected errors for debugging
         import traceback

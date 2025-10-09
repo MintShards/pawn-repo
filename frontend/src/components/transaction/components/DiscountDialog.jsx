@@ -155,17 +155,6 @@ const DiscountDialog = ({
         admin_pin: adminPin
       };
 
-      console.log('Submitting discount payment:', {
-        paymentAmount,
-        discountAmount,
-        cashPayment,
-        overdueFee,
-        paymentData: {
-          ...paymentData,
-          admin_pin: '****' // Mask PIN
-        }
-      });
-
       const result = await paymentService.processPaymentWithDiscount(paymentData);
 
       if (onSuccess) {
@@ -322,7 +311,7 @@ const DiscountDialog = ({
               id="discount_reason"
               value={discountReason}
               onChange={(e) => setDiscountReason(e.target.value)}
-              placeholder="e.g., Customer loyalty, Damaged item, Business promotion..."
+              placeholder="Enter reason for applying discount..."
               maxLength={200}
               rows={3}
               className={errors.discountReason ? 'border-red-500' : ''}
