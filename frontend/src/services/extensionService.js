@@ -51,6 +51,21 @@ class ExtensionService {
     }
   }
 
+  // Validate extension discount and admin PIN
+  async validateExtensionDiscount(validationData) {
+    try {
+      // Create a minimal request just to validate the admin PIN
+      // This will throw an error if the PIN is invalid
+      const response = await authService.apiRequest('/api/v1/extension/validate-discount', {
+        method: 'POST',
+        body: JSON.stringify(validationData),
+      });
+      return response;
+    } catch (error) {
+      throw error;
+    }
+  }
+
   // Get extension summary
   async getExtensionSummary(transactionId) {
     try {

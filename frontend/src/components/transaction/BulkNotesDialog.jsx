@@ -10,27 +10,10 @@ import { Button } from '../ui/button';
 import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
 import { Alert, AlertDescription } from '../ui/alert';
-import { Loader2, CheckCircle2, FileText } from 'lucide-react';
+import { Loader2, CheckCircle2, FileText, StickyNote } from 'lucide-react';
 import transactionService from '../../services/transactionService';
 import { toast } from 'sonner';
-
-const STATUS_COLORS = {
-  active: 'bg-green-100 text-green-800',
-  overdue: 'bg-red-100 text-red-800',
-  extended: 'bg-blue-100 text-blue-800',
-  forfeited: 'bg-gray-100 text-gray-800',
-  redeemed: 'bg-purple-100 text-purple-800',
-  sold: 'bg-orange-100 text-orange-800'
-};
-
-const STATUS_LABELS = {
-  active: 'Active',
-  overdue: 'Overdue',
-  extended: 'Extended',
-  forfeited: 'Forfeited',
-  redeemed: 'Redeemed',
-  sold: 'Sold'
-};
+import StatusBadge from './components/StatusBadge';
 
 export default function BulkNotesDialog({ 
   isOpen, 
@@ -102,74 +85,84 @@ export default function BulkNotesDialog({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center">
-            <FileText className="mr-2 h-5 w-5 text-blue-600" />
+            <StickyNote className="mr-2 h-5 w-5 text-orange-500" />
             Bulk Add Notes
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
           {/* Summary of selected transactions */}
-          <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-lg space-y-2">
-            <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
-              Selected Transactions: {selectedTransactions.length}
-            </p>
+          <div className="bg-gradient-to-br from-orange-50 to-amber-50 dark:from-orange-900/20 dark:to-amber-900/20 p-4 rounded-lg border border-orange-200 dark:border-orange-800 space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-orange-700 dark:text-orange-300">
+                Selected Transactions
+              </p>
+              <span className="text-lg font-bold text-orange-900 dark:text-orange-100">
+                {selectedTransactions.length}
+              </span>
+            </div>
             <div className="flex flex-wrap gap-2">
               {Object.entries(transactionsByStatus).map(([status, count]) => (
-                <span
-                  key={status}
-                  className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${STATUS_COLORS[status]}`}
-                >
-                  {STATUS_LABELS[status]}: {count}
-                </span>
+                <div key={status} className="flex items-center gap-1">
+                  <StatusBadge status={status} />
+                  <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                    × {count}
+                  </span>
+                </div>
               ))}
             </div>
           </div>
 
           {/* Note Input */}
           <div className="space-y-2">
-            <Label htmlFor="bulk-note">Note to Add</Label>
+            <Label htmlFor="bulk-note" className="text-sm font-medium">
+              Note to Add
+              <span className="text-xs text-slate-500 dark:text-slate-400 ml-2">
+                (will be added to all {selectedTransactions.length} transactions)
+              </span>
+            </Label>
             <Textarea
               id="bulk-note"
-              placeholder="Enter a note to add to all selected transactions..."
+              placeholder="Enter internal note..."
               value={note}
               onChange={(e) => setNote(e.target.value)}
               rows={4}
-              className="min-h-[100px]"
+              className="min-h-[100px] text-sm"
             />
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              This note will be added to the internal notes of all selected transactions with a timestamp.
-            </p>
-          </div>
-
-          {/* Character Count */}
-          <div className="flex justify-between items-center text-xs text-slate-500">
-            <span>
-              {note.length} character{note.length !== 1 ? 's' : ''}
-            </span>
-            {note.length > 500 && (
-              <span className="text-amber-600">
-                Consider keeping notes concise for better readability
+            <div className="flex justify-between items-center">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                This note will appear in the internal notes section with a timestamp.
+              </p>
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                {note.length} chars
               </span>
+            </div>
+            {note.length > 500 && (
+              <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                ⚠️ Consider keeping notes concise for better readability
+              </p>
             )}
           </div>
 
           {/* Result Summary */}
           {result && (
-            <Alert className={result.error_count === 0 ? "border-green-200 bg-green-50 dark:bg-green-900/20" : "border-yellow-200 bg-yellow-50 dark:bg-yellow-900/20"}>
-              <CheckCircle2 className="h-4 w-4 text-green-600" />
+            <Alert className={result.error_count === 0 ? "border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20" : "border-amber-200 bg-amber-50 dark:bg-amber-900/20"}>
+              <CheckCircle2 className={`h-4 w-4 ${result.error_count === 0 ? 'text-emerald-600' : 'text-amber-600'}`} />
               <AlertDescription>
                 <div className="space-y-1">
-                  <p className="font-medium">Notes Added Successfully</p>
-                  <p className="text-sm">
+                  <p className={`font-medium ${result.error_count === 0 ? 'text-emerald-900 dark:text-emerald-100' : 'text-amber-900 dark:text-amber-100'}`}>
+                    Notes {result.error_count === 0 ? 'Added Successfully' : 'Added with Errors'}
+                  </p>
+                  <p className={`text-sm ${result.error_count === 0 ? 'text-emerald-800 dark:text-emerald-200' : 'text-amber-800 dark:text-amber-200'}`}>
                     Successfully updated: {result.success_count} / {result.total_requested}
                   </p>
                   {result.error_count > 0 && (
-                    <p className="text-sm text-yellow-700 dark:text-yellow-300">
+                    <p className="text-sm text-amber-700 dark:text-amber-300">
                       Failed: {result.error_count}
                     </p>
                   )}
                   {result.errors && result.errors.length > 0 && (
-                    <div className="mt-2 text-xs text-slate-600 dark:text-slate-400">
+                    <div className="mt-2 text-xs text-amber-600 dark:text-amber-400">
                       {result.errors.slice(0, 3).map((error, idx) => (
                         <p key={idx}>• {error}</p>
                       ))}
@@ -185,12 +178,13 @@ export default function BulkNotesDialog({
 
           {/* Preview of how note will appear */}
           {note.trim() && !result && (
-            <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-200 dark:border-blue-800">
-              <p className="text-xs font-medium text-blue-700 dark:text-blue-300 mb-1">
-                Preview - Note will appear as:
+            <div className="bg-orange-50 dark:bg-orange-900/20 p-3 rounded-lg border border-orange-200 dark:border-orange-800">
+              <p className="text-xs font-medium text-orange-700 dark:text-orange-300 mb-2 flex items-center gap-1">
+                <StickyNote className="h-3 w-3" />
+                Note Preview
               </p>
-              <p className="text-sm text-slate-700 dark:text-slate-300 italic">
-                "{note.trim()}"
+              <p className="text-sm text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 p-2 rounded border border-orange-100 dark:border-orange-900">
+                {note.trim()}
               </p>
             </div>
           )}
@@ -207,6 +201,7 @@ export default function BulkNotesDialog({
           <Button
             onClick={handleSubmit}
             disabled={isSubmitting || !note.trim()}
+            className="bg-orange-500 hover:bg-orange-600 text-white"
           >
             {isSubmitting ? (
               <>
@@ -215,7 +210,7 @@ export default function BulkNotesDialog({
               </>
             ) : (
               <>
-                <FileText className="mr-2 h-4 w-4" />
+                <StickyNote className="mr-2 h-4 w-4" />
                 Add Notes ({selectedTransactions.length})
               </>
             )}

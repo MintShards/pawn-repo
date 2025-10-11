@@ -247,8 +247,8 @@ export default function BulkRedemptionDialog({
       <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center">
-            <Banknote className="mr-2 h-5 w-5 text-green-600" />
-            Process Cash Redemption
+            <Banknote className="mr-2 h-5 w-5 text-emerald-600" />
+            Process Bulk Redemption Fee Payment
           </DialogTitle>
         </DialogHeader>
 
@@ -260,7 +260,7 @@ export default function BulkRedemptionDialog({
               <div className="flex items-center gap-2">
                 <Banknote className="h-5 w-5 text-green-600" />
                 <p className="text-lg font-semibold text-green-800 dark:text-green-200">
-                  Redemption Summary
+                  Redemption Fee Summary
                 </p>
               </div>
 

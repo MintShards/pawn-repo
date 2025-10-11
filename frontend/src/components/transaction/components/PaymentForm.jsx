@@ -8,6 +8,7 @@ import { Badge } from '../../ui/badge';
 import { Alert, AlertDescription } from '../../ui/alert';
 import paymentService from '../../../services/paymentService';
 import transactionService from '../../../services/transactionService';
+import customerService from '../../../services/customerService';
 import { formatTransactionId, formatCurrency } from '../../../utils/transactionUtils';
 import { useFormValidation, validateAmount } from '../../../utils/formValidation';
 import { handleError, handleSuccess } from '../../../utils/errorHandling';
@@ -16,10 +17,12 @@ import LoadingDialog from '../../common/LoadingDialog';
 import { useStatsPolling } from '../../../hooks/useStatsPolling';
 import { useAuth } from '../../../context/AuthContext';
 import DiscountDialog from './DiscountDialog';
+import StatusBadge from './StatusBadge';
 
 const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
   const { triggerRefresh } = useStatsPolling();
   const { user } = useAuth();
+  const [customerName, setCustomerName] = useState(null);
 
   // Check if user is admin
   const isAdmin = user?.role === 'admin';
@@ -256,6 +259,24 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
     await processPayment();
   }, [validateFormExtended, formData.payment_amount, paymentBreakdown, processPayment]);
 
+  // Load customer name
+  useEffect(() => {
+    const fetchCustomerName = async () => {
+      if (transaction?.customer_id) {
+        try {
+          const customer = await customerService.getCustomerByPhone(transaction.customer_id);
+          if (customer) {
+            setCustomerName(customerService.getCustomerNameFormatted(customer));
+          }
+        } catch (error) {
+          // If customer fetch fails, we'll just show the customer_id
+          console.warn('Could not fetch customer name:', error);
+        }
+      }
+    };
+    fetchCustomerName();
+  }, [transaction?.customer_id]);
+
   // Load balance on mount
   useEffect(() => {
     if (transaction?.transaction_id) {
@@ -274,15 +295,15 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
 
 
   return (
-    <Card className="w-full max-w-2xl mx-auto bg-payment-light dark:bg-payment-dark backdrop-blur-xl border border-payment-medium/20 dark:border-payment-medium/40 shadow-2xl">
-      <CardHeader className="flex flex-row items-center justify-between border-b border-payment-medium/20 dark:border-payment-medium/40 bg-payment-light dark:bg-payment-medium/20">
+    <Card className="w-full max-w-2xl mx-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl">
+      <CardHeader className="flex flex-row items-center justify-between border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-emerald-50 to-green-50 dark:from-emerald-950/30 dark:to-green-950/30">
         <CardTitle className="flex items-center text-xl">
-          <div className="p-2 rounded-lg bg-payment-accent text-white shadow-lg mr-3">
-            <CreditCard className="h-6 w-6" />
+          <div className="p-2 rounded-lg bg-emerald-600 text-white shadow-md mr-3">
+            <CreditCard className="h-5 w-5" />
           </div>
           <div>
-            <div className="text-payment-dark dark:text-payment-secondary">Process Payment</div>
-            <div className="text-sm font-normal text-payment-accent dark:text-amber-400">Record customer payment</div>
+            <div className="text-slate-900 dark:text-slate-100 font-semibold">Process Payment</div>
+            <div className="text-sm font-normal text-emerald-700 dark:text-emerald-400">Record customer payment</div>
           </div>
         </CardTitle>
         {onCancel && (
@@ -293,20 +314,55 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
       </CardHeader>
       
       <CardContent>
-        {/* Transaction Info Banner - Simplified */}
-        <div className="mb-4 p-3 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Badge variant="outline" className="text-xs">
+        {/* Transaction Info Banner */}
+        <div className="mb-5 p-4 bg-gradient-to-br from-emerald-50 to-green-50 dark:from-emerald-950/30 dark:to-green-950/30 rounded-lg border border-emerald-200 dark:border-emerald-800 shadow-sm">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {/* Transaction ID & Customer */}
+            <div className="md:col-span-2 flex items-center gap-3">
+              <Badge variant="outline" className="font-mono bg-white dark:bg-slate-900 border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 px-2.5 py-1 whitespace-nowrap">
                 #{formatTransactionId(transaction)}
               </Badge>
-              <span className="text-sm text-slate-600 dark:text-slate-400">
-                {transaction?.customer_id}
+              <div className="h-10 w-px bg-emerald-300 dark:bg-emerald-700"></div>
+              <div className="flex flex-col min-w-0">
+                <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
+                  {customerName || transaction?.customer_id}
+                </span>
+                {customerName && (
+                  <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">
+                    {transaction?.customer_id}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Loan Amount */}
+            <div className="flex flex-col justify-center">
+              <span className="text-xs text-slate-500 dark:text-slate-400 mb-0.5">Loan Amount</span>
+              <span className="text-base font-bold text-emerald-700 dark:text-emerald-400">
+                {formatCurrency(transaction?.loan_amount || 0)}
               </span>
             </div>
+
+            {/* Status & Maturity */}
+            <div className="flex flex-col justify-center">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs text-slate-500 dark:text-slate-400">Status:</span>
+                <StatusBadge status={transaction?.status} />
+              </div>
+              {transaction?.maturity_date && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-500 dark:text-slate-400">Due:</span>
+                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    {new Date(transaction.maturity_date).toLocaleDateString()}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Loading Indicator */}
             {loadingBalance && (
-              <div className="flex items-center text-xs text-slate-500">
-                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-slate-600 mr-2"></div>
+              <div className="absolute top-4 right-4 flex items-center text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-emerald-600 mr-2"></div>
                 Loading...
               </div>
             )}
@@ -314,13 +370,13 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Amount Summary Card */}
-          <Card className="bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-900 border-slate-200 dark:border-slate-700">
-            <CardContent className="pt-4 pb-3">
-              <div className="space-y-2">
+          {/* Balance Summary Card */}
+          <Card className="bg-gradient-to-br from-emerald-50 to-green-50 dark:from-emerald-950/30 dark:to-green-950/30 border-emerald-200 dark:border-emerald-800 shadow-sm">
+            <CardContent className="pt-4 pb-4">
+              <div className="space-y-3">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-slate-600 dark:text-slate-400">Current Balance:</span>
-                  <span className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                  <span className="text-sm font-medium text-emerald-700 dark:text-emerald-400">Current Balance:</span>
+                  <span className="text-2xl font-bold text-emerald-900 dark:text-emerald-100">
                     {balance ? formatCurrency(balance.current_balance) : '...'}
                   </span>
                 </div>
@@ -328,15 +384,15 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
                 {formData.overdue_fee && parseFloat(formData.overdue_fee) > 0 && (
                   <>
                     <div className="flex justify-between items-center">
-                      <span className="text-sm text-amber-700 dark:text-amber-400">Overdue Fee:</span>
+                      <span className="text-sm font-medium text-amber-700 dark:text-amber-400">Overdue Fee:</span>
                       <span className="text-lg font-bold text-amber-800 dark:text-amber-300">
                         +{formatCurrency(parseFloat(formData.overdue_fee))}
                       </span>
                     </div>
-                    <div className="border-t border-slate-300 dark:border-slate-600 pt-2">
+                    <div className="border-t border-emerald-200 dark:border-emerald-800 pt-3">
                       <div className="flex justify-between items-center">
-                        <span className="text-base font-semibold text-slate-900 dark:text-slate-100">Total Amount Due:</span>
-                        <span className="text-xl font-bold text-green-700 dark:text-green-400">
+                        <span className="text-base font-semibold text-emerald-900 dark:text-emerald-100">Total Amount Due:</span>
+                        <span className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">
                           {formatCurrency(balance ? balance.current_balance + parseFloat(formData.overdue_fee) : 0)}
                         </span>
                       </div>
@@ -388,7 +444,9 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
 
           {/* Payment Amount */}
           <div className="space-y-2">
-            <Label htmlFor="payment_amount" className="text-base font-semibold">Payment Amount ($) *</Label>
+            <Label htmlFor="payment_amount" className="text-base font-semibold text-slate-900 dark:text-slate-100">
+              Payment Amount ($) *
+            </Label>
             <div className="relative">
               <Input
                 id="payment_amount"
@@ -401,7 +459,7 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
                 onBlur={() => touchField('payment_amount')}
                 placeholder="0"
                 disabled={loadingBalance || (balance && balance.current_balance <= 0)}
-                className={getFieldError('payment_amount') ? 'border-red-500 text-2xl font-bold h-14 pr-24' : 'border-slate-300 text-2xl font-bold h-14 pr-24'}
+                className={getFieldError('payment_amount') ? 'border-red-500 text-2xl font-bold h-16 pr-28 bg-white dark:bg-slate-800 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none' : 'border-emerald-300 dark:border-emerald-700 text-2xl font-bold h-16 pr-28 bg-white dark:bg-slate-800 focus:ring-emerald-500 focus:border-emerald-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none'}
                 aria-invalid={!!getFieldError('payment_amount')}
                 aria-describedby={getFieldError('payment_amount') ? 'payment_amount_error' : undefined}
               />
@@ -411,7 +469,7 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
                     type="button"
                     variant="default"
                     size="sm"
-                    className="h-8 px-3 text-xs font-semibold bg-green-600 hover:bg-green-700"
+                    className="h-9 px-3 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
                     onClick={() => {
                       const totalWithFee = balance.current_balance + parseFloat(formData.overdue_fee || 0);
                       handleInputChange('payment_amount', totalWithFee.toString());
@@ -424,7 +482,7 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="h-8 px-3 text-xs font-semibold bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-300"
+                      className="h-9 px-3 text-xs font-semibold bg-amber-50 hover:bg-amber-200 text-amber-800 hover:text-amber-900 border-amber-400 hover:border-amber-500 dark:bg-amber-900/20 dark:hover:bg-amber-900/40 dark:border-amber-700 dark:text-amber-300 dark:hover:text-amber-200 dark:hover:border-amber-600"
                       onClick={() => setShowDiscountDialog(true)}
                     >
                       <Percent className="h-3 w-3 mr-1" />
@@ -435,7 +493,7 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
               )}
             </div>
             {getFieldError('payment_amount') && (
-              <div id="payment_amount_error" className="text-xs text-red-600 mt-1">
+              <div id="payment_amount_error" className="text-xs text-red-600 dark:text-red-400 mt-1">
                 {getFieldError('payment_amount')}
               </div>
             )}
@@ -455,9 +513,9 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
 
           {/* Full Payment Badge */}
           {paymentBreakdown && paymentBreakdown.isFullPayment && (
-            <div className="flex items-center justify-center gap-2 p-4 bg-gradient-to-r from-green-500 to-emerald-600 rounded-lg shadow-md">
-              <CheckCircle className="h-6 w-6 text-white" />
-              <span className="font-bold text-white">✓ Transaction Will Be Fully Redeemed</span>
+            <div className="flex items-center justify-center gap-2 p-3 bg-gradient-to-r from-emerald-600 to-green-600 rounded-lg shadow-md border border-emerald-400">
+              <CheckCircle className="h-5 w-5 text-white animate-pulse" />
+              <span className="font-semibold text-sm text-white">Transaction Will Be Fully Redeemed</span>
             </div>
           )}
 

@@ -18,7 +18,9 @@ import {
   User,
   Wallet,
   Table as TableIcon,
-  LayoutGrid
+  LayoutGrid,
+  ListChecks,
+  StickyNote
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -1382,58 +1384,57 @@ const TransactionList = ({
       {!loading && paginatedTransactions.length > 0 && (
         <div className="space-y-4">
           {/* Results Summary & View Controls */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-gradient-to-r from-blue-50/50 to-indigo-50/50 dark:from-blue-950/20 dark:to-indigo-950/20 rounded-xl border border-blue-200/30 dark:border-blue-800/30">
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-2">
-                <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                  {effectiveTotalTransactions} result{effectiveTotalTransactions !== 1 ? 's' : ''}
-                </span>
-                {(filters.status || searchTerm || Object.values(searchFields).some(v => v)) && (
-                  <Badge variant="outline" className="text-xs bg-blue-100/50 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700">
-                    filtered
-                  </Badge>
-                )}
-              </div>
-              
+          <div className="flex items-center justify-between gap-2 p-4 bg-gradient-to-r from-blue-50/50 to-indigo-50/50 dark:from-blue-950/20 dark:to-indigo-950/20 rounded-xl border border-blue-200/30 dark:border-blue-800/30">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                {effectiveTotalTransactions} result{effectiveTotalTransactions !== 1 ? 's' : ''}
+              </span>
+              {(filters.status || searchTerm || Object.values(searchFields).some(v => v)) && (
+                <Badge variant="outline" className="text-xs bg-blue-100/50 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700">
+                  filtered
+                </Badge>
+              )}
               {selectedTransactionIds.length > 0 && (
-                <div className="flex items-center space-x-2">
-                  <Badge className="px-3 py-1 bg-blue-500 text-white">
+                <>
+                  <Badge className="px-2 py-1 bg-blue-500 text-white text-xs">
                     {selectedTransactionIds.length} selected
                   </Badge>
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setShowBulkStatusDialog(true)}
-                    className="h-8 px-3 bg-blue-500 text-white hover:bg-blue-600 border-blue-600"
+                    onClick={() => setShowBulkRedemptionDialog(true)}
+                    className="h-7 px-2 bg-emerald-600 text-white hover:bg-emerald-700 border-emerald-600 text-xs"
                   >
+                    <Banknote className="mr-1 h-3 w-3" />
+                    Bulk Redeem
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowBulkExtensionPaymentDialog(true)}
+                    className="h-7 px-2 bg-blue-600 text-white hover:bg-blue-700 border-blue-600 text-xs"
+                  >
+                    <Calendar className="mr-1 h-3 w-3" />
+                    Bulk Extend
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowBulkStatusDialog(true)}
+                    className="h-7 px-2 bg-slate-600 text-white hover:bg-slate-700 border-slate-600 text-xs"
+                  >
+                    <ListChecks className="mr-1 h-3 w-3" />
                     Update Status
                   </Button>
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => setShowBulkNotesDialog(true)}
-                    className="h-8 px-3 bg-green-500 text-white hover:bg-green-600 border-green-600"
+                    className="h-7 px-2 bg-orange-500 text-white hover:bg-orange-600 border-orange-600 text-xs"
                   >
+                    <StickyNote className="mr-1 h-3 w-3" />
                     Add Notes
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowBulkRedemptionDialog(true)}
-                    className="h-8 px-3 bg-emerald-600 text-white hover:bg-emerald-700 border-emerald-600"
-                  >
-                    <Banknote className="mr-1 h-3 w-3" />
-                    Process Redemption
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowBulkExtensionPaymentDialog(true)}
-                    className="h-8 px-3 bg-blue-600 text-white hover:bg-blue-700 border-blue-600"
-                  >
-                    <Calendar className="mr-1 h-3 w-3" />
-                    Extension Payment
                   </Button>
                   <Button
                     variant="ghost"
@@ -1443,7 +1444,7 @@ const TransactionList = ({
                   >
                     <X className="h-3 w-3" />
                   </Button>
-                </div>
+                </>
               )}
             </div>
 
@@ -1453,31 +1454,25 @@ const TransactionList = ({
                 variant="ghost"
                 size="sm"
                 onClick={() => setIsMobile(false)}
-                className={`h-8 px-4 transition-all ${
-                  !isMobile 
-                    ? 'bg-blue-500 text-white shadow-sm hover:bg-blue-600' 
+                className={`h-7 px-3 transition-all ${
+                  !isMobile
+                    ? 'bg-blue-500 text-white shadow-sm hover:bg-blue-600'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-700'
                 }`}
               >
-                <div className="flex items-center space-x-2">
-                  <TableIcon className="w-4 h-4" />
-                  <span className="font-medium">Table</span>
-                </div>
+                <TableIcon className="w-4 h-4" />
               </Button>
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setIsMobile(true)}
-                className={`h-8 px-4 transition-all ${
-                  isMobile 
-                    ? 'bg-blue-500 text-white shadow-sm hover:bg-blue-600' 
+                className={`h-7 px-3 transition-all ${
+                  isMobile
+                    ? 'bg-blue-500 text-white shadow-sm hover:bg-blue-600'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-700'
                 }`}
               >
-                <div className="flex items-center space-x-2">
-                  <LayoutGrid className="w-4 h-4" />
-                  <span className="font-medium">Cards</span>
-                </div>
+                <LayoutGrid className="w-4 h-4" />
               </Button>
             </div>
           </div>
@@ -1525,7 +1520,7 @@ const TransactionList = ({
                       >
                         <div className="flex items-center space-x-2 py-2">
                           <DollarSign className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                          <span>Loan Amount</span>
+                          <span>Loan</span>
                           {getSortIcon('loan_amount')}
                         </div>
                       </TableHead>

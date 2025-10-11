@@ -355,13 +355,13 @@ class AuthService {
     if (response.status === 401 && this.refreshToken) {
       // Check if this is an admin PIN error, not a token expiration
       const errorData = await response.clone().json().catch(() => ({}));
-      const errorMessage = errorData.details?.detail || errorData.details?.message || errorData.message || errorData.detail || '';
+      const errorMessage = errorData.message || errorData.detail || errorData.details?.message || errorData.details?.detail || '';
 
       // Don't retry for admin PIN validation errors or other authentication errors
       if (errorMessage.toLowerCase().includes('admin pin') ||
           errorMessage.toLowerCase().includes('pin') ||
-          errorData.details?.error_code === 'INVALID_ADMIN_PIN' ||
-          errorData.error_code === 'INVALID_ADMIN_PIN') {
+          errorData.error_code === 'INVALID_ADMIN_PIN' ||
+          errorData.details?.error_code === 'INVALID_ADMIN_PIN') {
         // This is an admin PIN error, not a token expiration - don't retry
         const error = new Error(errorMessage || 'Authentication failed');
         error.response = {
@@ -390,10 +390,12 @@ class AuthService {
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      
-      
+
+
       // Create enhanced error with response details
-      const error = new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+      // Check message field first (for custom exceptions), then detail (for HTTPException)
+      const errorMessage = errorData.message || errorData.detail || `HTTP error! status: ${response.status}`;
+      const error = new Error(errorMessage);
       error.response = {
         status: response.status,
         statusText: response.statusText,

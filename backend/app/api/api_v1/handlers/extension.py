@@ -17,12 +17,13 @@ import structlog
 from app.api.deps.user_deps import get_staff_or_admin_user
 from app.api.deps.timezone_deps import get_client_timezone
 from app.core.security_middleware import strict_rate_limit
+from app.core.exceptions import AuthenticationError
 from app.models.user_model import User
 from app.schemas.extension_schema import (
     ExtensionCreate, ExtensionResponse, ExtensionListResponse,
     ExtensionEligibilityResponse, ExtensionSummaryResponse,
     ExtensionReceiptResponse, ExtensionHistoryResponse,
-    ExtensionValidationResponse
+    ExtensionValidationResponse, ExtensionDiscountValidationResponse
 )
 from app.schemas.bulk_extension_schema import (
     BulkExtensionPaymentRequest, BulkExtensionPaymentResponse
@@ -37,6 +38,99 @@ extension_logger = structlog.get_logger("extension_api")
 
 # Create router
 extension_router = APIRouter()
+
+
+@extension_router.post(
+    "/validate-discount",
+    response_model=ExtensionDiscountValidationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Validate extension discount",
+    description="Validate admin PIN for extension discount without processing the extension",
+    responses={
+        200: {"description": "Admin PIN validated successfully"},
+        400: {"description": "Bad request - Invalid discount data"},
+        401: {"description": "Invalid admin PIN"},
+        422: {"description": "Validation error"}
+    }
+)
+@strict_rate_limit()
+async def validate_extension_discount(
+    request: Request,
+    extension_data: ExtensionCreate,
+    current_user: User = Depends(get_staff_or_admin_user),
+    client_timezone: Optional[str] = Depends(get_client_timezone)
+) -> ExtensionDiscountValidationResponse:
+    """Validate admin PIN for extension discount without processing the extension"""
+    try:
+        # Validate discount parameters
+        if not extension_data.discount_amount or extension_data.discount_amount <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Discount amount is required and must be greater than 0"
+            )
+
+        if not extension_data.discount_reason or not extension_data.discount_reason.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Discount reason is required when discount is applied"
+            )
+
+        if not extension_data.admin_pin or len(extension_data.admin_pin) != 4:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Admin PIN must be exactly 4 digits"
+            )
+
+        # Verify admin approval (get admin user by PIN)
+        admin_user = None
+        all_admins = await User.find(User.role == "admin").to_list()
+        for user in all_admins:
+            if user.verify_pin(extension_data.admin_pin):
+                admin_user = user
+                break
+
+        if not admin_user:
+            extension_logger.warning(
+                "Invalid admin PIN for extension discount validation",
+                user_id=current_user.user_id,
+                transaction_id=extension_data.transaction_id
+            )
+            raise AuthenticationError(
+                "Invalid admin PIN",
+                error_code="INVALID_ADMIN_PIN"
+            )
+
+        extension_logger.info(
+            "Extension discount validation successful",
+            user_id=current_user.user_id,
+            admin_user_id=admin_user.user_id,
+            transaction_id=extension_data.transaction_id,
+            discount_amount=extension_data.discount_amount
+        )
+
+        return ExtensionDiscountValidationResponse(
+            valid=True,
+            message="Admin PIN validated successfully"
+        )
+
+    except AuthenticationError:
+        # Re-raise authentication errors
+        raise
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        extension_logger.error(
+            "Unexpected error in validate_extension_discount",
+            user_id=current_user.user_id,
+            transaction_id=extension_data.transaction_id,
+            exception=str(e),
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Validation failed: {str(e)}"
+        )
 
 
 @extension_router.post(
@@ -62,19 +156,59 @@ async def process_extension(
 ) -> ExtensionResponse:
     """Process a loan extension with comprehensive error handling"""
     try:
+        # Validate discount parameters if discount is provided
+        if extension_data.discount_amount and extension_data.discount_amount > 0:
+            if not extension_data.discount_reason or not extension_data.discount_reason.strip():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Discount reason is required when discount is applied"
+                )
+            if not extension_data.admin_pin or len(extension_data.admin_pin) != 4:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Admin PIN must be exactly 4 digits"
+                )
+
+            # Verify admin approval (get admin user by PIN)
+            # Find admin user by PIN - check all admin users
+            admin_user = None
+            all_admins = await User.find(User.role == "admin").to_list()
+            for user in all_admins:
+                if user.verify_pin(extension_data.admin_pin):
+                    admin_user = user
+                    break
+
+            if not admin_user:
+                extension_logger.warning(
+                    "Invalid admin PIN for extension discount approval",
+                    user_id=current_user.user_id,
+                    transaction_id=extension_data.transaction_id
+                )
+                raise AuthenticationError(
+                    "Invalid admin PIN",
+                    error_code="INVALID_ADMIN_PIN"
+                )
+
         extension = await ExtensionService.process_extension(
             transaction_id=extension_data.transaction_id,
             extension_months=extension_data.extension_months,
             extension_fee_per_month=extension_data.extension_fee_per_month,
             processed_by_user_id=current_user.user_id,
             extension_reason=extension_data.extension_reason,
-            client_timezone=client_timezone
+            client_timezone=client_timezone,
+            discount_amount=extension_data.discount_amount,
+            overdue_fee_collected=extension_data.overdue_fee_collected,
+            discount_reason=extension_data.discount_reason,
+            admin_pin=extension_data.admin_pin
         )
-        
+
         return ExtensionResponse.model_validate(extension.model_dump())
-    
+
     except HTTPException:
         # Re-raise HTTP exceptions from service layer
+        raise
+    except AuthenticationError:
+        # Re-raise authentication errors (e.g., invalid admin PIN)
         raise
     except TransactionNotFoundError as e:
         # Handle transaction not found

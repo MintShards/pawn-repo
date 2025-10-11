@@ -122,7 +122,9 @@ class ExtensionService:
         client_timezone: Optional[str] = None,
         discount_amount: float = 0,
         overdue_fee_collected: float = 0,
-        discount_approved_by: Optional[str] = None
+        discount_approved_by: Optional[str] = None,
+        discount_reason: Optional[str] = None,
+        admin_pin: Optional[str] = None
     ) -> Extension:
         """
         Process a loan extension for a pawn transaction with atomic operations.
@@ -137,6 +139,8 @@ class ExtensionService:
             discount_amount: Discount amount applied to extension fee (default: 0)
             overdue_fee_collected: Overdue fee collected with extension (default: 0)
             discount_approved_by: Admin user ID who approved discount (if applicable)
+            discount_reason: Reason for discount (required if discount > 0)
+            admin_pin: Admin PIN for discount approval (required if discount > 0)
 
         Returns:
             Extension: Created extension record with updated transaction
@@ -169,12 +173,44 @@ class ExtensionService:
         staff_user = await User.find_one(User.user_id == processed_by_user_id)
         if not staff_user:
             raise StaffValidationError(f"Staff user {processed_by_user_id} not found")
-        
+
         if staff_user.status != UserStatus.ACTIVE:
             raise StaffValidationError(
                 f"Staff user {staff_user.first_name} {staff_user.last_name} is not active"
             )
-        
+
+        # Verify admin PIN if discount is applied
+        # NOTE: Admin PIN validation is done in the API handler before calling this service
+        admin_user_id = None
+        if discount_amount and discount_amount > 0:
+            if not admin_pin or len(admin_pin) != 4:
+                raise ExtensionValidationError("Admin PIN is required when discount is applied")
+
+            if not discount_reason or not discount_reason.strip():
+                raise ExtensionValidationError("Discount reason is required when discount is applied")
+
+            # Admin PIN already validated by API handler - just find the admin user
+            all_admins = await User.find(User.role == "admin").to_list()
+            admin_user = None
+            for user in all_admins:
+                if user.verify_pin(admin_pin):
+                    admin_user = user
+                    break
+
+            # If we reach here with an invalid PIN, it means handler validation was bypassed
+            # This should never happen in normal flow, but keep as safety check
+            if not admin_user:
+                raise StaffValidationError("Invalid admin PIN for discount approval")
+
+            admin_user_id = admin_user.user_id
+
+            # Validate discount amount doesn't exceed extension fee
+            total_extension_fee = extension_months * extension_fee_per_month
+            if discount_amount > total_extension_fee:
+                raise ExtensionValidationError(
+                    f"Discount amount (${discount_amount:.2f}) cannot exceed total extension fee (${total_extension_fee:.2f})"
+                )
+
         # Validate extension parameters
         if extension_months not in [1, 2, 3]:
             raise ExtensionValidationError("Extension months must be 1, 2, or 3")
@@ -217,7 +253,7 @@ class ExtensionService:
                 total_extension_fee=total_extension_fee,
                 discount_amount=discount_amount,
                 overdue_fee_collected=overdue_fee_collected,
-                discount_approved_by=discount_approved_by,
+                discount_approved_by=admin_user_id,  # Use verified admin user ID
                 original_maturity_date=fresh_transaction.maturity_date,
                 extension_date=extension_date_utc,
                 extension_reason=extension_reason
@@ -237,7 +273,7 @@ class ExtensionService:
             
             # Update transaction with new dates and status atomically
             await ExtensionService._update_transaction_for_extension_atomic(
-                fresh_transaction, extension, processed_by_user_id, session, client_timezone
+                fresh_transaction, extension, processed_by_user_id, session, client_timezone, discount_reason
             )
             
             return extension
@@ -260,7 +296,8 @@ class ExtensionService:
         transaction: PawnTransaction,
         extension: Extension,
         processed_by_user_id: str,
-        client_timezone: Optional[str] = None
+        client_timezone: Optional[str] = None,
+        discount_reason: Optional[str] = None
     ) -> None:
         """
         Update transaction with extension details.
@@ -302,6 +339,30 @@ class ExtensionService:
             save_immediately=False  # We'll save separately
         )
 
+        # Add overdue fee audit entry if overdue fee was collected
+        if extension.overdue_fee_collected and extension.overdue_fee_collected > 0:
+            from app.models.audit_entry_model import create_audit_entry, AuditActionType
+            overdue_fee_audit = create_audit_entry(
+                action_type=AuditActionType.OVERDUE_FEE_SET,
+                staff_member=processed_by_user_id,
+                action_summary=f"Overdue fee: ${int(extension.overdue_fee_collected)}",
+                details=None,  # No details for cleaner timeline
+                amount=int(extension.overdue_fee_collected)
+            )
+            transaction.add_system_audit_entry(overdue_fee_audit)
+
+        # Add discount audit entry if discount was applied to extension
+        if extension.discount_amount and extension.discount_amount > 0 and extension.discount_approved_by:
+            await notes_service.add_discount_audit(
+                transaction=transaction,
+                staff_member=processed_by_user_id,
+                discount_amount=extension.discount_amount,
+                discount_reason=discount_reason or "Extension discount",
+                approved_by=extension.discount_approved_by,
+                payment_id=extension.extension_id,  # Use extension_id as related_id
+                save_immediately=False  # We'll save separately
+            )
+
         # Save transaction
         await transaction.save()
 
@@ -319,7 +380,8 @@ class ExtensionService:
         extension: Extension,
         processed_by_user_id: str,
         session,
-        client_timezone: Optional[str] = None
+        client_timezone: Optional[str] = None,
+        discount_reason: Optional[str] = None
     ) -> None:
         """
         Update transaction with extension details atomically within session.
@@ -365,6 +427,30 @@ class ExtensionService:
         #     # Log audit entry error but don't fail the extension
         #     # Continue with extension processing
         #     pass
+
+        # Add overdue fee audit entry if overdue fee was collected
+        if extension.overdue_fee_collected and extension.overdue_fee_collected > 0:
+            from app.models.audit_entry_model import create_audit_entry, AuditActionType
+            overdue_fee_audit = create_audit_entry(
+                action_type=AuditActionType.OVERDUE_FEE_SET,
+                staff_member=processed_by_user_id,
+                action_summary=f"Overdue fee: ${int(extension.overdue_fee_collected)}",
+                details=None,  # No details for cleaner timeline
+                amount=int(extension.overdue_fee_collected)
+            )
+            transaction.add_system_audit_entry(overdue_fee_audit)
+
+        # Add discount audit entry if discount was applied to extension
+        if extension.discount_amount and extension.discount_amount > 0 and extension.discount_approved_by:
+            await notes_service.add_discount_audit(
+                transaction=transaction,
+                staff_member=processed_by_user_id,
+                discount_amount=extension.discount_amount,
+                discount_reason=discount_reason or "Extension discount",
+                approved_by=extension.discount_approved_by,
+                payment_id=extension.extension_id,  # Use extension_id as related_id
+                save_immediately=False  # Save with session
+            )
 
         # Save transaction within session
         if session:

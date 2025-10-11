@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Percent, Shield, AlertCircle, CheckCircle, DollarSign } from 'lucide-react';
+import { Percent, Shield, CheckCircle, DollarSign } from 'lucide-react';
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
@@ -194,49 +194,49 @@ const DiscountDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-xl">
+          <DialogTitle className="flex items-center gap-2 text-lg">
             <div className="p-2 rounded-lg bg-amber-500 text-white">
-              <Percent className="h-5 w-5" />
+              <Percent className="h-4 w-4" />
             </div>
-            Apply Admin Discount
+            Apply Discount
           </DialogTitle>
-          <DialogDescription>
-            Requires admin approval. Discount applies to interest first, then principal.
+          <DialogDescription className="text-sm">
+            Admin approval required • Interest-first allocation • Fully audited
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Payment Summary */}
-          <Card className="bg-slate-50 dark:bg-slate-900">
-            <CardContent className="pt-4 space-y-2">
-              <div className="flex justify-between">
-                <span className="text-sm text-slate-600 dark:text-slate-400">Current Balance:</span>
-                <span className="font-semibold">{formatCurrency(currentBalance)}</span>
+          {/* Payment Summary Card */}
+          <Card className="bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900/50 dark:to-slate-900/80 border-slate-200 dark:border-slate-800">
+            <CardContent className="pt-4 pb-4 space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-slate-600 dark:text-slate-400">Current Balance</span>
+                <span className="text-base font-bold">{formatCurrency(currentBalance)}</span>
               </div>
               {overdueFee > 0 && (
-                <div className="flex justify-between text-amber-700 dark:text-amber-400">
-                  <span className="text-sm">Includes Overdue Fee:</span>
-                  <span className="font-semibold">{formatCurrency(overdueFee)}</span>
+                <div className="flex justify-between items-center text-amber-700 dark:text-amber-400">
+                  <span className="text-xs">+ Overdue Fee</span>
+                  <span className="text-sm font-semibold">{formatCurrency(overdueFee)}</span>
                 </div>
               )}
               {discountAmount && parseFloat(discountAmount) > 0 && (
                 <>
-                  <div className="flex justify-between text-purple-600 dark:text-purple-400">
-                    <span className="text-sm">Discount:</span>
-                    <span className="font-semibold">-{formatCurrency(parseFloat(discountAmount))}</span>
+                  <div className="flex justify-between items-center text-amber-700 dark:text-amber-400">
+                    <span className="text-sm">Discount</span>
+                    <span className="text-base font-semibold">-{formatCurrency(parseFloat(discountAmount))}</span>
                   </div>
-                  <div className="border-t border-slate-300 dark:border-slate-700 pt-2 mt-2">
-                    <div className="flex justify-between">
-                      <span className="text-sm font-medium">Customer Pays:</span>
-                      <span className="text-lg font-bold text-green-600 dark:text-green-400">
+                  <div className="border-t border-slate-300 dark:border-slate-700 pt-2 mt-2 space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm font-medium text-emerald-700 dark:text-emerald-400">Customer Pays</span>
+                      <span className="text-xl font-bold text-emerald-900 dark:text-emerald-100">
                         {formatCurrency(actualCashPayment)}
                       </span>
                     </div>
-                    <div className="flex justify-between mt-1">
-                      <span className="text-sm text-slate-600 dark:text-slate-400">New Balance:</span>
-                      <span className="font-semibold">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-slate-600 dark:text-slate-400">New Balance</span>
+                      <span className="text-sm font-semibold">
                         {formatCurrency(balanceAfter)}
                       </span>
                     </div>
@@ -248,11 +248,11 @@ const DiscountDialog = ({
 
           {/* Discount Amount */}
           <div className="space-y-2">
-            <Label htmlFor="discount_amount">
+            <Label htmlFor="discount_amount" className="text-sm font-medium">
               Discount Amount ($) *
             </Label>
             <div className="relative">
-              <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-base text-slate-500">$</span>
               <Input
                 id="discount_amount"
                 type="number"
@@ -261,19 +261,19 @@ const DiscountDialog = ({
                 max="10000"
                 value={discountAmount}
                 onChange={(e) => setDiscountAmount(e.target.value)}
-                placeholder="0"
-                className={`pl-10 ${errors.discountAmount ? 'border-red-500' : ''}`}
+                placeholder="0.00"
+                className={`pl-8 pr-10 h-11 text-base font-semibold ${errors.discountAmount ? 'border-red-500 focus:ring-red-500' : 'border-amber-300 dark:border-amber-700 focus:ring-amber-500'} [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`}
                 disabled={submitting}
               />
               {validating && (
-                <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-slate-600"></div>
+                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-amber-600"></div>
                 </div>
               )}
             </div>
             {errors.discountAmount && (
-              <p className="text-xs text-red-600 flex items-center gap-1">
-                <AlertCircle className="h-3 w-3" />
+              <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
+                <span className="inline-block w-1 h-1 rounded-full bg-red-600"></span>
                 {errors.discountAmount}
               </p>
             )}
@@ -281,45 +281,46 @@ const DiscountDialog = ({
 
           {/* Validation Result */}
           {validationResult && validationResult.is_valid && (
-            <Alert className="bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800">
-              <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
-              <AlertDescription className="text-green-800 dark:text-green-200">
+            <div className="p-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-md">
+              <div className="flex items-start gap-2">
+                <CheckCircle className="h-4 w-4 text-emerald-600 dark:text-emerald-400 mt-0.5 flex-shrink-0" />
                 <div className="space-y-1">
-                  <div className="font-medium">Discount Valid - Interest-First Allocation:</div>
-                  <div className="text-sm space-y-1">
+                  <div className="text-sm font-medium text-emerald-800 dark:text-emerald-200">Discount Allocation</div>
+                  <div className="text-xs text-emerald-700 dark:text-emerald-300 space-y-0.5">
                     {validationResult.discount_on_interest > 0 && (
-                      <div>• Discount on Interest: {formatCurrency(validationResult.discount_on_interest)}</div>
+                      <div>→ Interest: {formatCurrency(validationResult.discount_on_interest)}</div>
                     )}
                     {validationResult.discount_on_principal > 0 && (
-                      <div>• Discount on Principal: {formatCurrency(validationResult.discount_on_principal)}</div>
+                      <div>→ Principal: {formatCurrency(validationResult.discount_on_principal)}</div>
                     )}
                     {validationResult.discount_on_overdue_fees > 0 && (
-                      <div>• Discount on Overdue Fees: {formatCurrency(validationResult.discount_on_overdue_fees)}</div>
+                      <div>→ Overdue Fees: {formatCurrency(validationResult.discount_on_overdue_fees)}</div>
                     )}
                   </div>
                 </div>
-              </AlertDescription>
-            </Alert>
+              </div>
+            </div>
           )}
 
           {/* Discount Reason */}
           <div className="space-y-2">
-            <Label htmlFor="discount_reason">
-              Discount Reason * <Badge variant="outline" className="ml-2">{discountReason.length}/200</Badge>
-            </Label>
+            <div className="flex justify-between items-center">
+              <Label htmlFor="discount_reason" className="text-sm font-medium">Reason *</Label>
+              <span className="text-xs text-slate-500">{discountReason.length}/200</span>
+            </div>
             <Textarea
               id="discount_reason"
               value={discountReason}
               onChange={(e) => setDiscountReason(e.target.value)}
-              placeholder="Enter reason for applying discount..."
+              placeholder="e.g., Loyal customer, hardship case, payment plan completion..."
               maxLength={200}
               rows={3}
-              className={errors.discountReason ? 'border-red-500' : ''}
+              className={`text-sm resize-none ${errors.discountReason ? 'border-red-500' : ''}`}
               disabled={submitting}
             />
             {errors.discountReason && (
-              <p className="text-xs text-red-600 flex items-center gap-1">
-                <AlertCircle className="h-3 w-3" />
+              <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
+                <span className="inline-block w-1 h-1 rounded-full bg-red-600"></span>
                 {errors.discountReason}
               </p>
             )}
@@ -327,8 +328,8 @@ const DiscountDialog = ({
 
           {/* Admin PIN */}
           <div className="space-y-2">
-            <Label htmlFor="admin_pin" className="flex items-center gap-2">
-              <Shield className="h-4 w-4 text-amber-600" />
+            <Label htmlFor="admin_pin" className="text-sm font-medium flex items-center gap-1.5">
+              <Shield className="h-3.5 w-3.5 text-amber-600" />
               Admin PIN *
             </Label>
             <Input
@@ -340,27 +341,25 @@ const DiscountDialog = ({
               value={adminPin}
               onChange={(e) => setAdminPin(e.target.value.replace(/\D/g, ''))}
               placeholder="••••"
-              className={errors.adminPin ? 'border-red-500' : ''}
+              className={`text-center text-xl font-bold tracking-[0.5em] h-11 ${errors.adminPin ? 'border-red-500' : 'border-amber-300 dark:border-amber-700'}`}
               disabled={submitting}
             />
             {errors.adminPin && (
-              <p className="text-xs text-red-600 flex items-center gap-1">
-                <AlertCircle className="h-3 w-3" />
+              <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
+                <span className="inline-block w-1 h-1 rounded-full bg-red-600"></span>
                 {errors.adminPin}
               </p>
             )}
-            <p className="text-xs text-slate-500 flex items-center gap-1">
-              <Shield className="h-3 w-3" />
-              Admin PIN required to approve discount
-            </p>
           </div>
 
-          {/* Validation Error */}
-          {errors.validation && (
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>{errors.validation}</AlertDescription>
-            </Alert>
+          {/* Success Preview */}
+          {validationResult?.is_valid && discountReason && adminPin && (
+            <div className="flex items-center gap-2 p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-md border border-emerald-200 dark:border-emerald-800">
+              <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+              <span className="text-sm text-emerald-800 dark:text-emerald-300">
+                Ready to apply <strong>{formatCurrency(parseFloat(discountAmount))}</strong> discount
+              </span>
+            </div>
           )}
 
           <DialogFooter className="gap-2">
@@ -384,8 +383,8 @@ const DiscountDialog = ({
                 </>
               ) : (
                 <>
-                  <CheckCircle className="h-4 w-4 mr-2" />
-                  Apply Discount & Redeem
+                  <Percent className="h-4 w-4 mr-2" />
+                  Apply Discount
                 </>
               )}
             </Button>

@@ -37,6 +37,27 @@ class ExtensionCreate(ExtensionBase):
         ...,
         description="ID of transaction to extend"
     )
+    overdue_fee_collected: Optional[float] = Field(
+        default=0.0,
+        ge=0,
+        description="Overdue fee collected with extension (for overdue transactions)"
+    )
+    discount_amount: Optional[float] = Field(
+        default=0.0,
+        ge=0,
+        description="Discount amount to apply to extension fee"
+    )
+    discount_reason: Optional[str] = Field(
+        None,
+        max_length=200,
+        description="Reason for discount (required if discount > 0)"
+    )
+    admin_pin: Optional[str] = Field(
+        None,
+        min_length=4,
+        max_length=4,
+        description="Admin PIN for discount approval (required if discount > 0)"
+    )
 
 
 class ExtensionResponse(ExtensionBase):
@@ -174,3 +195,9 @@ class ExtensionValidationResponse(BaseModel):
     exceeds_max_extensions: bool = Field(..., description="Whether request exceeds maximum extensions")
     requires_payment_first: bool = Field(..., description="Whether payment required before extension")
     within_extension_window: bool = Field(..., description="Whether within allowed extension window")
+
+
+class ExtensionDiscountValidationResponse(BaseModel):
+    """Schema for extension discount validation"""
+    valid: bool = Field(..., description="Whether admin PIN is valid")
+    message: str = Field(..., description="Validation message")

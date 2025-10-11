@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Calendar, X, Calculator, AlertCircle, CheckCircle, Clock, DollarSign } from 'lucide-react';
+import { Calendar, X, AlertCircle, CheckCircle, Percent } from 'lucide-react';
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
@@ -13,12 +13,19 @@ import { useFormValidation, validateAmount, validateExtension } from '../../../u
 import { handleError } from '../../../utils/errorHandling';
 import ConfirmationDialog from '../../common/ConfirmationDialog';
 import LoadingDialog from '../../common/LoadingDialog';
+import ExtensionDiscountDialog from './ExtensionDiscountDialog';
+import StatusBadge from './StatusBadge';
 import { formatBusinessDate } from '../../../utils/timezoneUtils';
 import { useStatsPolling } from '../../../hooks/useStatsPolling';
+import { useAuth } from '../../../context/AuthContext';
 
 const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
   const { triggerRefresh } = useStatsPolling();
-  
+  const { user } = useAuth();
+
+  // Check if user is admin
+  const isAdmin = user?.role === 'admin';
+
   // Form validation setup
   const formValidators = {
     extension_months: (value) => validateExtension(value, transaction),
@@ -42,6 +49,9 @@ const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
   const [loadingEligibility, setLoadingEligibility] = useState(false); // eslint-disable-line no-unused-vars
   const [submitting, setSubmitting] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
+  const [showDiscountDialog, setShowDiscountDialog] = useState(false);
+  const [overdueFee, setOverdueFee] = useState('');
+  const [discountData, setDiscountData] = useState(null);
 
   const calculateNewMaturityDate = useMemo(() => {
     if (!transaction?.maturity_date || !formData.extension_months) return null;
@@ -98,19 +108,25 @@ const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
     const months = parseInt(formData.extension_months) || 0;
     const feePerMonth = parseFloat(formData.extension_fee_per_month) || 0;
     const totalFee = months * feePerMonth;
-    
+    const overdueFeeAmount = parseFloat(overdueFee) || 0;
+    const discount = discountData?.discountAmount || 0;
+    const finalAmount = Math.max(0, totalFee + overdueFeeAmount - discount);
+
     const newMaturity = calculateNewMaturityDate;
     const isOverdue = transaction?.status === 'overdue';
-    
+
     return {
       months,
       feePerMonth,
       totalFee,
+      overdueFeeAmount,
+      discount,
+      finalAmount,
       newMaturity,
       isOverdue,
       gracePeriodWarning: isOverdue && 'Extension from overdue status may include additional charges'
     };
-  }, [formData.extension_months, formData.extension_fee_per_month, transaction?.status, calculateNewMaturityDate]);
+  }, [formData.extension_months, formData.extension_fee_per_month, transaction?.status, calculateNewMaturityDate, overdueFee, discountData]);
 
   const handleInputChange = useCallback((field, value) => {
     updateField(field, value);
@@ -166,26 +182,38 @@ const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
         extension_fee_per_month: Math.round(parseFloat(formData.extension_fee_per_month))
       };
 
+      // Include overdue fee if present
+      if (overdueFee && parseFloat(overdueFee) > 0) {
+        extensionData.overdue_fee_collected = parseFloat(overdueFee);
+      }
+
+      // Include discount data if applied
+      if (discountData) {
+        extensionData.discount_amount = discountData.discountAmount;
+        extensionData.discount_reason = discountData.discountReason;
+        extensionData.admin_pin = discountData.adminPin;
+      }
+
       // REAL-TIME FIX: Use optimistic extension processing if available
+      let result;
       if (window.TransactionListOptimistic?.processExtension) {
-        await window.TransactionListOptimistic.processExtension(
+        result = await window.TransactionListOptimistic.processExtension(
           transaction.transaction_id,
           extensionData
         );
       } else {
         // Fallback to direct API call
-        const result = await extensionService.processExtension(extensionData);
-        
-        // Trigger immediate stats refresh after successful extension
-        triggerRefresh();
-        
-        if (onSuccess) {
-          onSuccess(result, true); // Pass flag to indicate balance should be refreshed
-        }
+        result = await extensionService.processExtension(extensionData);
       }
-      
-      // Success handled by optimistic update hook or fallback above
-      
+
+      // Trigger immediate stats refresh after successful extension
+      triggerRefresh();
+
+      // Always call onSuccess to close dialog and refresh UI
+      if (onSuccess) {
+        onSuccess(result, true); // Pass flag to indicate balance should be refreshed
+      }
+
     } catch (err) {
       console.error('❌ EXTENSION PROCESSING FAILED:', err);
       handleError(err, 'Processing extension');
@@ -193,7 +221,7 @@ const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
       setSubmitting(false);
       setShowConfirmation(false);
     }
-  }, [transaction.transaction_id, formData, onSuccess, triggerRefresh]);
+  }, [transaction.transaction_id, formData, onSuccess, triggerRefresh, overdueFee, discountData]);
 
   const formatDate = (dateString) => {
     return formatBusinessDate(dateString);
@@ -238,82 +266,100 @@ const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
           </div>
         )}
         
-        {/* Transaction Info Banner */}
-        <div className="mb-6 p-4 bg-extension-light dark:bg-extension-medium/30 rounded-xl border border-extension-medium/20 shadow-sm">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold text-extension-dark dark:text-extension-secondary flex items-center">
-              <Calendar className="w-5 h-5 mr-2" />
-              Transaction Details
-            </h3>
-            <Badge variant="outline" className="border-extension-accent dark:border-extension-accent text-blue-700 dark:text-blue-300">
-              #{formatTransactionId(transaction)}
-            </Badge>
-          </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <div className="text-sm text-blue-700 dark:text-blue-300">Customer: <span className="font-medium">{transaction?.customer_id || 'N/A'}</span></div>
-              <div className="text-sm text-blue-700 dark:text-blue-300">Status: <span className="capitalize font-medium">{transaction?.status || 'N/A'}</span></div>
-            </div>
-            
-            <div className="p-3 bg-white/70 dark:bg-slate-800/70 rounded-lg border border-extension-medium/20 dark:border-extension-medium/40">
-              <div className="text-sm text-blue-600 dark:text-blue-400 font-medium">Current Maturity</div>
-              <div className="font-bold text-lg text-extension-dark dark:text-extension-secondary">
-                {transaction?.maturity_date ? formatDate(transaction.maturity_date) : 'N/A'}
+        {/* Transaction Info Banner - Compact */}
+        <div className="mb-5 p-4 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 rounded-lg border border-blue-200 dark:border-blue-800 shadow-sm">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {/* Transaction ID and Customer Info */}
+            <div className="flex flex-col gap-1">
+              <Badge variant="outline" className="font-mono bg-white dark:bg-slate-900 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-400 px-2.5 py-1 whitespace-nowrap w-fit">
+                #{formatTransactionId(transaction)}
+              </Badge>
+              <div className="flex flex-col mt-1">
+                <span className="text-sm font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wide">
+                  {transaction?.customer_name || 'N/A'}
+                </span>
+                <span className="text-xs font-mono text-slate-600 dark:text-slate-400">
+                  {transaction?.customer_id || 'N/A'}
+                </span>
               </div>
+            </div>
+
+            {/* Loan Amount */}
+            <div className="flex flex-col justify-center">
+              <span className="text-xs text-slate-500 dark:text-slate-400 mb-0.5">Loan Amount</span>
+              <span className="text-base font-bold text-slate-900 dark:text-slate-100">
+                {formatCurrency(transaction?.loan_amount || 0)}
+              </span>
+            </div>
+
+            {/* Status */}
+            <div className="flex flex-col justify-center">
+              <span className="text-xs text-slate-500 dark:text-slate-400 mb-0.5">Status:</span>
+              <StatusBadge status={transaction?.status} />
+            </div>
+
+            {/* Current Maturity */}
+            <div className="flex flex-col justify-center">
+              <span className="text-xs text-slate-500 dark:text-slate-400 mb-0.5">Due:</span>
+              <span className="text-base font-bold text-blue-700 dark:text-blue-400">
+                {transaction?.maturity_date ? formatDate(transaction.maturity_date) : 'N/A'}
+              </span>
             </div>
           </div>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Extension Duration */}
-          <div className="space-y-2">
-            <Label htmlFor="extension_months">Extension Duration *</Label>
-            <Select 
-              value={formData.extension_months} 
-              onValueChange={(value) => handleInputChange('extension_months', value)}
-              onOpenChange={(open) => !open && touchField('extension_months')}
-              disabled={submitting}
-            >
-              <SelectTrigger className={getFieldError('extension_months') ? 'border-red-500 focus:border-red-500 focus:ring-0 focus:ring-offset-0 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ring-0 ring-offset-0' : 'border-slate-300 focus:border-extension-accent focus:ring-0 focus:ring-offset-0 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ring-0 ring-offset-0'}>
-                <SelectValue placeholder="Select extension duration" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="1">1 Month</SelectItem>
-                <SelectItem value="2">2 Months</SelectItem>
-                <SelectItem value="3">3 Months</SelectItem>
-              </SelectContent>
-            </Select>
-            {getFieldError('extension_months') && (
-              <div className="text-xs text-red-600 mt-1">
-                {getFieldError('extension_months')}
-              </div>
-            )}
-          </div>
+          {/* Extension Duration and Fee Per Month - Side by Side */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Extension Duration */}
+            <div className="space-y-2">
+              <Label htmlFor="extension_months">Extension Duration *</Label>
+              <Select
+                value={formData.extension_months}
+                onValueChange={(value) => handleInputChange('extension_months', value)}
+                onOpenChange={(open) => !open && touchField('extension_months')}
+                disabled={submitting}
+              >
+                <SelectTrigger className={getFieldError('extension_months') ? 'border-red-500 focus:border-red-500 focus:ring-0 focus:ring-offset-0 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ring-0 ring-offset-0' : 'border-slate-300 focus:border-extension-accent focus:ring-0 focus:ring-offset-0 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ring-0 ring-offset-0'}>
+                  <SelectValue placeholder="Select duration" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1">1 Month</SelectItem>
+                  <SelectItem value="2">2 Months</SelectItem>
+                  <SelectItem value="3">3 Months</SelectItem>
+                </SelectContent>
+              </Select>
+              {getFieldError('extension_months') && (
+                <div className="text-xs text-red-600 mt-1">
+                  {getFieldError('extension_months')}
+                </div>
+              )}
+            </div>
 
-          {/* Fee Per Month */}
-          <div className="space-y-2">
-            <Label htmlFor="extension_fee">Fee Per Month ($) *</Label>
-            <Input
-              id="extension_fee"
-              type="number"
-              step="0.01"
-              min="0"
-              max="500"
-              value={formData.extension_fee_per_month}
-              onChange={(e) => handleInputChange('extension_fee_per_month', e.target.value)}
-              onBlur={() => touchField('extension_fee_per_month')}
-              placeholder="0.00"
-              disabled={submitting}
-              className={getFieldError('extension_fee_per_month') ? 'border-red-500 focus:border-red-500 focus:ring-0 focus:ring-offset-0 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0' : 'border-slate-300 focus:border-extension-accent focus:ring-0 focus:ring-offset-0 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0'}
-              aria-invalid={!!getFieldError('extension_fee_per_month')}
-              aria-describedby={getFieldError('extension_fee_per_month') ? 'extension_fee_error' : undefined}
-            />
-            {getFieldError('extension_fee_per_month') && (
-              <div id="extension_fee_error" className="text-xs text-red-600 mt-1">
-                {getFieldError('extension_fee_per_month')}
-              </div>
-            )}
+            {/* Fee Per Month */}
+            <div className="space-y-2">
+              <Label htmlFor="extension_fee">Fee Per Month ($) *</Label>
+              <Input
+                id="extension_fee"
+                type="number"
+                step="0.01"
+                min="0"
+                max="500"
+                value={formData.extension_fee_per_month}
+                onChange={(e) => handleInputChange('extension_fee_per_month', e.target.value)}
+                onBlur={() => touchField('extension_fee_per_month')}
+                placeholder="0.00"
+                disabled={submitting}
+                className={getFieldError('extension_fee_per_month') ? 'border-red-500 focus:border-red-500 focus:ring-0 focus:ring-offset-0 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0' : 'border-slate-300 focus:border-extension-accent focus:ring-0 focus:ring-offset-0 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0'}
+                aria-invalid={!!getFieldError('extension_fee_per_month')}
+                aria-describedby={getFieldError('extension_fee_per_month') ? 'extension_fee_error' : undefined}
+              />
+              {getFieldError('extension_fee_per_month') && (
+                <div id="extension_fee_error" className="text-xs text-red-600 mt-1">
+                  {getFieldError('extension_fee_per_month')}
+                </div>
+              )}
+            </div>
           </div>
 
 
@@ -348,70 +394,138 @@ const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
             </Alert>
           )}
 
-          {/* Fee Calculation Preview */}
+          {/* Fee Summary Card - User-Friendly Design */}
           {feeCalculation && formData.extension_fee_per_month && eligibility?.is_eligible && (
-            <Card className="bg-extension-light dark:bg-extension-medium/20 border-extension-medium/20 dark:border-extension-medium/40 shadow-lg">
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center text-lg">
-                  <div className="p-2 rounded-lg bg-extension-accent text-white shadow-md mr-3">
-                    <Calculator className="h-5 w-5" />
-                  </div>
+            <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 border-blue-200 dark:border-blue-800 shadow-sm">
+              <CardContent className="pt-5 pb-5">
+                <div className="space-y-4">
+                  {/* Extension Fee Section */}
                   <div>
-                    <div className="text-extension-dark dark:text-extension-secondary">Extension Calculator</div>
-                    <div className="text-sm font-normal text-blue-600 dark:text-blue-400">Fee breakdown and new dates</div>
-                  </div>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0 space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="p-3 bg-white/70 dark:bg-slate-800/70 rounded-lg border border-extension-medium/20 dark:border-extension-medium/40">
-                    <div className="flex items-center text-blue-600 dark:text-blue-400 mb-1">
-                      <Clock className="h-4 w-4 mr-2" />
-                      <span className="text-sm font-medium">Duration</span>
-                    </div>
-                    <div className="font-bold text-lg text-extension-dark dark:text-extension-secondary">
-                      {feeCalculation.months} month{feeCalculation.months !== 1 ? 's' : ''}
-                    </div>
-                  </div>
-                  <div className="p-3 bg-white/70 dark:bg-slate-800/70 rounded-lg border border-extension-medium/20 dark:border-extension-medium/40">
-                    <div className="flex items-center text-blue-600 dark:text-blue-400 mb-1">
-                      <DollarSign className="h-4 w-4 mr-2" />
-                      <span className="text-sm font-medium">Fee per Month</span>
-                    </div>
-                    <div className="font-bold text-lg text-extension-dark dark:text-extension-secondary">
-                      {formatCurrency(feeCalculation.feePerMonth)}
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="space-y-3">
-                  <div className="p-4 bg-gradient-to-r from-gray-100 to-teal-100 dark:from-gray-800/50 dark:to-teal-950/50 rounded-lg border border-extension-accent dark:border-extension-accent">
-                    <div className="flex justify-between items-center">
-                      <span className="font-semibold text-extension-dark dark:text-extension-secondary">Total Extension Fee:</span>
+                    <div className="flex justify-between items-baseline mb-1">
+                      <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Extension Fee</span>
                       <span className="text-2xl font-bold text-blue-900 dark:text-blue-100">
                         {formatCurrency(feeCalculation.totalFee)}
                       </span>
                     </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-slate-500 dark:text-slate-500">
+                        {feeCalculation.months} month{feeCalculation.months !== 1 ? 's' : ''} @ {formatCurrency(feeCalculation.feePerMonth)}/month
+                      </span>
+                      {isAdmin && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-xs text-purple-600 hover:text-purple-700 hover:bg-purple-50 dark:text-purple-400 dark:hover:text-purple-300 dark:hover:bg-purple-900/20"
+                          onClick={() => setShowDiscountDialog(true)}
+                        >
+                          <Percent className="h-3 w-3 mr-1" />
+                          {discountData ? 'Edit Discount' : 'Add Discount'}
+                        </Button>
+                      )}
+                    </div>
                   </div>
-                  
-                  {feeCalculation.newMaturity && (
-                    <div className="p-3 bg-white/70 dark:bg-slate-800/70 rounded-lg border border-extension-medium/20 dark:border-extension-medium/40">
-                      <div className="flex justify-between items-center">
-                        <span className="text-blue-700 dark:text-blue-300 font-medium">New Maturity Date:</span>
-                        <Badge variant="outline" className="font-mono text-lg px-3 py-1 border-extension-accent dark:border-extension-accent text-blue-700 dark:text-blue-300">
-                          {formatDate(feeCalculation.newMaturity)}
-                        </Badge>
+
+                  {/* Overdue Fee Section - Only show for overdue transactions */}
+                  {feeCalculation.isOverdue && (
+                    <div className="pt-3 border-t border-blue-200 dark:border-blue-700">
+                      <div className="flex justify-between items-center gap-4 mb-2">
+                        <div className="flex-1">
+                          <Label htmlFor="overdue-fee" className="text-sm font-medium text-amber-700 dark:text-amber-400 mb-1 block">
+                            Add Overdue Fee
+                          </Label>
+                          <p className="text-xs text-slate-500 dark:text-slate-500">Optional late payment charge</p>
+                        </div>
+                        <div className="relative w-28">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-500">$</span>
+                          <Input
+                            id="overdue-fee"
+                            type="number"
+                            min="0"
+                            max="10000"
+                            placeholder="0.00"
+                            value={overdueFee}
+                            onChange={(e) => setOverdueFee(e.target.value)}
+                            className="h-10 w-full text-base font-semibold text-right pl-7 pr-3 border-amber-300 dark:border-amber-700 focus:ring-2 focus:ring-amber-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          />
+                        </div>
+                      </div>
+                      {overdueFee && parseFloat(overdueFee) > 0 && (
+                        <div className="flex items-center gap-2 p-2 bg-amber-50 dark:bg-amber-900/20 rounded-md border border-amber-200 dark:border-amber-800">
+                          <CheckCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+                          <span className="text-sm text-amber-800 dark:text-amber-300">
+                            Late payment fee of <strong>{formatCurrency(parseFloat(overdueFee))}</strong> will be added
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Discount Section - Show when discount applied */}
+                  {discountData && (
+                    <div className="pt-3 border-t border-blue-200 dark:border-blue-700">
+                      <div className="flex justify-between items-center gap-4 mb-2">
+                        <div className="flex-1">
+                          <Label className="text-sm font-medium text-purple-700 dark:text-purple-400 mb-1 block">
+                            Discount Applied
+                          </Label>
+                          <p className="text-xs text-slate-500 dark:text-slate-500">{discountData.discountReason}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg font-bold text-purple-700 dark:text-purple-400">
+                            -{formatCurrency(discountData.discountAmount)}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-6 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-red-900/20"
+                            onClick={() => setDiscountData(null)}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 p-2 bg-purple-50 dark:bg-purple-900/20 rounded-md border border-purple-200 dark:border-purple-800">
+                        <CheckCircle className="w-4 h-4 text-purple-600 dark:text-purple-400 flex-shrink-0" />
+                        <span className="text-sm text-purple-800 dark:text-purple-300">
+                          Discount of <strong>{formatCurrency(discountData.discountAmount)}</strong> has been approved
+                        </span>
                       </div>
                     </div>
                   )}
-                  
-                  {feeCalculation.isOverdue && feeCalculation.gracePeriodWarning && (
-                    <Alert variant="destructive" className="border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/30">
-                      <AlertCircle className="h-4 w-4" />
-                      <AlertDescription className="text-sm font-medium">
-                        {feeCalculation.gracePeriodWarning}
-                      </AlertDescription>
-                    </Alert>
+
+                  {/* Final Amount Section - Show when discount or overdue fee present */}
+                  {(discountData || (overdueFee && parseFloat(overdueFee) > 0)) && (
+                    <div className="pt-4 border-t-2 border-emerald-200 dark:border-emerald-800">
+                      <div className="flex justify-between items-center p-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg">
+                        <div>
+                          <span className="text-sm font-medium text-emerald-700 dark:text-emerald-400 block mb-1">Total Amount Due</span>
+                          <span className="text-xs text-emerald-600 dark:text-emerald-500">Amount to collect from customer</span>
+                        </div>
+                        <span className="text-3xl font-bold text-emerald-900 dark:text-emerald-100">
+                          {formatCurrency(feeCalculation.finalAmount)}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* New Maturity Date */}
+                  {feeCalculation.newMaturity && (
+                    <div className="pt-3 border-t border-blue-200 dark:border-blue-700">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="text-sm font-medium text-slate-700 dark:text-slate-300 block">New Maturity Date</span>
+                          <span className="text-xs text-slate-500 dark:text-slate-500">Extended due date</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Calendar className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                          <span className="text-base font-bold text-blue-700 dark:text-blue-400">
+                            {formatDate(feeCalculation.newMaturity)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
                   )}
                 </div>
               </CardContent>
@@ -528,6 +642,21 @@ const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
         open={submitting && !showConfirmation}
         title="Processing Extension"
         description="Extending your loan period..."
+      />
+
+      {/* Discount Dialog */}
+      <ExtensionDiscountDialog
+        open={showDiscountDialog}
+        onOpenChange={setShowDiscountDialog}
+        transaction={transaction}
+        extensionFee={feeCalculation.totalFee}
+        extensionMonths={parseInt(formData.extension_months)}
+        extensionFeePerMonth={Math.round(parseFloat(formData.extension_fee_per_month))}
+        overdueFeeCollected={overdueFee}
+        onSuccess={(discountInfo) => {
+          // Store discount data - don't process yet
+          setDiscountData(discountInfo);
+        }}
       />
     </Card>
   );
