@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { 
-  Plus, 
-  Filter, 
-  MoreHorizontal, 
-  Eye, 
-  Edit2, 
-  User, 
+import {
+  Plus,
+  Filter,
+  MoreHorizontal,
+  Eye,
+  Edit2,
+  User,
   Users,
   TrendingUp,
   ChevronUp,
@@ -41,9 +41,12 @@ import {
   Info,
   UserCheck,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  LayoutGrid,
+  TableIcon
 } from 'lucide-react';
 import { Button } from '../ui/button';
+import { Badge } from '../ui/badge';
 import { CustomerTableSkeleton, StatsCardSkeleton, SearchSkeleton } from '../ui/skeleton';
 import { StatusBadge as CustomerStatusBadge } from '../ui/enhanced-badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
@@ -117,6 +120,7 @@ import AdminApprovalDialog from '../common/AdminApprovalDialog';
 import CustomerCard from './CustomerCard';
 import CustomLoanLimitDialog from './CustomLoanLimitDialog';
 import TransactionCard from '../transaction/TransactionCard';
+import TransactionTableView from '../transaction/TransactionTableView';
 import CreatePawnDialogRedesigned from '../transaction/CreatePawnDialogRedesigned';
 import PaymentForm from '../transaction/components/PaymentForm';
 import ExtensionForm from '../transaction/components/ExtensionForm';
@@ -140,7 +144,19 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
   // Sorting state
   const [sortBy, setSortBy] = useState('transaction_date'); // Default to newest first
   const [sortDirection, setSortDirection] = useState('desc');
-  
+
+  // View mode state (card or table) with localStorage persistence
+  const [viewMode, setViewMode] = useState(() => {
+    const saved = localStorage.getItem('transactionsViewMode');
+    return saved || 'table';
+  });
+
+  // Save view mode to localStorage when changed
+  const handleViewModeChange = (mode) => {
+    setViewMode(mode);
+    localStorage.setItem('transactionsViewMode', mode);
+  };
+
   // Dialog states
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
@@ -148,6 +164,8 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
   const [showStatusUpdateForm, setShowStatusUpdateForm] = useState(false);
   const [showTransactionDetails, setShowTransactionDetails] = useState(false);
   const [loadingTransactionDetails, setLoadingTransactionDetails] = useState(false);
+  const [showItemsDialog, setShowItemsDialog] = useState(false);
+  const [selectedTransactionItems, setSelectedTransactionItems] = useState(null);
   // Transaction void hook - consolidates duplicate logic
   const {
     showVoidApprovalDialog,
@@ -531,6 +549,22 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
     setShowCreateForm(true);
   };
 
+  // Handle viewing items in simple dialog
+  const handleViewItems = async (transaction) => {
+    try {
+      const summary = await transactionService.getTransactionSummary(transaction.transaction_id);
+      setSelectedTransactionItems({
+        ...summary.transaction,
+        items: summary.items
+      });
+      setShowItemsDialog(true);
+    } catch (error) {
+      // Failed to fetch transaction summary - use basic data
+      setSelectedTransactionItems(transaction);
+      setShowItemsDialog(true);
+    }
+  };
+
   // Handle viewing transaction details (exact copy from TransactionHub)
 
   const handleViewTransaction = async (transaction) => {
@@ -865,21 +899,53 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
             </div>
             <CardTitle className="text-lg">Transaction History</CardTitle>
           </div>
-          
-          {totalTransactionCount > 0 && (
-            <span className="px-3 py-1 text-sm bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300 rounded-full font-semibold">
-              {totalTransactionCount}
-            </span>
-          )}
-          
-          <Button
-            size="sm"
-            onClick={handleNewTransaction}
-            className="h-8 bg-gradient-to-r from-cyan-500 to-sky-600 hover:from-cyan-600 hover:to-sky-700 text-white shadow-lg shadow-cyan-500/25 transition-all duration-200"
-          >
-            <Plus className="w-4 h-4" />
-            <span className="ml-1 hidden sm:inline">New Transaction</span>
-          </Button>
+
+          <div className="flex items-center gap-3">
+            {totalTransactionCount > 0 && (
+              <span className="px-3 py-1 text-sm bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300 rounded-full font-semibold">
+                {totalTransactionCount}
+              </span>
+            )}
+
+            {/* View Mode Toggle */}
+            <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded-lg p-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleViewModeChange('table')}
+                className={`h-7 px-3 ${
+                  viewMode === 'table'
+                    ? 'bg-white dark:bg-slate-700 shadow-sm'
+                    : 'hover:bg-slate-200 dark:hover:bg-slate-700'
+                }`}
+                title="Table View"
+              >
+                <TableIcon className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleViewModeChange('card')}
+                className={`h-7 px-3 ${
+                  viewMode === 'card'
+                    ? 'bg-white dark:bg-slate-700 shadow-sm'
+                    : 'hover:bg-slate-200 dark:hover:bg-slate-700'
+                }`}
+                title="Card View"
+              >
+                <LayoutGrid className="w-4 h-4" />
+              </Button>
+            </div>
+
+            <Button
+              size="sm"
+              onClick={handleNewTransaction}
+              className="h-8 bg-gradient-to-r from-cyan-500 to-sky-600 hover:from-cyan-600 hover:to-sky-700 text-white shadow-lg shadow-cyan-500/25 transition-all duration-200"
+            >
+              <Plus className="w-4 h-4" />
+              <span className="ml-1 hidden sm:inline">New Transaction</span>
+            </Button>
+          </div>
         </div>
         
         {/* Sorting Controls */}
@@ -950,26 +1016,44 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
         )}
       </CardHeader>
       <CardContent className="p-6">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {Array.isArray(transactions) && transactions.map((transaction) => (
-            <TransactionCard
-              key={transaction.transaction_id}
-              transaction={transaction}
-              onView={() => handleViewTransaction(transaction)}
-              onPayment={() => handlePayment(transaction)}
-              onExtension={() => handleExtension(transaction)}
-              onStatusUpdate={() => handleStatusUpdate(transaction)}
-              onVoidTransaction={() => handleVoidTransaction(transaction)}
-              customerData={{
-                [transaction.customer_phone]: {
-                  first_name: selectedCustomer.first_name,
-                  last_name: selectedCustomer.last_name,
-                  phone_number: selectedCustomer.phone_number
-                }
-              }}
-            />
-          ))}
-        </div>
+        {/* Conditional rendering based on view mode */}
+        {viewMode === 'card' ? (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {Array.isArray(transactions) && transactions.map((transaction) => (
+              <TransactionCard
+                key={transaction.transaction_id}
+                transaction={transaction}
+                onView={() => handleViewTransaction(transaction)}
+                onPayment={() => handlePayment(transaction)}
+                onExtension={() => handleExtension(transaction)}
+                onStatusUpdate={() => handleStatusUpdate(transaction)}
+                onVoidTransaction={() => handleVoidTransaction(transaction)}
+                customerData={{
+                  [transaction.customer_phone]: {
+                    first_name: selectedCustomer.first_name,
+                    last_name: selectedCustomer.last_name,
+                    phone_number: selectedCustomer.phone_number
+                  }
+                }}
+              />
+            ))}
+          </div>
+        ) : (
+          <TransactionTableView
+            transactions={Array.isArray(transactions) ? transactions : []}
+            onView={handleViewTransaction}
+            onViewItems={handleViewItems}
+            onPayment={handlePayment}
+            onExtension={handleExtension}
+            customerData={{
+              [selectedCustomer.phone_number]: {
+                first_name: selectedCustomer.first_name,
+                last_name: selectedCustomer.last_name,
+                phone_number: selectedCustomer.phone_number
+              }
+            }}
+          />
+        )}
         
         {/* Pagination */}
         {totalTransactionCount > pageSize && (
@@ -2439,6 +2523,101 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
           </div>
         )}
       </AdminApprovalDialog>
+
+      {/* Items Dialog */}
+      <Dialog open={showItemsDialog} onOpenChange={setShowItemsDialog}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto bg-details-light dark:bg-details-dark border border-details-medium/20 dark:border-details-medium/40">
+          <DialogHeader className="border-b border-details-medium/20 dark:border-details-medium/40 pb-4">
+            <DialogTitle className="text-slate-800 dark:text-slate-200 flex items-center">
+              <div className="p-2 rounded-lg bg-details-accent text-white shadow-lg mr-3">
+                <Eye className="h-5 w-5" />
+              </div>
+              Transaction Details
+            </DialogTitle>
+            <DialogDescription className="text-slate-600 dark:text-slate-400">
+              View all items associated with transaction {selectedTransactionItems && formatTransactionId(selectedTransactionItems)}
+            </DialogDescription>
+          </DialogHeader>
+          {selectedTransactionItems && (
+            <div className="space-y-4">
+              {/* Transaction Info */}
+              <div className="flex items-center justify-between p-4 bg-details-light dark:bg-details-medium/30 rounded-lg border border-details-medium/20">
+                <div className="flex-1 space-y-1">
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                    #{formatTransactionId(selectedTransactionItems)}
+                  </h3>
+                  {selectedCustomer && (
+                    <div className="text-base font-semibold text-slate-800 dark:text-slate-200">
+                      {selectedCustomer.first_name} {selectedCustomer.last_name}
+                    </div>
+                  )}
+                  <div className="text-sm text-slate-600 dark:text-slate-400">
+                    {selectedTransactionItems.customer_phone || selectedTransactionItems.customer_id}
+                  </div>
+                </div>
+                <StatusBadge status={selectedTransactionItems.status} />
+              </div>
+
+              {/* Items List */}
+              <div className="space-y-3">
+                <h4 className="font-medium text-slate-800 dark:text-slate-200 flex items-center">
+                  <Package className="w-4 h-4 mr-2 text-details-accent" />
+                  Items ({selectedTransactionItems.items?.length || 0})
+                </h4>
+
+                {selectedTransactionItems.items && selectedTransactionItems.items.length > 0 ? (
+                  <div className="grid gap-4">
+                    {selectedTransactionItems.items.map((item, index) => (
+                      <Card key={index} className="border border-details-medium/20 dark:border-details-medium/40 bg-white/70 dark:bg-slate-800/70">
+                        <CardContent className="p-4">
+                          <div className="flex items-start justify-between">
+                            <div className="space-y-2 flex-1">
+                              <div className="flex items-center space-x-2">
+                                <span className="font-mono text-xs bg-details-accent/10 dark:bg-details-accent/20 text-details-accent px-2 py-1 rounded">
+                                  Item #{index + 1}
+                                </span>
+                                {item.serial_number && (
+                                  <span className="font-mono text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 px-2 py-1 rounded">
+                                    S/N: {item.serial_number}
+                                  </span>
+                                )}
+                              </div>
+                              <h5 className="font-semibold text-slate-800 dark:text-slate-200 text-base">
+                                {item.description}
+                              </h5>
+                              {item.condition && (
+                                <div className="flex items-center space-x-2 text-sm">
+                                  <span className="text-slate-500 dark:text-slate-400">Condition:</span>
+                                  <Badge variant="outline" className="capitalize">
+                                    {item.condition}
+                                  </Badge>
+                                </div>
+                              )}
+                              {item.estimated_value && (
+                                <div className="flex items-center space-x-2 text-sm">
+                                  <span className="text-slate-500 dark:text-slate-400">Estimated Value:</span>
+                                  <span className="font-medium text-green-600 dark:text-green-400">
+                                    ${item.estimated_value.toLocaleString()}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <Package className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
+                    <p className="text-slate-500 dark:text-slate-400">No items found for this transaction</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 };

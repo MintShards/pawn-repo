@@ -2002,14 +2002,18 @@ const TransactionList = ({
             <div className="space-y-4">
               {/* Transaction Info */}
               <div className="flex items-center justify-between p-4 bg-details-light dark:bg-details-medium/30 rounded-lg border border-details-medium/20">
-                <div>
-                  <h3 className="font-semibold text-slate-800 dark:text-slate-200">
-                    Transaction #{formatTransactionId(selectedTransactionItems)}
+                <div className="flex-1 space-y-1">
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                    #{formatTransactionId(selectedTransactionItems)}
                   </h3>
-                  <p className="text-sm text-slate-600 dark:text-slate-400">
-                    Customer: {selectedTransactionItems.customer_id} | 
-                    Status: <span className="capitalize font-medium">{getEffectiveTransactionStatus(selectedTransactionItems)}</span>
-                  </p>
+                  {customerData[selectedTransactionItems.customer_id] && (
+                    <div className="text-base font-semibold text-slate-800 dark:text-slate-200">
+                      {customerData[selectedTransactionItems.customer_id].first_name} {customerData[selectedTransactionItems.customer_id].last_name}
+                    </div>
+                  )}
+                  <div className="text-sm text-slate-600 dark:text-slate-400">
+                    {selectedTransactionItems.customer_id}
+                  </div>
                 </div>
                 <StatusBadge status={getEffectiveTransactionStatus(selectedTransactionItems)} />
               </div>
