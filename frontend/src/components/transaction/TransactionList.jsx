@@ -55,6 +55,7 @@ import StatusBadge from './components/StatusBadge';
 import BulkStatusUpdateDialog from './BulkStatusUpdateDialog';
 import BulkNotesDialog from './BulkNotesDialog';
 import BulkRedemptionDialog from './BulkRedemptionDialog';
+import BulkExtensionPaymentDialog from './BulkExtensionPaymentDialog';
 import transactionService from '../../services/transactionService';
 import customerService from '../../services/customerService';
 import extensionService from '../../services/extensionService';
@@ -96,6 +97,7 @@ const TransactionList = ({
   const [showBulkStatusDialog, setShowBulkStatusDialog] = useState(false);
   const [showBulkNotesDialog, setShowBulkNotesDialog] = useState(false);
   const [showBulkRedemptionDialog, setShowBulkRedemptionDialog] = useState(false);
+  const [showBulkExtensionPaymentDialog, setShowBulkExtensionPaymentDialog] = useState(false);
   const [allTransactionsCounts, setAllTransactionsCounts] = useState({
     all: undefined,
     active: undefined,
@@ -131,20 +133,13 @@ const TransactionList = ({
   // Customer data for name display
   const [customerData, setCustomerData] = useState({});
 
-  // Helper to calculate effective transaction status based on extensions
+  // Helper to get transaction status
   const getEffectiveTransactionStatus = (transaction) => {
-    const baseStatus = transaction.status;
-    
-    // Check if transaction has any active (non-cancelled) extensions
-    const extensions = transaction.extensions || [];
-    const hasActiveExtensions = extensions.some(ext => !ext.is_cancelled);
-    
-    // If there are active extensions, status should be 'extended'
-    if (hasActiveExtensions && ['active', 'overdue'].includes(baseStatus)) {
-      return 'extended';
-    }
-    
-    return baseStatus;
+    // IMPORTANT: Trust backend status after extension status fix
+    // Backend now correctly sets status to EXTENDED only when maturity is in future
+    // If status is OVERDUE with extensions, customer is still catching up on past months
+    // No frontend override needed - return backend status as-is
+    return transaction.status;
   };
 
   // Validation functions
@@ -1432,6 +1427,15 @@ const TransactionList = ({
                     Process Redemption
                   </Button>
                   <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowBulkExtensionPaymentDialog(true)}
+                    className="h-8 px-3 bg-blue-600 text-white hover:bg-blue-700 border-blue-600"
+                  >
+                    <Calendar className="mr-1 h-3 w-3" />
+                    Extension Payment
+                  </Button>
+                  <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => setSelectedTransactionIds([])}
@@ -1967,6 +1971,17 @@ const TransactionList = ({
       <BulkRedemptionDialog
         isOpen={showBulkRedemptionDialog}
         onClose={() => setShowBulkRedemptionDialog(false)}
+        selectedTransactions={transactions.filter(t => selectedTransactionIds.includes(t.transaction_id))}
+        onSuccess={() => {
+          setSelectedTransactionIds([]);
+          handleRefresh();
+        }}
+      />
+
+      {/* Bulk Extension Payment Dialog */}
+      <BulkExtensionPaymentDialog
+        isOpen={showBulkExtensionPaymentDialog}
+        onClose={() => setShowBulkExtensionPaymentDialog(false)}
         selectedTransactions={transactions.filter(t => selectedTransactionIds.includes(t.transaction_id))}
         onSuccess={() => {
           setSelectedTransactionIds([]);

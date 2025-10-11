@@ -77,6 +77,24 @@ class ExtensionService {
     }
   }
 
+  // Bulk process extension fee payments
+  async bulkProcessExtensionPayment(paymentData) {
+    try {
+      const result = await authService.apiRequest('/api/v1/extension/bulk-payment', {
+        method: 'POST',
+        body: JSON.stringify(paymentData),
+      });
+      this.clearExtensionCache();
+
+      // Clear transaction cache to ensure fresh data
+      // Avoid circular import by using global reference or event system
+
+      return result;
+    } catch (error) {
+      throw error;
+    }
+  }
+
   // Clear cache
   clearExtensionCache() {
     this.cache.clear();

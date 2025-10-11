@@ -15,7 +15,6 @@ from app.models.pawn_transaction_model import PawnTransaction, TransactionStatus
 from app.models.user_model import User, UserStatus
 from app.models.audit_entry_model import AuditActionType
 from app.core.timezone_utils import utc_to_user_timezone, get_user_now, user_timezone_to_utc
-from app.core.transaction_notes import safe_append_transaction_notes, format_system_note  # Legacy compatibility
 from app.services.notes_service import notes_service
 from app.services.formatted_id_service import FormattedIdService
 
@@ -120,21 +119,28 @@ class ExtensionService:
         extension_fee_per_month: int,
         processed_by_user_id: str,
         extension_reason: Optional[str] = None,
-        client_timezone: Optional[str] = None
+        client_timezone: Optional[str] = None,
+        discount_amount: float = 0,
+        overdue_fee_collected: float = 0,
+        discount_approved_by: Optional[str] = None
     ) -> Extension:
         """
         Process a loan extension for a pawn transaction with atomic operations.
-        
+
         Args:
             transaction_id: Transaction to extend
             extension_months: Number of months to extend (1, 2, or 3)
             extension_fee_per_month: Fee per month in whole dollars (staff-adjustable)
             processed_by_user_id: Staff member processing extension
             extension_reason: Optional reason for extension
-            
+            client_timezone: Client timezone for date calculations
+            discount_amount: Discount amount applied to extension fee (default: 0)
+            overdue_fee_collected: Overdue fee collected with extension (default: 0)
+            discount_approved_by: Admin user ID who approved discount (if applicable)
+
         Returns:
             Extension: Created extension record with updated transaction
-            
+
         Raises:
             TransactionNotFoundError: Transaction not found
             StaffValidationError: Staff user not found or insufficient permissions
@@ -150,22 +156,13 @@ class ExtensionService:
             raise TransactionNotFoundError(f"Transaction {transaction_id} not found")
         
         # Check if transaction can accept extensions
+        # Business Rule: Extensions allowed for ACTIVE, OVERDUE, and EXTENDED transactions
+        # ONLY block extensions for completed/terminal states (SOLD, REDEEMED, FORFEITED)
+        # NO TIME RESTRICTIONS - Extensions allowed anytime until status is manually changed to FORFEITED
         if transaction.status in [TransactionStatus.SOLD, TransactionStatus.REDEEMED, TransactionStatus.FORFEITED]:
             raise ExtensionNotAllowedError(
-                f"Cannot extend {transaction.status} transaction"
-            )
-        
-        # Check if within extension window (business rule: can extend anytime within 3 months)
-        current_time = datetime.now(UTC)
-        
-        # Ensure grace_period_end is timezone-aware for comparison
-        grace_period_end = ExtensionService._ensure_timezone_aware(transaction.grace_period_end)
-        
-        # Allow extensions anytime before grace period ends (within 3 months + 7 days)
-        if current_time > grace_period_end:
-            raise ExtensionNotAllowedError(
-                f"Cannot extend - extension window has closed. Extension deadline was "
-                f"{grace_period_end.strftime('%Y-%m-%d %H:%M:%S UTC')}. Current time: {current_time.strftime('%Y-%m-%d %H:%M:%S UTC')}"
+                f"Cannot extend {transaction.status} transaction. "
+                f"Extensions are only allowed for ACTIVE, OVERDUE, and EXTENDED transactions."
             )
         
         # Validate staff user
@@ -210,6 +207,7 @@ class ExtensionService:
             extension_formatted_id = await FormattedIdService.get_next_extension_formatted_id()
             
             # Create extension record with atomic session
+            # Note: net_amount_collected will be auto-calculated in Extension.save()
             extension = Extension(
                 transaction_id=transaction_id,
                 formatted_id=extension_formatted_id,
@@ -217,6 +215,9 @@ class ExtensionService:
                 extension_months=extension_months,
                 extension_fee_per_month=extension_fee_per_month,
                 total_extension_fee=total_extension_fee,
+                discount_amount=discount_amount,
+                overdue_fee_collected=overdue_fee_collected,
+                discount_approved_by=discount_approved_by,
                 original_maturity_date=fresh_transaction.maturity_date,
                 extension_date=extension_date_utc,
                 extension_reason=extension_reason
@@ -236,7 +237,7 @@ class ExtensionService:
             
             # Update transaction with new dates and status atomically
             await ExtensionService._update_transaction_for_extension_atomic(
-                fresh_transaction, extension, processed_by_user_id, session
+                fresh_transaction, extension, processed_by_user_id, session, client_timezone
             )
             
             return extension
@@ -258,20 +259,38 @@ class ExtensionService:
     async def _update_transaction_for_extension(
         transaction: PawnTransaction,
         extension: Extension,
-        processed_by_user_id: str
+        processed_by_user_id: str,
+        client_timezone: Optional[str] = None
     ) -> None:
         """
         Update transaction with extension details.
         Internal method to keep transaction updates consistent.
+
+        Business Rule: Status only changes to EXTENDED if new maturity date is in the FUTURE.
+        This allows customers to pay past months incrementally while status remains OVERDUE.
         """
         # Update transaction dates
         transaction.maturity_date = extension.new_maturity_date
         transaction.grace_period_end = extension.new_grace_period_end
-        
-        # Update status to extended
+
+        # Determine if status should change to EXTENDED
+        # ONLY change to EXTENDED if new maturity date is in the future
         old_status = transaction.status
-        transaction.status = TransactionStatus.EXTENDED
-        
+        current_date = get_user_now(client_timezone)
+
+        # Ensure both datetimes are timezone-aware for comparison
+        new_maturity_aware = ExtensionService._ensure_timezone_aware(extension.new_maturity_date)
+        current_date_aware = ExtensionService._ensure_timezone_aware(current_date)
+
+        if new_maturity_aware > current_date_aware:
+            # Customer has caught up - maturity is now in the future
+            transaction.status = TransactionStatus.EXTENDED
+            status_message = f"status changed from {old_status} to EXTENDED (caught up)"
+        else:
+            # Still paying past months - keep current status (likely OVERDUE)
+            # Status remains unchanged until they catch up
+            status_message = f"status remains {old_status} (still catching up on past months)"
+
         # Add extension audit entry using new notes service
         await notes_service.add_extension_audit(
             transaction=transaction,
@@ -282,37 +301,54 @@ class ExtensionService:
             fee=extension.total_extension_fee if extension.total_extension_fee > 0 else None,
             save_immediately=False  # We'll save separately
         )
-        
+
         # Save transaction
         await transaction.save()
-        
+
         # CRITICAL: Immediate cache invalidation for real-time updates
         await ExtensionService._invalidate_all_transaction_caches()
-        
+
         # LOG: Extension success for monitoring
         import structlog
         logger = structlog.get_logger("extension_service")
-        logger.info(f"✅ EXTENSION PROCESSED: {transaction.transaction_id} status changed from {old_status} to EXTENDED with cache cleared")
+        logger.info(f"✅ EXTENSION PROCESSED: {transaction.transaction_id} {status_message} with cache cleared")
     
     @staticmethod
     async def _update_transaction_for_extension_atomic(
         transaction: PawnTransaction,
         extension: Extension,
         processed_by_user_id: str,
-        session
+        session,
+        client_timezone: Optional[str] = None
     ) -> None:
         """
         Update transaction with extension details atomically within session.
         Internal method to keep transaction updates consistent.
+
+        Business Rule: Status only changes to EXTENDED if new maturity date is in the FUTURE.
+        This allows customers to pay past months incrementally while status remains OVERDUE.
         """
         # Update transaction dates
         transaction.maturity_date = extension.new_maturity_date
         transaction.grace_period_end = extension.new_grace_period_end
-        
-        # Update status to extended
+
+        # Determine if status should change to EXTENDED
+        # ONLY change to EXTENDED if new maturity date is in the future
         old_status = transaction.status
-        transaction.status = TransactionStatus.EXTENDED
-        
+        current_date = get_user_now(client_timezone)
+
+        # Ensure both datetimes are timezone-aware for comparison
+        new_maturity_aware = ExtensionService._ensure_timezone_aware(extension.new_maturity_date)
+        current_date_aware = ExtensionService._ensure_timezone_aware(current_date)
+
+        if new_maturity_aware > current_date_aware:
+            # Customer has caught up - maturity is now in the future
+            transaction.status = TransactionStatus.EXTENDED
+        else:
+            # Still paying past months - keep current status (likely OVERDUE)
+            # Status remains unchanged until they catch up
+            pass
+
         # Add extension audit entry using new notes service with error handling
         # Temporarily disabled to debug extension issues
         # try:
@@ -329,7 +365,7 @@ class ExtensionService:
         #     # Log audit entry error but don't fail the extension
         #     # Continue with extension processing
         #     pass
-        
+
         # Save transaction within session
         if session:
             await transaction.save(session=session)
@@ -476,26 +512,15 @@ class ExtensionService:
         # Calculate dates using model logic
         new_maturity_date = temp_extension.calculate_new_maturity_date()
         new_grace_period_end = temp_extension.calculate_new_grace_period_end()
-        
-        # Check eligibility (can extend anytime before grace period ends)
-        current_time = datetime.now(UTC)
-        can_extend = current_time <= transaction.grace_period_end
-        
-        if can_extend:
-            time_remaining = transaction.grace_period_end - current_time
-            days_remaining = time_remaining.days
-            hours_remaining = time_remaining.seconds // 3600
-        else:
-            days_remaining = 0
-            hours_remaining = 0
-        
-        # Check status restrictions
+
+        # Check status restrictions ONLY (no time restrictions)
+        # Extensions allowed for ACTIVE, OVERDUE, and EXTENDED transactions
         status_allows_extension = transaction.status not in [
-            TransactionStatus.SOLD, 
-            TransactionStatus.REDEEMED, 
+            TransactionStatus.SOLD,
+            TransactionStatus.REDEEMED,
             TransactionStatus.FORFEITED
         ]
-        
+
         return {
             "transaction_id": transaction_id,
             "current_status": transaction.status,
@@ -508,17 +533,13 @@ class ExtensionService:
             "total_extension_fee_formatted": f"${extension_months * extension_fee_per_month:,}",
             "new_maturity_date": new_maturity_date.isoformat(),
             "new_grace_period_end": new_grace_period_end.isoformat(),
-            "can_extend": can_extend and status_allows_extension,
-            "days_remaining_to_extend": days_remaining,
-            "hours_remaining_to_extend": hours_remaining,
+            "can_extend": status_allows_extension,
             "status_allows_extension": status_allows_extension,
             "warnings": [
-                "Extension not allowed - past grace period" if not can_extend else None,
                 f"Extension not allowed - transaction status is {transaction.status}" if not status_allows_extension else None,
-                f"Less than 24 hours remaining to extend" if can_extend and days_remaining == 0 else None
             ],
-            "is_valid": can_extend and status_allows_extension,
-            "can_process": can_extend and status_allows_extension
+            "is_valid": status_allows_extension,
+            "can_process": status_allows_extension
         }
     
     @staticmethod
@@ -542,68 +563,31 @@ class ExtensionService:
         if not transaction:
             raise TransactionNotFoundError(f"Transaction {transaction_id} not found")
         
-        current_time = datetime.now(UTC)
-        
-        # Ensure grace_period_end is timezone-aware for comparison
-        grace_period_end = ExtensionService._ensure_timezone_aware(transaction.grace_period_end)
-        
-        # Check if within extension window (can extend anytime before grace period ends)
-        is_eligible = current_time <= grace_period_end
-        
-        # Calculate time remaining
-        if is_eligible:
-            time_remaining = grace_period_end - current_time
-            days_remaining = time_remaining.days
-            hours_remaining = time_remaining.seconds // 3600
-            minutes_remaining = (time_remaining.seconds % 3600) // 60
-        else:
-            days_remaining = 0
-            hours_remaining = 0
-            minutes_remaining = 0
-        
-        # Check status restrictions
+        # Check status restrictions ONLY (no time restrictions)
+        # Extensions allowed for ACTIVE, OVERDUE, and EXTENDED transactions
         restricted_statuses = [TransactionStatus.REDEEMED, TransactionStatus.FORFEITED, TransactionStatus.SOLD]
         status_allows_extension = transaction.status not in restricted_statuses
-        
-        # Get reason for ineligibility
-        ineligibility_reason = ExtensionService._get_ineligibility_reason(
-            transaction, is_eligible, status_allows_extension
-        )
-        
+        is_eligible = status_allows_extension
+
+        # Get reason for ineligibility (status-based only)
+        ineligibility_reason = None
+        if not status_allows_extension:
+            ineligibility_reason = f"Cannot extend - transaction status is '{transaction.status}'"
+
         # Ensure dates are timezone-aware for isoformat
         maturity_date = ExtensionService._ensure_timezone_aware(transaction.maturity_date)
-        
+        grace_period_end = ExtensionService._ensure_timezone_aware(transaction.grace_period_end)
+
         return {
             "transaction_id": transaction_id,
-            "is_eligible": is_eligible and status_allows_extension,
+            "is_eligible": is_eligible,
             "current_status": transaction.status,
             "maturity_date": maturity_date.isoformat(),
             "grace_period_end": grace_period_end.isoformat(),
-            "days_remaining": days_remaining,
-            "hours_remaining": hours_remaining,
-            "minutes_remaining": minutes_remaining,
             "status_allows_extension": status_allows_extension,
-            "time_critical": is_eligible and days_remaining == 0,  # Less than 24 hours
             "reason": ineligibility_reason,
-            "can_process": is_eligible and status_allows_extension
+            "can_process": is_eligible
         }
-    
-    @staticmethod
-    def _get_ineligibility_reason(
-        transaction: PawnTransaction,
-        is_eligible: bool,
-        status_allows_extension: bool
-    ) -> Optional[str]:
-        """
-        Get reason why extension is not eligible.
-        Internal helper method.
-        """
-        if not status_allows_extension:
-            return f"Cannot extend - transaction status is '{transaction.status}'"
-        elif not is_eligible:
-            return "Cannot extend - extension window has closed"
-        else:
-            return None
     
     @staticmethod
     async def get_extension_history_summary(transaction_id: str) -> Dict[str, Any]:
@@ -1168,15 +1152,15 @@ class ExtensionService:
     ) -> Extension:
         """
         Cancel an extension (admin only operation).
-        
+
         Args:
             extension_id: Extension to cancel
             cancelled_by_user_id: User cancelling the extension
             cancellation_reason: Optional reason for cancellation
-            
+
         Returns:
             Extension: The cancelled extension
-            
+
         Raises:
             ExtensionError: Extension not found or cannot be cancelled
         """
@@ -1184,27 +1168,27 @@ class ExtensionService:
         extension = await Extension.find_one(Extension.extension_id == extension_id)
         if not extension:
             raise ExtensionError(f"Extension {extension_id} not found")
-        
+
         # Get transaction
         transaction = await PawnTransaction.find_one(
             PawnTransaction.transaction_id == extension.transaction_id
         )
         if not transaction:
             raise ExtensionError(f"Transaction {extension.transaction_id} not found")
-        
+
         # Business rule: Cannot cancel if transaction is completed
         if transaction.status in [TransactionStatus.SOLD, TransactionStatus.REDEEMED, TransactionStatus.FORFEITED]:
             raise ExtensionError(f"Cannot cancel extension - transaction is {transaction.status}")
-        
+
         # Revert transaction dates to original maturity date
         transaction.maturity_date = extension.original_maturity_date
-        
+
         # Recalculate grace period from original maturity (1 month, not 7 days)
         # Use same calendar arithmetic as main transaction model
         grace_year = extension.original_maturity_date.year
         grace_month = extension.original_maturity_date.month + 1
         grace_day = extension.original_maturity_date.day
-        
+
         # Handle month overflow
         if grace_month > 12:
             grace_year += grace_month // 12
@@ -1212,7 +1196,7 @@ class ExtensionService:
             if grace_month == 0:
                 grace_month = 12
                 grace_year -= 1
-        
+
         # Handle day overflow for shorter months
         try:
             transaction.grace_period_end = extension.original_maturity_date.replace(year=grace_year, month=grace_month, day=grace_day)
@@ -1221,7 +1205,7 @@ class ExtensionService:
             import calendar
             last_day = calendar.monthrange(grace_year, grace_month)[1]
             transaction.grace_period_end = extension.original_maturity_date.replace(year=grace_year, month=grace_month, day=last_day)
-        
+
         # Revert status if it was extended
         if transaction.status == TransactionStatus.EXTENDED:
             # Determine appropriate status based on current date
@@ -1230,25 +1214,48 @@ class ExtensionService:
             maturity_date = transaction.maturity_date
             if maturity_date.tzinfo is None:
                 maturity_date = maturity_date.replace(tzinfo=UTC)
-            
+
             if current_time <= maturity_date:
                 transaction.status = TransactionStatus.ACTIVE
             else:
                 transaction.status = TransactionStatus.OVERDUE
-        
-        # Add cancellation note
+
+        # Revert financial amounts - restore balance as if extension never happened
+        # The net_amount_collected is what was actually paid (extension_fee - discount + overdue_fee)
+        # We need to add this back to the balance to refund it
+        if extension.net_amount_collected is not None and extension.net_amount_collected > 0:
+            # Add back the net amount collected (this refunds the extension payment)
+            transaction.outstanding_balance += int(extension.net_amount_collected)
+        elif extension.total_extension_fee > 0:
+            # Fallback: if net_amount_collected not set, use total_extension_fee
+            refund_amount = extension.total_extension_fee - int(extension.discount_amount or 0) + int(extension.overdue_fee_collected or 0)
+            transaction.outstanding_balance += refund_amount
+
+        # Restore overdue fee if one was collected with the extension
+        if extension.overdue_fee_collected > 0:
+            transaction.overdue_fee = (transaction.overdue_fee or 0) + int(extension.overdue_fee_collected)
+
+        # Add cancellation note with financial details
+        refund_amount = extension.net_amount_collected if extension.net_amount_collected is not None else (
+            extension.total_extension_fee - int(extension.discount_amount or 0) + int(extension.overdue_fee_collected or 0)
+        )
+
         cancellation_note = (
             f"[{datetime.now(UTC).isoformat()}] Extension {extension_id} cancelled by {cancelled_by_user_id}. "
-            f"Reverted to original maturity: {extension.original_maturity_date.strftime('%Y-%m-%d')}."
+            f"Reverted to original maturity: {extension.original_maturity_date.strftime('%Y-%m-%d')}. "
+            f"Refunded ${int(refund_amount)} to balance."
         )
-        
+
+        if extension.overdue_fee_collected > 0:
+            cancellation_note += f" Restored overdue fee: ${int(extension.overdue_fee_collected)}."
+
         if cancellation_reason:
             cancellation_note += f" Reason: {cancellation_reason}"
-        
+
         # Smart truncation to respect 500 character limit
         current_notes = transaction.internal_notes or ""
         new_notes = f"{current_notes}\n{cancellation_note}".strip()
-        
+
         # Truncate if necessary (500 char limit)
         if len(new_notes) > 500:
             # Calculate how much space we have for existing notes
@@ -1262,15 +1269,222 @@ class ExtensionService:
                 transaction.internal_notes = cancellation_note[:500]
         else:
             transaction.internal_notes = new_notes
-        
+
         # Mark extension as cancelled (we'll add these fields to the Extension model)
         extension.is_cancelled = True
         extension.cancelled_date = datetime.now(UTC)
         extension.cancelled_by_user_id = cancelled_by_user_id
         extension.cancellation_reason = cancellation_reason
-        
+
         # Save both records
         await extension.save()
         await transaction.save()
-        
+
         return extension
+
+    @staticmethod
+    async def bulk_process_extension_payment(
+        payments: List[Dict[str, Any]],
+        processed_by_user_id: str,
+        batch_notes: Optional[str] = None,
+        admin_pin: Optional[str] = None,
+        client_timezone: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Process multiple extension payments in a single batch operation.
+
+        Args:
+            payments: List of payment items with transaction_id, extension_fee, overdue_fee, discount, reason
+            processed_by_user_id: Staff member processing the batch
+            batch_notes: Optional notes for the entire batch
+            admin_pin: Admin PIN (required if any discounts are applied)
+            client_timezone: Optional client timezone for date calculations
+
+        Returns:
+            Dict with success/error counts and details
+
+        Raises:
+            StaffValidationError: Staff user validation failed
+            ExtensionError: Batch processing failed
+        """
+        import structlog
+        logger = structlog.get_logger("extension_service")
+
+        # Validate staff user
+        staff_user = await User.find_one(User.user_id == processed_by_user_id)
+        if not staff_user:
+            raise StaffValidationError(f"Staff user {processed_by_user_id} not found")
+
+        if staff_user.status != UserStatus.ACTIVE:
+            raise StaffValidationError(
+                f"Staff user {staff_user.first_name} {staff_user.last_name} is not active"
+            )
+
+        # Check if any payments have discounts
+        has_discounts = any(p.get('discount', 0) > 0 for p in payments)
+
+        # Store admin_user for later use
+        admin_user = None
+
+        # Verify admin PIN if discounts are present
+        if has_discounts:
+            if not admin_pin:
+                raise ExtensionValidationError("Admin PIN is required when discounts are applied")
+
+            # Find an admin user to verify PIN
+            # In practice, you should get the admin user from the request context
+            admin_user = await User.find_one(User.role == "admin")
+            if not admin_user or not admin_user.verify_pin(admin_pin):
+                logger.warning(
+                    "Invalid admin PIN for bulk extension payment with discounts",
+                    staff_user_id=processed_by_user_id,
+                    has_discounts=has_discounts
+                )
+                raise ExtensionValidationError("Invalid admin PIN")
+
+            logger.info(
+                "Admin PIN verified for bulk extension payment",
+                admin_user_id=admin_user.user_id,
+                staff_user_id=processed_by_user_id,
+                payment_count=len(payments)
+            )
+
+        # Track results
+        success_count = 0
+        error_count = 0
+        total_amount_processed = 0.0
+        errors = []
+        successful_transaction_ids = []
+        failed_transaction_ids = []
+
+        # Process each payment
+        for payment_item in payments:
+            transaction_id = payment_item.get('transaction_id')
+
+            try:
+                # Validate required fields
+                if not transaction_id:
+                    raise ExtensionValidationError("Transaction ID is required")
+
+                extension_fee = float(payment_item.get('extension_fee', 0))
+                overdue_fee = float(payment_item.get('overdue_fee', 0))
+                discount = float(payment_item.get('discount', 0))
+                reason = payment_item.get('reason', '')
+                total_amount = float(payment_item.get('total_amount', 0))
+
+                # Validate discount has reason
+                if discount > 0 and not reason:
+                    raise ExtensionValidationError("Discount reason is required when discount is applied")
+
+                # Calculate duration from extension fee
+                # Get transaction to determine monthly interest
+                transaction = await PawnTransaction.find_one(
+                    PawnTransaction.transaction_id == transaction_id
+                )
+                if not transaction:
+                    raise TransactionNotFoundError(f"Transaction {transaction_id} not found")
+
+                monthly_interest = transaction.monthly_interest_amount or 0
+
+                # Determine duration based on extension fee
+                if monthly_interest > 0:
+                    duration = int(extension_fee / monthly_interest)
+                else:
+                    duration = 1  # Default to 1 month if no interest
+
+                # Validate duration
+                if duration not in [1, 2, 3]:
+                    duration = 1  # Default to 1 month
+
+                # Process the extension with discount and overdue fee
+                extension = await ExtensionService.process_extension(
+                    transaction_id=transaction_id,
+                    extension_months=duration,
+                    extension_fee_per_month=int(monthly_interest),
+                    processed_by_user_id=processed_by_user_id,
+                    extension_reason=reason if discount > 0 else batch_notes,
+                    client_timezone=client_timezone,
+                    discount_amount=discount,
+                    overdue_fee_collected=overdue_fee,
+                    discount_approved_by=admin_user.user_id if has_discounts and admin_user else None
+                )
+
+                # Get fresh transaction to add audit entries
+                transaction = await PawnTransaction.find_one(
+                    PawnTransaction.transaction_id == transaction_id
+                )
+                if not transaction:
+                    raise ExtensionValidationError(f"Transaction {transaction_id} not found after extension")
+
+                # Add overdue fee audit entry if overdue fee was collected
+                if overdue_fee > 0:
+                    from app.models.audit_entry_model import create_audit_entry, AuditActionType
+                    overdue_fee_audit = create_audit_entry(
+                        action_type=AuditActionType.OVERDUE_FEE_SET,
+                        staff_member=processed_by_user_id,
+                        action_summary=f"Overdue fee: ${int(overdue_fee)}",
+                        details=None,  # No details for cleaner timeline
+                        amount=int(overdue_fee)
+                    )
+                    transaction.add_system_audit_entry(overdue_fee_audit)
+                    await transaction.save()
+
+                # Add discount audit entry if discount was applied
+                if discount > 0:
+                    from app.services.notes_service import NotesService
+                    await NotesService.add_discount_audit(
+                        transaction=transaction,
+                        staff_member=processed_by_user_id,
+                        discount_amount=int(discount),
+                        discount_reason=reason or "Bulk extension discount",
+                        approved_by=admin_user.user_id if admin_user else processed_by_user_id,
+                        payment_id=extension.extension_id,  # Use extension_id as reference
+                        save_immediately=True
+                    )
+
+                # Track success
+                success_count += 1
+                total_amount_processed += total_amount
+                successful_transaction_ids.append(transaction_id)
+
+                logger.info(
+                    "Bulk extension payment processed successfully",
+                    transaction_id=transaction_id,
+                    extension_id=extension.extension_id,
+                    duration=duration,
+                    total_amount=total_amount,
+                    discount=discount
+                )
+
+            except Exception as e:
+                error_count += 1
+                failed_transaction_ids.append(transaction_id)
+                error_message = f"Transaction {transaction_id}: {str(e)}"
+                errors.append(error_message)
+
+                logger.error(
+                    "Bulk extension payment failed",
+                    transaction_id=transaction_id,
+                    error=str(e)
+                )
+
+        # Invalidate caches after batch processing
+        await ExtensionService._invalidate_all_transaction_caches()
+
+        logger.info(
+            "Bulk extension payment batch completed",
+            total_requested=len(payments),
+            success_count=success_count,
+            error_count=error_count,
+            total_amount_processed=total_amount_processed
+        )
+
+        return {
+            "success_count": success_count,
+            "error_count": error_count,
+            "total_requested": len(payments),
+            "total_amount_processed": total_amount_processed,
+            "errors": errors,
+            "successful_transaction_ids": successful_transaction_ids,
+            "failed_transaction_ids": failed_transaction_ids
+        }

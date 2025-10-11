@@ -61,6 +61,27 @@ class Extension(Document):
         default=True,
         description="Whether extension fee has been paid (assumed paid at processing time)"
     )
+
+    # Financial breakdown (for bulk payments with discounts/overdue fees)
+    discount_amount: float = Field(
+        default=0.0,
+        ge=0,
+        description="Discount amount applied to extension fee"
+    )
+    overdue_fee_collected: float = Field(
+        default=0.0,
+        ge=0,
+        description="Overdue fee collected with this extension"
+    )
+    net_amount_collected: Optional[float] = Field(
+        default=None,
+        ge=0,
+        description="Actual amount collected (total_extension_fee - discount + overdue_fee)"
+    )
+    discount_approved_by: Optional[str] = Field(
+        default=None,
+        description="Admin user ID who approved discount"
+    )
     
     # Date calculations
     original_maturity_date: datetime = Field(
@@ -131,6 +152,10 @@ class Extension(Document):
                 "extension_months": 2,
                 "extension_fee_per_month": 25,
                 "total_extension_fee": 50,
+                "discount_amount": 5,
+                "overdue_fee_collected": 10,
+                "net_amount_collected": 55,
+                "discount_approved_by": "69",
                 "original_maturity_date": "2025-03-15T00:00:00Z",
                 "new_maturity_date": "2025-05-15T00:00:00Z",
                 "extension_reason": "Customer requested additional time"
@@ -277,20 +302,26 @@ class Extension(Document):
         """Override save to validate calculations and update timestamps"""
         # Validate extension math
         self.validate_extension_math()
-        
+
         # Calculate dates if not set
         if not self.new_maturity_date:
             self.new_maturity_date = self.calculate_new_maturity_date()
-        
+
         if not self.new_grace_period_end:
             self.new_grace_period_end = self.calculate_new_grace_period_end()
-        
+
+        # Calculate net_amount_collected if not set
+        if self.net_amount_collected is None:
+            self.net_amount_collected = float(
+                self.total_extension_fee - self.discount_amount + self.overdue_fee_collected
+            )
+
         # Validate extension timing (business rule check)
         # Timing validation is handled at service level to allow late extensions
-        
+
         # Update timestamp
         self.updated_at = datetime.now(UTC)
-        
+
         # Call parent save
         await super().save(*args, **kwargs)
     

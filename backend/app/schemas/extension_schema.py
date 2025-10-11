@@ -45,27 +45,33 @@ class ExtensionResponse(ExtensionBase):
     formatted_id: Optional[str] = Field(None, description="Display-friendly extension ID (e.g., 'EX000001')")
     transaction_id: str = Field(..., description="Associated transaction ID")
     processed_by_user_id: str = Field(..., description="Staff member who processed extension")
-    
+
     # Date calculations
     original_maturity_date: datetime = Field(..., description="Original maturity date")
     new_maturity_date: Optional[datetime] = Field(None, description="New maturity date after extension")
     new_grace_period_end: Optional[datetime] = Field(None, description="New grace period end date")
     extension_date: datetime = Field(..., description="Date extension was processed")
-    
+
     # Financial details
     total_extension_fee: int = Field(..., description="Total extension fee charged")
     fee_paid: bool = Field(..., description="Whether extension fee has been paid")
-    
+
+    # Financial breakdown (for bulk payments with discounts/overdue fees)
+    discount_amount: float = Field(default=0.0, description="Discount amount applied to extension fee")
+    overdue_fee_collected: float = Field(default=0.0, description="Overdue fee collected with this extension")
+    net_amount_collected: Optional[float] = Field(default=None, description="Actual amount collected (total_extension_fee - discount + overdue_fee)")
+    discount_approved_by: Optional[str] = Field(default=None, description="Admin user ID who approved discount")
+
     # Cancellation functionality
     is_cancelled: bool = Field(default=False, description="Whether this extension has been cancelled")
     cancelled_date: Optional[datetime] = Field(None, description="Date/time when extension was cancelled")
     cancelled_by_user_id: Optional[str] = Field(None, description="User ID who cancelled the extension")
     cancellation_reason: Optional[str] = Field(None, description="Reason for cancellation")
-    
+
     # Metadata
     created_at: datetime = Field(..., description="Extension creation timestamp")
     updated_at: datetime = Field(..., description="Extension last update timestamp")
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 

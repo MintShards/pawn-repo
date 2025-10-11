@@ -290,24 +290,25 @@ const TransactionHub = () => {
         // Define type priority to control display order:
         // 1. Transaction Redeemed audits (show first)
         // 2. Payments (show after redeemed)
-        // 3. Overdue fee audits (show after payments, before discounts)
-        // 4. Discount audits (show after overdue fees)
-        // 5. Extensions and other audits (default priority)
+        // 3. Extensions (show after payments, before related fees/discounts)
+        // 4. Overdue fee audits (show after extensions)
+        // 5. Discount audits (show after overdue fees)
+        // 6. Other audits (default priority)
         const getPriority = (event) => {
           if (event.type === 'audit') {
             const summary = event.data.action_summary?.toLowerCase() || '';
             // "Transaction Redeemed" should come first
             if (summary.includes('redeemed') || event.data.action_type === 'redemption_completed') return 1;
-            // Overdue fee audits should come after payments
-            if (summary.includes('overdue fee')) return 3;
+            // Overdue fee audits should come after extensions
+            if (summary.includes('overdue fee')) return 4;
             // Discount audits should come after overdue fees
-            if (summary.includes('discount')) return 4;
+            if (summary.includes('discount')) return 5;
             // Other audits have default priority
-            return 5;
+            return 6;
           }
           if (event.type === 'payment') return 2;
-          if (event.type === 'extension') return 5;
-          return 6;
+          if (event.type === 'extension') return 3;
+          return 7;
         };
 
         return getPriority(a) - getPriority(b);
@@ -871,20 +872,13 @@ const TransactionHub = () => {
     return selectedTransaction?.transaction?.[field] || selectedTransaction?.[field];
   };
 
-  // Helper to get transaction status - calculates effective status based on extensions
+  // Helper to get transaction status
   const getTransactionStatus = () => {
-    const baseStatus = getTransactionField('status') || 'Unknown';
-    
-    // Check if transaction has any active (non-cancelled) extensions
-    const extensions = selectedTransaction?.extensions || selectedTransaction?.transaction?.extensions || [];
-    const hasActiveExtensions = extensions.some(ext => !ext.is_cancelled);
-    
-    // If there are active extensions, status should be 'extended'
-    if (hasActiveExtensions && ['active', 'overdue'].includes(baseStatus)) {
-      return 'extended';
-    }
-    
-    return baseStatus;
+    // IMPORTANT: Trust backend status after extension status fix
+    // Backend now correctly sets status to EXTENDED only when maturity is in future
+    // If status is OVERDUE with extensions, customer is still catching up on past months
+    // No frontend override needed - return backend status as-is
+    return getTransactionField('status') || 'Unknown';
   };
 
   // Helper to check if status allows actions
@@ -2012,21 +2006,23 @@ const TransactionHub = () => {
                                                 <div className={`text-xs ${event.data.is_cancelled ? 'text-red-600 dark:text-red-400' : 'text-slate-600 dark:text-slate-400'}`}>
                                                   {formatBusinessDate(event.data.extension_date || event.data.created_at)}
                                                 </div>
-                                                <div 
+                                                <div
                                                   className={`text-xs font-medium ${
-                                                    event.data.is_cancelled 
-                                                      ? 'text-red-500 dark:text-red-400 line-through' 
+                                                    event.data.is_cancelled
+                                                      ? 'text-red-500 dark:text-red-400 line-through'
                                                       : ''
                                                   }`}
                                                   style={{
                                                     color: event.data.is_cancelled ? undefined : '#00BCD4'
                                                   }}
                                                 >
-                                                  Fee: {formatCurrency(
-                                                    event.data.total_extension_fee || 
-                                                    event.data.extension_fee || 
-                                                    event.data.fee || 
-                                                    (event.data.extension_months * (event.data.extension_fee_per_month || 0))
+                                                  {formatCurrency(
+                                                    event.data.net_amount_collected !== null && event.data.net_amount_collected !== undefined
+                                                      ? event.data.net_amount_collected
+                                                      : event.data.total_extension_fee ||
+                                                        event.data.extension_fee ||
+                                                        event.data.fee ||
+                                                        (event.data.extension_months * (event.data.extension_fee_per_month || 0))
                                                   )}
                                                   {event.data.is_cancelled && (
                                                     <span className="ml-2 text-red-600 dark:text-red-400 font-normal">
@@ -2220,6 +2216,13 @@ const TransactionHub = () => {
                                                 // Get the overdue fee entry timestamp
                                                 const feeTimestamp = new Date(event.data.timestamp || event.data.created_at).getTime();
 
+                                                // Check if related to a cancelled extension (within 1 second)
+                                                const relatedExtension = selectedTransaction?.extensions?.find(ext => {
+                                                  const extTimestamp = new Date(ext.extension_date || ext.created_at).getTime();
+                                                  return Math.abs(extTimestamp - feeTimestamp) < 2000 && ext.is_cancelled;
+                                                });
+                                                if (relatedExtension) return true;
+
                                                 // Find the first payment AFTER this overdue fee that has overdue_fee_portion
                                                 const subsequentPayment = paymentHistory?.payments
                                                   ?.filter(p => p.overdue_fee_portion > 0)
@@ -2230,17 +2233,21 @@ const TransactionHub = () => {
                                                 return subsequentPayment?.is_voided || false;
                                               })();
 
-                                              // Check if this discount's associated payment was reversed
+                                              // Check if this discount's associated payment/extension was reversed
                                               const isDiscountReversed = (() => {
                                                 const isDiscountEntry = event.data.action_summary?.toLowerCase().includes('discount');
                                                 if (!isDiscountEntry) return false;
 
-                                                // Find the payment associated with this discount via related_id
-                                                const relatedPaymentId = event.data.related_id;
-                                                if (!relatedPaymentId) return false;
+                                                // Find the payment or extension associated with this discount via related_id
+                                                const relatedId = event.data.related_id;
+                                                if (!relatedId) return false;
+
+                                                // Check if related to a cancelled extension
+                                                const relatedExtension = selectedTransaction?.extensions?.find(ext => ext.extension_id === relatedId);
+                                                if (relatedExtension?.is_cancelled) return true;
 
                                                 // Check if that payment is voided
-                                                const relatedPayment = paymentHistory?.payments?.find(p => p.payment_id === relatedPaymentId);
+                                                const relatedPayment = paymentHistory?.payments?.find(p => p.payment_id === relatedId);
                                                 return relatedPayment?.is_voided || false;
                                               })();
 
@@ -2317,25 +2324,47 @@ const TransactionHub = () => {
                                                           }
                                                           return event.data.action_summary;
                                                         })()}
-                                                        {(isOverdueFeeReversed || isDiscountReversed) && (
-                                                          <span className="ml-2 px-2 py-0.5 text-xs bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-full border border-red-200 dark:border-red-800">
-                                                            REVERSED
-                                                          </span>
-                                                        )}
+                                                        {(isOverdueFeeReversed || isDiscountReversed) && (() => {
+                                                          // Check if this is related to a cancelled extension or a reversed payment
+                                                          const isExtensionRelated = (() => {
+                                                            if (event.data.action_summary?.startsWith('Overdue fee:')) {
+                                                              // For overdue fees, check if related to cancelled extension
+                                                              const feeTimestamp = new Date(event.data.timestamp || event.data.created_at).getTime();
+                                                              return selectedTransaction?.extensions?.some(ext => {
+                                                                const extTimestamp = new Date(ext.extension_date || ext.created_at).getTime();
+                                                                return Math.abs(extTimestamp - feeTimestamp) < 2000 && ext.is_cancelled;
+                                                              });
+                                                            }
+                                                            if (event.data.action_summary?.toLowerCase().includes('discount')) {
+                                                              // For discounts, check if related_id matches cancelled extension
+                                                              const relatedId = event.data.related_id;
+                                                              return relatedId && selectedTransaction?.extensions?.some(
+                                                                ext => ext.extension_id === relatedId && ext.is_cancelled
+                                                              );
+                                                            }
+                                                            return false;
+                                                          })();
+
+                                                          return (
+                                                            <span className="ml-2 px-2 py-0.5 text-xs bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-full border border-red-200 dark:border-red-800">
+                                                              {isExtensionRelated ? 'CANCELLED' : 'REVERSED'}
+                                                            </span>
+                                                          );
+                                                        })()}
                                                       </div>
                                                       {(() => {
                                                         // Display discount amount on the right (like payment amount)
                                                         if (event.data.action_summary?.toLowerCase().includes('discount')) {
                                                           const discountAmount = event.data.amount || 0;
-                                                          // Amount is already in dollars, just format it
+                                                          // Amount is already in dollars, just format it with minus sign
                                                           const formattedAmount = formatCurrency(discountAmount);
                                                           return (
                                                             <div className={`text-sm font-medium ${
                                                               isDiscountReversed
                                                                 ? 'text-red-600 dark:text-red-400 line-through'
-                                                                : 'text-purple-600 dark:text-purple-400'
+                                                                : 'text-green-600 dark:text-green-400'
                                                             }`}>
-                                                              {formattedAmount}
+                                                              -{formattedAmount}
                                                             </div>
                                                           );
                                                         }
@@ -2343,7 +2372,7 @@ const TransactionHub = () => {
                                                         // Display overdue fee amount on the right (like payment amount)
                                                         if (event.data.action_summary?.startsWith('Overdue fee:')) {
                                                           const feeAmount = event.data.amount || 0;
-                                                          // Amount is already in dollars, just format it
+                                                          // Amount is already in dollars, just format it with plus sign
                                                           const formattedAmount = formatCurrency(feeAmount);
                                                           return (
                                                             <div className={`text-sm font-medium ${
@@ -2351,7 +2380,7 @@ const TransactionHub = () => {
                                                                 ? 'text-red-600 dark:text-red-400 line-through'
                                                                 : 'text-amber-600 dark:text-amber-400'
                                                             }`}>
-                                                              {formattedAmount}
+                                                              +{formattedAmount}
                                                             </div>
                                                           );
                                                         }
@@ -2897,9 +2926,8 @@ onKeyPress={async (e) => {
                         const transaction = await findTransactionByDisplayId(displayId);
                         
                         // Validate transaction status for payment
-                        const extensions = transaction.extensions || [];
-                        const hasActiveExtensions = extensions.some(ext => !ext.is_cancelled);
-                        const effectiveStatus = hasActiveExtensions && ['active', 'overdue'].includes(transaction.status) ? 'extended' : transaction.status;
+                        // Trust backend status - no frontend override needed
+                        const effectiveStatus = transaction.status;
                         if (!['active', 'overdue', 'extended'].includes(effectiveStatus)) {
                           handleError(new Error(`Cannot process payment for ${effectiveStatus} transaction`), 'Invalid Status');
                           return;
@@ -2944,9 +2972,8 @@ onKeyPress={async (e) => {
                         const transaction = await findTransactionByDisplayId(displayId);
                         
                         // Validate transaction status for extension
-                        const extensions = transaction.extensions || [];
-                        const hasActiveExtensions = extensions.some(ext => !ext.is_cancelled);
-                        const effectiveStatus = hasActiveExtensions && ['active', 'overdue'].includes(transaction.status) ? 'extended' : transaction.status;
+                        // Trust backend status - no frontend override needed
+                        const effectiveStatus = transaction.status;
                         if (!['active', 'overdue', 'extended'].includes(effectiveStatus)) {
                           handleError(new Error(`Cannot extend ${effectiveStatus} transaction`), 'Invalid Status');
                           return;

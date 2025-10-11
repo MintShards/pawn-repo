@@ -24,8 +24,11 @@ from app.schemas.extension_schema import (
     ExtensionReceiptResponse, ExtensionHistoryResponse,
     ExtensionValidationResponse
 )
+from app.schemas.bulk_extension_schema import (
+    BulkExtensionPaymentRequest, BulkExtensionPaymentResponse
+)
 from app.services.extension_service import (
-    ExtensionService, ExtensionError, ExtensionValidationError, 
+    ExtensionService, ExtensionError, ExtensionValidationError,
     TransactionNotFoundError, StaffValidationError, ExtensionNotAllowedError
 )
 
@@ -105,6 +108,73 @@ async def process_extension(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Extension processing failed: {error_detail}"
+        )
+
+
+@extension_router.post(
+    "/bulk-payment",
+    response_model=BulkExtensionPaymentResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Process bulk extension payments",
+    description="Process multiple extension payments in a single batch (Staff and Admin access)",
+    responses={
+        200: {"description": "Bulk extension payments processed (may have partial success)"},
+        400: {"description": "Bad request - Invalid payment data"},
+        422: {"description": "Validation error"},
+        500: {"description": "Internal server error"}
+    }
+)
+@strict_rate_limit()
+async def process_bulk_extension_payment(
+    request: Request,
+    bulk_payment_data: BulkExtensionPaymentRequest,
+    current_user: User = Depends(get_staff_or_admin_user),
+    client_timezone: Optional[str] = Depends(get_client_timezone)
+) -> BulkExtensionPaymentResponse:
+    """Process multiple extension payments in a single batch operation"""
+    try:
+        # Convert payment items to dict for service layer
+        payments_dict = [item.model_dump() for item in bulk_payment_data.payments]
+
+        result = await ExtensionService.bulk_process_extension_payment(
+            payments=payments_dict,
+            processed_by_user_id=current_user.user_id,
+            batch_notes=bulk_payment_data.batch_notes,
+            admin_pin=bulk_payment_data.admin_pin,
+            client_timezone=client_timezone
+        )
+
+        return BulkExtensionPaymentResponse(**result)
+
+    except HTTPException:
+        # Re-raise HTTP exceptions from service layer
+        raise
+    except (ExtensionValidationError, StaffValidationError) as e:
+        # Handle business rule violations and validation errors
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except ValueError as e:
+        # Handle general validation errors
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        # Log unexpected errors for debugging
+        extension_logger.error(
+            "Unexpected error in process_bulk_extension_payment",
+            payment_count=len(bulk_payment_data.payments),
+            error=str(e),
+            exc_info=True
+        )
+
+        # Include the actual error in development
+        error_detail = str(e) if str(e) else "Failed to process bulk extension payments. Please try again later."
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Bulk extension payment processing failed: {error_detail}"
         )
 
 
