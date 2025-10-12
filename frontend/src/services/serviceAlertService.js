@@ -14,7 +14,7 @@ class ServiceAlertService {
     
     // Intelligent cache expiry based on data type
     this.cacheExpiry = {
-      alert_count: 60000,     // 1 minute - counts change less frequently
+      alert_count: 15000,     // 15 seconds - faster updates for counts
       alert_list: 45000,      // 45 seconds - alert lists need moderate freshness
       customer_items: 300000, // 5 minutes - customer items rarely change
       stats: 120000,          // 2 minutes - stats can be cached longer
@@ -219,15 +219,17 @@ class ServiceAlertService {
   /**
    * Get alert count for a customer (for badge display) - with enhanced caching
    */
-  async getCustomerAlertCount(customerPhone) {
+  async getCustomerAlertCount(customerPhone, forceRefresh = false) {
     try {
       const cacheKey = `alert_count_${customerPhone}`;
-      
-      // Check cache first
-      const cached = this.requestCache.get(cacheKey);
-      const expiry = this.getCacheExpiry(cacheKey);
-      if (cached && Date.now() - cached.timestamp < expiry) {
-        return cached.data;
+
+      // Check cache first (unless force refresh)
+      if (!forceRefresh) {
+        const cached = this.requestCache.get(cacheKey);
+        const expiry = this.getCacheExpiry(cacheKey);
+        if (cached && Date.now() - cached.timestamp < expiry) {
+          return cached.data;
+        }
       }
 
       const response = await fetch(`${API_BASE_URL}/api/v1/service-alert/customer/${customerPhone}/count`, {
@@ -235,8 +237,17 @@ class ServiceAlertService {
         headers: this.getAuthHeaders()
       });
 
+      if (!response.ok) {
+        throw new Error(`API returned ${response.status}`);
+      }
+
       const data = await this.handleResponse(response);
-      
+
+      // Validate response structure and return safe default if invalid
+      if (!data || typeof data.active_count === 'undefined') {
+        return { customer_phone: customerPhone, active_count: 0, resolved_count: 0, total_count: 0 };
+      }
+
       // Cache the result
       this.requestCache.set(cacheKey, {
         data,
@@ -245,7 +256,6 @@ class ServiceAlertService {
 
       return data;
     } catch (error) {
-      // Failed to get customer alert count
       throw error;
     }
   }

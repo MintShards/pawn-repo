@@ -3340,7 +3340,7 @@ const EnhancedCustomerManagement = () => {
   }, [loadCustomerStats, loadCustomerList, currentPage, getCurrentSearchTerm, statusFilter, alertFilter, vipFilter, toast]);
 
   // Load full page data (initial load with stats)
-  const loadCustomers = useCallback(async (page = 1, search = '', status = null, forceRefresh = false, filterByAlerts = null, filterByVip = null, filterByFollowUp = null) => {
+  const loadCustomers = useCallback(async (page = 1, search = '', status = null, forceRefresh = false, filterByAlerts = null, filterByVip = null, filterByFollowUp = null, filterByNewThisMonth = null) => {
     setLoading(true);
     try {
       // Clear cache if force refresh requested
@@ -3351,7 +3351,7 @@ const EnhancedCustomerManagement = () => {
       // Load stats and customer list in parallel
       await Promise.all([
         loadCustomerStats(),
-        loadCustomerList(page, search, status, filterByAlerts, filterByVip, filterByFollowUp)
+        loadCustomerList(page, search, status, filterByAlerts, filterByVip, filterByFollowUp, filterByNewThisMonth)
       ]);
     } catch (error) {
     } finally {
@@ -3359,9 +3359,7 @@ const EnhancedCustomerManagement = () => {
     }
   }, [loadCustomerStats, loadCustomerList]);
 
-
-
-  // EMERGENCY FIX: Single consolidated useEffect to prevent rate limit errors
+  // Single consolidated useEffect for customer list loading
   const hasInitialLoadRef = useRef(false);
   const lastRequestRef = useRef('');
   
@@ -3390,13 +3388,13 @@ const EnhancedCustomerManagement = () => {
     }
     
     // Create request signature to prevent duplicate requests
-    const requestSignature = `${currentPage}-${searchTerm}-${statusFilter}-${sortField}-${sortOrder}`;
-    
+    const requestSignature = `${currentPage}-${searchTerm}-${statusFilter}-${alertFilter}-${vipFilter}-${followUpFilter}-${newThisMonthFilter}-${sortField}-${sortOrder}`;
+
     // Prevent duplicate API calls
     if (lastRequestRef.current === requestSignature) {
       return;
     }
-    
+
     lastRequestRef.current = requestSignature;
     
     // Throttle API calls - only allow one every 500ms
@@ -3406,17 +3404,17 @@ const EnhancedCustomerManagement = () => {
     
     const makeRequest = () => {
       lastRequestRef.lastCall = Date.now();
-      
+
       if (!hasInitialLoadRef.current) {
         // First load - get both stats and customers
         hasInitialLoadRef.current = true;
-        loadCustomers(currentPage, searchTerm, statusFilter, false, alertFilter, vipFilter, followUpFilter);
+        loadCustomers(currentPage, searchTerm, statusFilter, false, alertFilter, vipFilter, followUpFilter, newThisMonthFilter);
       } else {
         // Subsequent loads - only get customer list
-        loadCustomerList(currentPage, searchTerm, statusFilter, alertFilter, vipFilter, followUpFilter);
+        loadCustomerList(currentPage, searchTerm, statusFilter, alertFilter, vipFilter, followUpFilter, newThisMonthFilter);
       }
     };
-    
+
     if (timeSinceLastCall >= 500) {
       makeRequest();
     } else {
@@ -3424,7 +3422,7 @@ const EnhancedCustomerManagement = () => {
       const timeoutId = setTimeout(makeRequest, 500 - timeSinceLastCall);
       return () => clearTimeout(timeoutId);
     }
-  }, [currentPage, debouncedSearchQuery, debouncedSearchFields, statusFilter, alertFilter, vipFilter, sortField, sortOrder, customersPerPage, loadCustomers, loadCustomerList]);
+  }, [currentPage, debouncedSearchQuery, debouncedSearchFields, statusFilter, alertFilter, vipFilter, followUpFilter, newThisMonthFilter, sortField, sortOrder, customersPerPage, loadCustomers, loadCustomerList]);
 
   // Handle page size change
   const handlePageSizeChange = useCallback((value) => {
@@ -3441,7 +3439,7 @@ const EnhancedCustomerManagement = () => {
   useEffect(() => {
     setCurrentPage(1);
     setSelectedCustomerIds([]); // Clear selections when filters change
-  }, [searchQuery, searchFields, statusFilter, alertFilter]);
+  }, [searchQuery, searchFields, statusFilter, alertFilter, vipFilter, followUpFilter, newThisMonthFilter]);
 
   // Simple reload when customersPerPage changes
   const [prevPageSize, setPrevPageSize] = useState(customersPerPage);
@@ -3476,12 +3474,27 @@ const EnhancedCustomerManagement = () => {
           
           // Add alert filter if active
           if (alertFilter) {
-            params.has_alerts = true;
+            params.alerts_only = true;
           }
-          
+
+          // Add VIP filter if active
+          if (vipFilter) {
+            params.vip_only = true;
+          }
+
+          // Add follow-up filter if active
+          if (followUpFilter) {
+            params.follow_up_only = true;
+          }
+
+          // Add new this month filter if active
+          if (newThisMonthFilter) {
+            params.new_this_month = true;
+          }
+
           // Use the same API call pattern as loadCustomerList
-          const response = searchTerm ? 
-            await customerService.searchCustomers(searchTerm, params) : 
+          const response = searchTerm ?
+            await customerService.searchCustomers(searchTerm, params) :
             await customerService.getAllCustomers(params);
           setCustomers(response.customers || []);
           setTotalCustomers(response.total || 0);
@@ -3505,7 +3518,8 @@ const EnhancedCustomerManagement = () => {
       
       loadWithNewPageSize();
     }
-  }, [customersPerPage, prevPageSize, getCurrentSearchTerm, statusFilter, alertFilter, sortField, sortOrder, initializeAlertCounts, toast]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customersPerPage, prevPageSize]);
 
   // Refresh overview transactions (called by activity triggers)
   const refreshOverviewTransactions = useCallback(async () => {
@@ -4030,15 +4044,17 @@ const EnhancedCustomerManagement = () => {
             setCurrentPage(1);
             setSelectedCustomerIds([]);
 
-            // Clear other card filters when activating this one
-            if (newStatus === 'active') {
-              setNewThisMonthFilter(false);
-              setFollowUpFilter(false);
-              setVipFilter(false);
-              setAlertFilter(false);
-            }
+            // Clear all other card filters (independent filter behavior)
+            setSearchQuery('');
+            setDebouncedSearchQuery('');
+            setSearchFields({ firstName: '', lastName: '', phone: '', email: '' });
+            setDebouncedSearchFields({ firstName: '', lastName: '', phone: '', email: '' });
+            setNewThisMonthFilter(false);
+            setFollowUpFilter(false);
+            setVipFilter(false);
+            setAlertFilter(false);
 
-            await loadCustomerList(1, getCurrentSearchTerm(), newStatus === 'active' ? 'active' : null, false, false, false, false);
+            await loadCustomerList(1, '', newStatus === 'active' ? 'active' : null, false, false, false, false);
 
             toast({
               title: newStatus === 'active' ? 'Active Customers Filter Applied' : 'Active Customers Filter Removed',
@@ -4079,14 +4095,17 @@ const EnhancedCustomerManagement = () => {
             setCurrentPage(1);
             setSelectedCustomerIds([]);
 
-            // Clear other card filters when activating this one
-            if (newFilter) {
-              setFollowUpFilter(false);
-              setVipFilter(false);
-              setAlertFilter(false);
-            }
+            // Clear all other card filters (independent filter behavior)
+            setSearchQuery('');
+            setDebouncedSearchQuery('');
+            setSearchFields({ firstName: '', lastName: '', phone: '', email: '' });
+            setDebouncedSearchFields({ firstName: '', lastName: '', phone: '', email: '' });
+            setStatusFilter('all');
+            setFollowUpFilter(false);
+            setVipFilter(false);
+            setAlertFilter(false);
 
-            await loadCustomerList(1, getCurrentSearchTerm(), statusFilter, false, false, false, newFilter);
+            await loadCustomerList(1, '', null, false, false, false, newFilter);
 
             toast({
               title: newFilter ? 'New This Month Filter Applied' : 'New This Month Filter Removed',
@@ -4127,14 +4146,17 @@ const EnhancedCustomerManagement = () => {
             setCurrentPage(1);
             setSelectedCustomerIds([]);
 
-            // Clear other card filters when activating this one
-            if (newFollowUpFilter) {
-              setNewThisMonthFilter(false);
-              setVipFilter(false);
-              setAlertFilter(false);
-            }
+            // Clear all other card filters (independent filter behavior)
+            setSearchQuery('');
+            setDebouncedSearchQuery('');
+            setSearchFields({ firstName: '', lastName: '', phone: '', email: '' });
+            setDebouncedSearchFields({ firstName: '', lastName: '', phone: '', email: '' });
+            setStatusFilter('all');
+            setNewThisMonthFilter(false);
+            setVipFilter(false);
+            setAlertFilter(false);
 
-            await loadCustomerList(1, getCurrentSearchTerm(), statusFilter, false, false, newFollowUpFilter, false);
+            await loadCustomerList(1, '', null, false, false, newFollowUpFilter, false);
 
             toast({
               title: newFollowUpFilter ? 'Follow-Up Filter Applied' : 'Follow-Up Filter Removed',
@@ -4176,19 +4198,18 @@ const EnhancedCustomerManagement = () => {
             setCurrentPage(1); // Reset to first page
             setSelectedCustomerIds([]); // Clear selections
 
-            // Clear search and other filters when applying alert filter
-            if (newAlertFilter) {
-              setSearchQuery('');
-              setDebouncedSearchQuery('');
-              setSearchFields({ firstName: '', lastName: '', phone: '', email: '' });
-              setDebouncedSearchFields({ firstName: '', lastName: '', phone: '', email: '' });
-              setStatusFilter('all'); // Clear status filter
-              setVipFilter(false); // Clear VIP filter
-              setFollowUpFilter(false); // Clear follow-up filter
-            }
+            // Clear all other card filters (independent filter behavior)
+            setSearchQuery('');
+            setDebouncedSearchQuery('');
+            setSearchFields({ firstName: '', lastName: '', phone: '', email: '' });
+            setDebouncedSearchFields({ firstName: '', lastName: '', phone: '', email: '' });
+            setStatusFilter('all');
+            setNewThisMonthFilter(false);
+            setVipFilter(false);
+            setFollowUpFilter(false);
 
             // Load filtered customers
-            await loadCustomerList(1, '', null, newAlertFilter, false, false);
+            await loadCustomerList(1, '', null, newAlertFilter, false, false, false);
 
             // Show appropriate toast message
             toast({
@@ -4232,19 +4253,18 @@ const EnhancedCustomerManagement = () => {
               setCurrentPage(1); // Reset to first page
               setSelectedCustomerIds([]); // Clear selections
 
-              // Clear search and other filters when applying VIP filter
-              if (newVipFilter) {
-                setSearchQuery('');
-                setDebouncedSearchQuery('');
-                setSearchFields({ firstName: '', lastName: '', phone: '', email: '' });
-                setDebouncedSearchFields({ firstName: '', lastName: '', phone: '', email: '' });
-                setStatusFilter('all'); // Clear status filter
-                setAlertFilter(false); // Clear alert filter
-                setFollowUpFilter(false); // Clear follow-up filter
-              }
+              // Clear all other card filters (independent filter behavior)
+              setSearchQuery('');
+              setDebouncedSearchQuery('');
+              setSearchFields({ firstName: '', lastName: '', phone: '', email: '' });
+              setDebouncedSearchFields({ firstName: '', lastName: '', phone: '', email: '' });
+              setStatusFilter('all');
+              setNewThisMonthFilter(false);
+              setAlertFilter(false);
+              setFollowUpFilter(false);
 
               // Load filtered customers
-              await loadCustomerList(1, '', null, false, newVipFilter, false);
+              await loadCustomerList(1, '', null, false, newVipFilter, false, false);
 
               // Show appropriate toast message
               toast({

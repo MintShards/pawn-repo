@@ -168,10 +168,14 @@ class ServiceAlertService:
         result = await ServiceAlert.aggregate(pipeline).to_list()
         stats = result[0] if result else {}
 
-        # Extract counts from aggregation result
-        active_count = stats.get("active", [{}])[0].get("count", 0)
-        resolved_count = stats.get("resolved", [{}])[0].get("count", 0)
-        total_count = stats.get("total", [{}])[0].get("count", 0)
+        # Extract counts from aggregation result - safely handle empty lists
+        active_list = stats.get("active", [])
+        resolved_list = stats.get("resolved", [])
+        total_list = stats.get("total", [])
+
+        active_count = active_list[0].get("count", 0) if active_list else 0
+        resolved_count = resolved_list[0].get("count", 0) if resolved_list else 0
+        total_count = total_list[0].get("count", 0) if total_list else 0
 
         return ServiceAlertCountResponse(
             customer_phone=customer_phone,

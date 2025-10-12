@@ -21,12 +21,18 @@ const AlertBellAction = React.memo(({ customerPhone, onBellClick }) => {
   // Initialize alert count once when component mounts
   useEffect(() => {
     if (!customerPhone || initialized) return;
-    
+
     const loadAlertCount = async () => {
       try {
         setIsLoading(true);
         const result = await serviceAlertService.getCustomerAlertCount(customerPhone);
-        setAlertCount(result.active_count || 0);
+
+        // Ensure we have valid result data
+        if (result && typeof result.active_count === 'number') {
+          setAlertCount(result.active_count);
+        } else {
+          setAlertCount(0);
+        }
         setInitialized(true);
       } catch (error) {
         setAlertCount(0);
@@ -35,18 +41,22 @@ const AlertBellAction = React.memo(({ customerPhone, onBellClick }) => {
         setIsLoading(false);
       }
     };
-    
+
     loadAlertCount();
   }, [customerPhone, initialized]);
 
   // Optimized refresh function - self-contained
   const refreshAlertCount = useCallback(async () => {
     if (!customerPhone) return;
-    
+
     try {
       setIsUpdating(true);
       const result = await serviceAlertService.getCustomerAlertCount(customerPhone);
-      setAlertCount(result.active_count || 0);
+
+      // Ensure we have valid result data
+      if (result && typeof result.active_count === 'number') {
+        setAlertCount(result.active_count);
+      }
     } catch (error) {
       // Keep current count on error
     } finally {
@@ -82,21 +92,18 @@ const AlertBellAction = React.memo(({ customerPhone, onBellClick }) => {
     };
   }, [customerPhone, refreshAlertCount]);
 
-  // Expose refresh method for parent components
-  const refreshCount = refreshAlertCount;
-
   // Expose refresh method via ref or callback
   React.useImperativeHandle(onBellClick?.ref, () => ({
-    refreshCount
-  }), [refreshCount]);
+    refreshCount: refreshAlertCount
+  }), [refreshAlertCount]);
 
   // Stable bell click handler
   const handleBellClick = useCallback((e) => {
     e.stopPropagation();
     if (onBellClick && typeof onBellClick === 'function') {
-      onBellClick(customerPhone, alertCount, refreshCount);
+      onBellClick(customerPhone, alertCount, refreshAlertCount);
     }
-  }, [customerPhone, alertCount, onBellClick, refreshCount]);
+  }, [customerPhone, alertCount, onBellClick, refreshAlertCount]);
 
   if (isLoading) {
     return (

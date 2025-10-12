@@ -309,11 +309,8 @@ class CustomerService:
                     else:
                         # No customers need follow-up, return empty result
                         filters["phone_number"] = {"$in": []}
-                except Exception as e:
-                    # If follow-up calculation fails, log and skip filter
-                    print(f"ERROR in follow-up filter: {e}")
-                    import traceback
-                    traceback.print_exc()
+                except Exception:
+                    # If follow-up calculation fails, silently skip filter
                     pass
 
             # Apply new this month filter if requested (customers created in current calendar month)
@@ -382,7 +379,7 @@ class CustomerService:
                 query = Customer.find(filters)
             else:
                 query = Customer.find()
-            
+
             # Get total count before pagination
             total = await query.count()
             
