@@ -106,6 +106,10 @@ async def create_customer(
 async def get_customers_list(
     status_filter: Optional[CustomerStatus] = Query(None, alias="status", description="Filter by customer status"),
     search: Optional[str] = Query(None, description="Search in name and phone number", max_length=100),
+    vip_only: bool = Query(False, description="Filter VIP customers only (total_loan_value >= $5,000)"),
+    alerts_only: bool = Query(False, description="Filter customers with active service alerts only"),
+    follow_up_only: bool = Query(False, description="Filter customers needing follow-up (customers with overdue transactions)"),
+    new_this_month: bool = Query(False, description="Filter customers created in current calendar month"),
     page: int = Query(1, description="Page number", ge=1),
     per_page: int = Query(10, description="Items per page", ge=1, le=100),
     sort_by: str = Query("created_at", description="Sort field"),
@@ -117,6 +121,10 @@ async def get_customers_list(
         return await CustomerService.get_customers_list(
             status=status_filter,
             search=search,
+            vip_only=vip_only,
+            alerts_only=alerts_only,
+            follow_up_only=follow_up_only,
+            new_this_month=new_this_month,
             page=page,
             per_page=per_page,
             sort_by=sort_by,
@@ -145,11 +153,10 @@ async def get_customers_list(
         403: {"description": "Forbidden"}
     }
 )
-@cached_result(prefix="stats:customer:", ttl=CacheConfig.MEDIUM_TTL)
 async def get_customer_statistics(
     current_user: User = Depends(get_current_user)
 ) -> CustomerStatsResponse:
-    """Get customer statistics for dashboard with caching"""
+    """Get customer statistics for dashboard - real-time (no cache for accurate follow-up counts)"""
     return await CustomerService.get_customer_statistics()
 
 
@@ -368,7 +375,12 @@ async def deactivate_customer(
         # Deactivate the customer
         customer.deactivate(reason, current_user.user_id)
         await customer.save()
-        
+
+        # Invalidate customer stats cache for real-time updates
+        from app.core.redis_cache import BusinessCache
+        await BusinessCache.invalidate_by_pattern("stats:customer:*")
+        await BusinessCache.invalidate_customer(phone_number)
+
         # Add computed properties before response
         customer_dict = customer.model_dump()
         customer_dict["can_borrow_amount"] = customer.can_borrow_amount
@@ -423,7 +435,12 @@ async def archive_customer(
         # Archive the customer
         customer.archive(archive_request.reason, current_user.user_id)
         await customer.save()
-        
+
+        # Invalidate customer stats cache for real-time updates
+        from app.core.redis_cache import BusinessCache
+        await BusinessCache.invalidate_by_pattern("stats:customer:*")
+        await BusinessCache.invalidate_customer(phone_number)
+
         # Add computed properties before response
         customer_dict = customer.model_dump()
         customer_dict["can_borrow_amount"] = customer.can_borrow_amount

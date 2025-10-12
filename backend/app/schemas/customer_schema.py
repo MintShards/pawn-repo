@@ -323,7 +323,7 @@ class CustomerStatsResponse(BaseModel):
     new_this_month: int = Field(..., description="Customers joined in the last 30 days")
     service_alerts: int = Field(..., description="Customers requiring service attention")
     needs_follow_up: int = Field(..., description="Customers flagged for contact")
-    eligible_for_increase: int = Field(..., description="Customers eligible for credit increase")
+    vip_customers: int = Field(..., description="High-value customers with total loans >= $5,000")
     
     model_config = ConfigDict(
         json_schema_extra={
@@ -337,7 +337,7 @@ class CustomerStatsResponse(BaseModel):
                 "new_this_month": 12,
                 "service_alerts": 3,
                 "needs_follow_up": 8,
-                "eligible_for_increase": 35
+                "vip_customers": 35
             }
         }
     )

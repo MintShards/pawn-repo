@@ -7,43 +7,19 @@ import transactionService from '../../services/transactionService';
 import { formatTransactionId, formatStorageLocation, formatCurrency } from '../../utils/transactionUtils';
 import { formatBusinessDate } from '../../utils/timezoneUtils';
 
-const TransactionCard = ({ 
-  transaction, 
-  onView, 
-  onPayment, 
+const TransactionCard = React.memo(({
+  transaction,
+  onView,
+  onPayment,
   onExtension,
   isSelected = false,
   onSelect,
   refreshTrigger, // Add prop to trigger balance refresh
   balance: parentBalance // Balance passed from parent
 }) => {
-  const [balance, setBalance] = useState(parentBalance || null);
-  const [loading, setLoading] = useState(false);
-
-  // Use parent balance if provided, otherwise fetch it
-  const loadBalance = useCallback(async () => {
-    if (!transaction?.transaction_id) return;
-    
-    // If parent provides balance, use it
-    if (parentBalance !== undefined) {
-      setBalance(parentBalance);
-      return;
-    }
-    
-    try {
-      setLoading(true);
-      const balanceData = await transactionService.getTransactionBalance(transaction.transaction_id);
-      setBalance(balanceData);
-    } catch (error) {
-      // Error handled
-    } finally {
-      setLoading(false);
-    }
-  }, [transaction?.transaction_id, parentBalance]);
-
-  useEffect(() => {
-    loadBalance();
-  }, [loadBalance, refreshTrigger]); // Refresh when trigger changes
+  // Performance optimization: Use parent balance directly to avoid API calls
+  const balance = parentBalance || null;
+  const loading = false; // No loading state needed when using parent balance
 
   // formatCurrency is now imported from transactionUtils
 
@@ -69,7 +45,7 @@ const TransactionCard = ({
   // Calculate days until maturity or days overdue (only for non-terminal states)
   const getMaturityInfo = () => {
     // Don't show maturity info for terminal states
-    if (['redeemed', 'sold', 'voided'].includes(transaction.status)) {
+    if (['redeemed', 'sold', 'voided', 'forfeited'].includes(transaction.status)) {
       return null;
     }
     
@@ -274,6 +250,14 @@ const TransactionCard = ({
       </CardContent>
     </Card>
   );
-};
+}, (prevProps, nextProps) => {
+  // Custom comparison function for React.memo optimization
+  return (
+    prevProps.transaction?.transaction_id === nextProps.transaction?.transaction_id &&
+    prevProps.isSelected === nextProps.isSelected &&
+    prevProps.balance?.current_balance === nextProps.balance?.current_balance &&
+    prevProps.refreshTrigger === nextProps.refreshTrigger
+  );
+});
 
 export default TransactionCard;

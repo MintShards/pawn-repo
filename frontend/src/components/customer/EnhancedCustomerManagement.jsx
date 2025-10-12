@@ -43,7 +43,8 @@ import {
   ChevronLeft,
   ChevronRight,
   LayoutGrid,
-  TableIcon
+  TableIcon,
+  Award
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -2636,7 +2637,7 @@ const EnhancedCustomerManagement = () => {
     newThisMonth: 0,
     goodStanding: 0,
     needsFollowUp: 0,
-    eligibleForIncrease: 0
+    vipCustomers: 0
   });
   const [loading, setLoading] = useState(true);
   const [customerListLoading, setCustomerListLoading] = useState(false);
@@ -2659,6 +2660,9 @@ const EnhancedCustomerManagement = () => {
   const searchTimeoutRef = useRef(null);
   const [statusFilter, setStatusFilter] = useState('all');
   const [alertFilter, setAlertFilter] = useState(false); // Filter for customers with alerts
+  const [vipFilter, setVipFilter] = useState(false); // Filter for VIP customers only
+  const [followUpFilter, setFollowUpFilter] = useState(false); // Filter for customers needing follow-up
+  const [newThisMonthFilter, setNewThisMonthFilter] = useState(false); // Filter for customers created this month
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
   
@@ -2891,7 +2895,7 @@ const EnhancedCustomerManagement = () => {
           newThisMonth: stats.new_this_month || 0,
           serviceAlerts: stats.service_alerts || 0,
           needsFollowUp: stats.needs_follow_up || 0,
-          eligibleForIncrease: stats.eligible_for_increase || 0
+          vipCustomers: stats.vip_customers || 0
         });
       }
     } catch (error) {
@@ -2905,7 +2909,7 @@ const EnhancedCustomerManagement = () => {
         newThisMonth: 0,
         goodStanding: 0,
         needsFollowUp: 0,
-        eligibleForIncrease: 0
+        vipCustomers: 0
       });
       
       // Show user-friendly error message
@@ -3110,7 +3114,7 @@ const EnhancedCustomerManagement = () => {
       setArchiveConfirmation('');
       
       // Force refresh both stats and customer list to ensure immediate data consistency
-      await loadCustomers(currentPage, getCurrentSearchTerm(), statusFilter, true, alertFilter);
+      await loadCustomers(currentPage, getCurrentSearchTerm(), statusFilter, true, alertFilter, vipFilter, followUpFilter);
       
     } catch (error) {
       
@@ -3138,9 +3142,9 @@ const EnhancedCustomerManagement = () => {
     
     // Reset to first page when applying filters
     setCurrentPage(1);
-    
+
     // Load customers with the applied filters
-    loadCustomerList(1, getCurrentSearchTerm(), advancedFilters.status === 'all' ? null : advancedFilters.status, alertFilter);
+    loadCustomerList(1, getCurrentSearchTerm(), advancedFilters.status === 'all' ? null : advancedFilters.status, alertFilter, vipFilter, followUpFilter);
     
     // Show appropriate toast message
     if (advancedFilters.status !== 'all') {
@@ -3184,9 +3188,9 @@ const EnhancedCustomerManagement = () => {
     
     // Clear alert filter too
     setAlertFilter(false);
-    
+
     // Load customers without filters
-    loadCustomerList(1, '', null, false); // Clear alert filter when clearing all filters
+    loadCustomerList(1, '', null, false, false, false); // Clear alert, VIP, and follow-up filters when clearing all filters
     
     // Show confirmation toast
     toast({
@@ -3198,8 +3202,8 @@ const EnhancedCustomerManagement = () => {
 
   // Note: loadCustomerStats has been moved earlier in the file to fix hoisting issue
 
-  // Load only customer list (for search/pagination) 
-  const loadCustomerList = useCallback(async (page = 1, search = '', status = null, filterByAlerts = null) => {
+  // Load only customer list (for search/pagination)
+  const loadCustomerList = useCallback(async (page = 1, search = '', status = null, filterByAlerts = null, filterByVip = null, filterByFollowUp = null, filterByNewThisMonth = null) => {
     setCustomerListLoading(true);
     setCustomerListError(null);
     try {
@@ -3207,54 +3211,49 @@ const EnhancedCustomerManagement = () => {
         per_page: customersPerPage,
         page: page,
       };
-      
+
       // Add search parameter if provided
       if (search) {
         params.search = search;
       }
-      
+
       // Add status filter if provided
       if (status && status !== 'all') {
         params.status = status;
       }
-      
+
+      // Add VIP filter if requested
+      if (filterByVip) {
+        params.vip_only = true;
+      }
+
+      // Add alerts filter if requested (server-side filtering)
+      if (filterByAlerts) {
+        params.alerts_only = true;
+      }
+
+      // Add follow-up filter if requested (server-side filtering)
+      if (filterByFollowUp) {
+        params.follow_up_only = true;
+      }
+
+      // Add new this month filter if requested (server-side filtering)
+      if (filterByNewThisMonth) {
+        params.new_this_month = true;
+      }
+
       // Add sorting
-      params.sort_by = sortField === 'customer' ? 'first_name' : 
+      params.sort_by = sortField === 'customer' ? 'first_name' :
                        sortField === 'contact' ? 'phone_number' :
                        sortField === 'loan_activity' ? 'active_loans' :
                        sortField === 'last_visit' ? 'last_transaction_date' :
                        sortField;
       params.sort_order = sortOrder;
-      
+
       // Use enhanced search if we have a search term, otherwise use getAllCustomers
-      let response = search ? 
-        await customerService.searchCustomers(search, params) : 
+      let response = search ?
+        await customerService.searchCustomers(search, params) :
         await customerService.getAllCustomers(params);
-      
-      // Apply alert filtering if requested
-      if (filterByAlerts) {
-        try {
-          // Get customers with alerts from service alert service
-          const alertStats = await serviceAlertService.getUniqueCustomerAlertStats();
-          const customersWithAlerts = alertStats.customers_with_alerts || [];
-          
-          if (response && response.customers) {
-            // Filter customers to only include those with alerts
-            const filteredCustomers = response.customers.filter(customer => 
-              customersWithAlerts.includes(customer.phone_number)
-            );
-            
-            response = {
-              ...response,
-              customers: filteredCustomers,
-              total: filteredCustomers.length
-            };
-          }
-        } catch (error) {
-          // Error handled
-          // Continue with unfiltered results if alert filtering fails
-        }
-      }
       
       // Handle paginated response with metadata
       if (response && response.customers) {
@@ -3287,7 +3286,7 @@ const EnhancedCustomerManagement = () => {
         
         // Auto-retry after rate limit delay with current parameters
         setTimeout(() => {
-          loadCustomerList(page, search, status, filterByAlerts);
+          loadCustomerList(page, search, status, filterByAlerts, filterByVip, filterByFollowUp);
         }, 3000);
       } else if (error.message?.includes('Authentication')) {
         errorMessage = 'Authentication error';
@@ -3321,7 +3320,7 @@ const EnhancedCustomerManagement = () => {
       // Load stats and customer list in parallel with fresh data
       await Promise.all([
         loadCustomerStats(),
-        loadCustomerList(currentPage, getCurrentSearchTerm(), statusFilter, alertFilter)
+        loadCustomerList(currentPage, getCurrentSearchTerm(), statusFilter, alertFilter, vipFilter, followUpFilter)
       ]);
       
       toast({
@@ -3338,21 +3337,21 @@ const EnhancedCustomerManagement = () => {
     } finally {
       setLoading(false);
     }
-  }, [loadCustomerStats, loadCustomerList, currentPage, getCurrentSearchTerm, statusFilter, alertFilter, toast]);
+  }, [loadCustomerStats, loadCustomerList, currentPage, getCurrentSearchTerm, statusFilter, alertFilter, vipFilter, toast]);
 
   // Load full page data (initial load with stats)
-  const loadCustomers = useCallback(async (page = 1, search = '', status = null, forceRefresh = false, filterByAlerts = null) => {
+  const loadCustomers = useCallback(async (page = 1, search = '', status = null, forceRefresh = false, filterByAlerts = null, filterByVip = null, filterByFollowUp = null) => {
     setLoading(true);
     try {
       // Clear cache if force refresh requested
       if (forceRefresh) {
         await customerService.forceRefresh();
       }
-      
+
       // Load stats and customer list in parallel
       await Promise.all([
         loadCustomerStats(),
-        loadCustomerList(page, search, status, filterByAlerts)
+        loadCustomerList(page, search, status, filterByAlerts, filterByVip, filterByFollowUp)
       ]);
     } catch (error) {
     } finally {
@@ -3411,10 +3410,10 @@ const EnhancedCustomerManagement = () => {
       if (!hasInitialLoadRef.current) {
         // First load - get both stats and customers
         hasInitialLoadRef.current = true;
-        loadCustomers(currentPage, searchTerm, statusFilter, false, alertFilter);
+        loadCustomers(currentPage, searchTerm, statusFilter, false, alertFilter, vipFilter, followUpFilter);
       } else {
         // Subsequent loads - only get customer list
-        loadCustomerList(currentPage, searchTerm, statusFilter, alertFilter);
+        loadCustomerList(currentPage, searchTerm, statusFilter, alertFilter, vipFilter, followUpFilter);
       }
     };
     
@@ -3425,7 +3424,7 @@ const EnhancedCustomerManagement = () => {
       const timeoutId = setTimeout(makeRequest, 500 - timeSinceLastCall);
       return () => clearTimeout(timeoutId);
     }
-  }, [currentPage, debouncedSearchQuery, debouncedSearchFields, statusFilter, alertFilter, sortField, sortOrder, customersPerPage, loadCustomers, loadCustomerList]);
+  }, [currentPage, debouncedSearchQuery, debouncedSearchFields, statusFilter, alertFilter, vipFilter, sortField, sortOrder, customersPerPage, loadCustomers, loadCustomerList]);
 
   // Handle page size change
   const handlePageSizeChange = useCallback((value) => {
@@ -3659,7 +3658,7 @@ const EnhancedCustomerManagement = () => {
       // Use a small delay to avoid multiple rapid refreshes
       clearTimeout(window.customerListRefreshTimeout);
       window.customerListRefreshTimeout = setTimeout(() => {
-        loadCustomerList(currentPage, getCurrentSearchTerm(), statusFilter, alertFilter);
+        loadCustomerList(currentPage, getCurrentSearchTerm(), statusFilter, alertFilter, vipFilter, followUpFilter);
       }, 1500); // Longer delay for full customer list
     };
 
@@ -3676,7 +3675,7 @@ const EnhancedCustomerManagement = () => {
       window.removeEventListener('transaction-created', handleTransactionUpdate);
       clearTimeout(window.customerListRefreshTimeout);
     };
-  }, [selectedCustomer?.phone_number, activeTab, refreshOverviewTransactions, currentPage, statusFilter, alertFilter, loadCustomerList, getCurrentSearchTerm, currentCustomers, loadCustomerActivities]);
+  }, [selectedCustomer?.phone_number, activeTab, refreshOverviewTransactions, currentPage, statusFilter, alertFilter, vipFilter, loadCustomerList, getCurrentSearchTerm, currentCustomers, loadCustomerActivities]);
 
   const handleSelectAll = (checked) => {
     if (checked) {
@@ -3727,7 +3726,7 @@ const EnhancedCustomerManagement = () => {
       }
 
       // Force refresh data to ensure immediate consistency
-      await loadCustomers(currentPage, getCurrentSearchTerm(), statusFilter, true, alertFilter);
+      await loadCustomers(currentPage, getCurrentSearchTerm(), statusFilter, true, alertFilter, vipFilter, followUpFilter);
       setSelectedCustomerIds([]);
 
       // Show result toast
@@ -3828,8 +3827,8 @@ const EnhancedCustomerManagement = () => {
     
     // Refresh both customer list and stats with immediate effect
     await Promise.all([
-      loadCustomerList(currentPage, getCurrentSearchTerm(), statusFilter, alertFilter),
-      loadCustomerStats() // Refresh stats including Eligible for Loans count
+      loadCustomerList(currentPage, getCurrentSearchTerm(), statusFilter, alertFilter, vipFilter, followUpFilter),
+      loadCustomerStats() // Refresh stats including VIP count
     ]);
     
     // If we have a selected customer open, refresh their data
@@ -3899,7 +3898,7 @@ const EnhancedCustomerManagement = () => {
       });
       
       // Force refresh list to ensure immediate data consistency
-      await loadCustomers(currentPage, getCurrentSearchTerm(), statusFilter, true, alertFilter);
+      await loadCustomers(currentPage, getCurrentSearchTerm(), statusFilter, true, alertFilter, vipFilter, followUpFilter);
       
     } catch (error) {
       toast({
@@ -4019,71 +4018,156 @@ const EnhancedCustomerManagement = () => {
       {/* Modern Stats Grid */}
       <div className={`grid gap-6 ${isAdmin ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-5' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'}`}>
         {/* Active/Eligible Customers */}
-        <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/50 dark:to-teal-950/50 hover:shadow-md transition-shadow cursor-pointer group">
+        <Card
+          className={`relative overflow-hidden border-0 shadow-sm bg-gradient-to-r transition-all cursor-pointer group ${
+            statusFilter === 'active'
+              ? 'from-blue-100 to-sky-100 dark:from-blue-900/70 dark:to-sky-900/70 shadow-md ring-2 ring-blue-400 dark:ring-blue-500'
+              : 'from-blue-50 to-sky-50 dark:from-blue-950/50 dark:to-sky-950/50 hover:shadow-md'
+          }`}
+          onClick={async () => {
+            const newStatus = statusFilter === 'active' ? 'all' : 'active';
+            setStatusFilter(newStatus);
+            setCurrentPage(1);
+            setSelectedCustomerIds([]);
+
+            // Clear other card filters when activating this one
+            if (newStatus === 'active') {
+              setNewThisMonthFilter(false);
+              setFollowUpFilter(false);
+              setVipFilter(false);
+              setAlertFilter(false);
+            }
+
+            await loadCustomerList(1, getCurrentSearchTerm(), newStatus === 'active' ? 'active' : null, false, false, false, false);
+
+            toast({
+              title: newStatus === 'active' ? 'Active Customers Filter Applied' : 'Active Customers Filter Removed',
+              description: newStatus === 'active'
+                ? 'Displaying only active customers.'
+                : 'Active customers filter has been removed.'
+            });
+          }}
+        >
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-blue-700 dark:text-blue-300 group-hover:text-blue-800 dark:group-hover:text-blue-200">
+                  Active Customers {loading ? '(Refreshing...)' : ''}
+                </p>
+                <p className="text-2xl font-bold text-blue-900 dark:text-blue-100">
+                  {loading ? '-' : customerStats.active}
+                </p>
+              </div>
+              <div className="w-12 h-12 bg-blue-500/10 dark:bg-blue-400/10 rounded-xl flex items-center justify-center group-hover:bg-blue-500/20 dark:group-hover:bg-blue-400/20">
+                <Users className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+              </div>
+            </div>
+            <div className="absolute top-0 right-0 w-20 h-20 bg-blue-500/5 dark:bg-blue-400/5 rounded-full -mr-10 -mt-10"></div>
+          </CardContent>
+        </Card>
+
+        {/* New Customers This Month */}
+        <Card
+          className={`relative overflow-hidden border-0 shadow-sm bg-gradient-to-r transition-all cursor-pointer group ${
+            newThisMonthFilter
+              ? 'from-emerald-100 to-green-100 dark:from-emerald-900/70 dark:to-green-900/70 shadow-md ring-2 ring-emerald-400 dark:ring-emerald-500'
+              : 'from-emerald-50 to-green-50 dark:from-emerald-950/50 dark:to-green-950/50 hover:shadow-md'
+          }`}
+          onClick={async () => {
+            const newFilter = !newThisMonthFilter;
+            setNewThisMonthFilter(newFilter);
+            setCurrentPage(1);
+            setSelectedCustomerIds([]);
+
+            // Clear other card filters when activating this one
+            if (newFilter) {
+              setFollowUpFilter(false);
+              setVipFilter(false);
+              setAlertFilter(false);
+            }
+
+            await loadCustomerList(1, getCurrentSearchTerm(), statusFilter, false, false, false, newFilter);
+
+            toast({
+              title: newFilter ? 'New This Month Filter Applied' : 'New This Month Filter Removed',
+              description: newFilter
+                ? 'Displaying customers created in the current calendar month.'
+                : 'New this month filter has been removed.'
+            });
+          }}
+        >
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300 group-hover:text-emerald-800 dark:group-hover:text-emerald-200">
-                  Active Customers
+                  New This Month {loading ? '(Refreshing...)' : ''}
                 </p>
                 <p className="text-2xl font-bold text-emerald-900 dark:text-emerald-100">
-                  {customerStats.active}
+                  {loading ? '-' : customerStats.newThisMonth}
                 </p>
               </div>
               <div className="w-12 h-12 bg-emerald-500/10 dark:bg-emerald-400/10 rounded-xl flex items-center justify-center group-hover:bg-emerald-500/20 dark:group-hover:bg-emerald-400/20">
-                <CheckCircle className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
+                <TrendingUp className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
               </div>
             </div>
             <div className="absolute top-0 right-0 w-20 h-20 bg-emerald-500/5 dark:bg-emerald-400/5 rounded-full -mr-10 -mt-10"></div>
           </CardContent>
         </Card>
 
-        {/* New Customers This Month */}
-        <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-r from-indigo-50 to-blue-50 dark:from-indigo-950/50 dark:to-blue-950/50 hover:shadow-md transition-shadow cursor-pointer group">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-indigo-700 dark:text-indigo-300 group-hover:text-indigo-800 dark:group-hover:text-indigo-200">
-                  New This Month
-                </p>
-                <p className="text-2xl font-bold text-indigo-900 dark:text-indigo-100">
-                  {customerStats.newThisMonth}
-                </p>
-              </div>
-              <div className="w-12 h-12 bg-indigo-500/10 dark:bg-indigo-400/10 rounded-xl flex items-center justify-center group-hover:bg-indigo-500/20 dark:group-hover:bg-indigo-400/20">
-                <TrendingUp className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
-              </div>
-            </div>
-            <div className="absolute top-0 right-0 w-20 h-20 bg-indigo-500/5 dark:bg-indigo-400/5 rounded-full -mr-10 -mt-10"></div>
-          </CardContent>
-        </Card>
-
         {/* Needs Follow-Up */}
-        <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-r from-red-50 to-rose-50 dark:from-red-950/50 dark:to-rose-950/50 hover:shadow-md transition-shadow cursor-pointer group">
+        <Card
+          className={`relative overflow-hidden border-0 shadow-sm bg-gradient-to-r transition-all cursor-pointer group ${
+            followUpFilter
+              ? 'from-purple-100 to-violet-100 dark:from-purple-900/70 dark:to-violet-900/70 shadow-md ring-2 ring-purple-400 dark:ring-purple-500'
+              : 'from-purple-50 to-violet-50 dark:from-purple-950/50 dark:to-violet-950/50 hover:shadow-md'
+          }`}
+          onClick={async () => {
+            const newFollowUpFilter = !followUpFilter;
+            setFollowUpFilter(newFollowUpFilter);
+            setCurrentPage(1);
+            setSelectedCustomerIds([]);
+
+            // Clear other card filters when activating this one
+            if (newFollowUpFilter) {
+              setNewThisMonthFilter(false);
+              setVipFilter(false);
+              setAlertFilter(false);
+            }
+
+            await loadCustomerList(1, getCurrentSearchTerm(), statusFilter, false, false, newFollowUpFilter, false);
+
+            toast({
+              title: newFollowUpFilter ? 'Follow-Up Filter Applied' : 'Follow-Up Filter Removed',
+              description: newFollowUpFilter
+                ? 'Displaying customers with overdue transactions.'
+                : 'Follow-up filter has been removed.'
+            });
+          }}
+        >
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-red-700 dark:text-red-300 group-hover:text-red-800 dark:group-hover:text-red-200">
-                  Needs Follow-Up
+                <p className="text-sm font-medium text-purple-700 dark:text-purple-300 group-hover:text-purple-800 dark:group-hover:text-purple-200">
+                  Needs Follow-Up {loading ? '(Refreshing...)' : ''}
                 </p>
-                <p className="text-2xl font-bold text-red-900 dark:text-red-100">
-                  {customerStats.needsFollowUp}
+                <p className="text-2xl font-bold text-purple-900 dark:text-purple-100">
+                  {loading ? '-' : customerStats.needsFollowUp}
                 </p>
               </div>
-              <div className="w-12 h-12 bg-red-500/10 dark:bg-red-400/10 rounded-xl flex items-center justify-center group-hover:bg-red-500/20 dark:group-hover:bg-red-400/20">
-                <Phone className="w-6 h-6 text-red-600 dark:text-red-400" />
+              <div className="w-12 h-12 bg-purple-500/10 dark:bg-purple-400/10 rounded-xl flex items-center justify-center group-hover:bg-purple-500/20 dark:group-hover:bg-purple-400/20">
+                <Phone className="w-6 h-6 text-purple-600 dark:text-purple-400" />
               </div>
             </div>
-            <div className="absolute top-0 right-0 w-20 h-20 bg-red-500/5 dark:bg-red-400/5 rounded-full -mr-10 -mt-10"></div>
+            <div className="absolute top-0 right-0 w-20 h-20 bg-purple-500/5 dark:bg-purple-400/5 rounded-full -mr-10 -mt-10"></div>
           </CardContent>
         </Card>
 
         {/* Service Alerts */}
-        <Card 
+        <Card
           className={`relative overflow-hidden border-0 shadow-sm bg-gradient-to-r transition-all cursor-pointer group ${
-            alertFilter 
-              ? 'from-yellow-100 to-amber-100 dark:from-yellow-900/70 dark:to-amber-900/70 shadow-md ring-2 ring-yellow-400 dark:ring-yellow-500' 
-              : 'from-yellow-50 to-amber-50 dark:from-yellow-950/50 dark:to-amber-950/50 hover:shadow-md'
+            alertFilter
+              ? 'from-orange-100 to-red-100 dark:from-orange-900/70 dark:to-red-900/70 shadow-md ring-2 ring-orange-400 dark:ring-orange-500'
+              : 'from-orange-50 to-red-50 dark:from-orange-950/50 dark:to-red-950/50 hover:shadow-md'
           }`}
           onClick={async () => {
             // Toggle alert filter
@@ -4091,24 +4175,26 @@ const EnhancedCustomerManagement = () => {
             setAlertFilter(newAlertFilter);
             setCurrentPage(1); // Reset to first page
             setSelectedCustomerIds([]); // Clear selections
-            
-            // Clear search when applying alert filter
+
+            // Clear search and other filters when applying alert filter
             if (newAlertFilter) {
               setSearchQuery('');
               setDebouncedSearchQuery('');
               setSearchFields({ firstName: '', lastName: '', phone: '', email: '' });
               setDebouncedSearchFields({ firstName: '', lastName: '', phone: '', email: '' });
               setStatusFilter('all'); // Clear status filter
+              setVipFilter(false); // Clear VIP filter
+              setFollowUpFilter(false); // Clear follow-up filter
             }
-            
+
             // Load filtered customers
-            await loadCustomerList(1, '', null, newAlertFilter);
-            
+            await loadCustomerList(1, '', null, newAlertFilter, false, false);
+
             // Show appropriate toast message
             toast({
               title: newAlertFilter ? 'Showing Customers with Alerts' : 'Showing All Customers',
-              description: newAlertFilter 
-                ? 'Displaying only customers who have active service alerts.' 
+              description: newAlertFilter
+                ? 'Displaying only customers who have active service alerts.'
                 : 'Alert filter has been removed. Showing all customers.'
             });
           }}
@@ -4116,39 +4202,74 @@ const EnhancedCustomerManagement = () => {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-yellow-700 dark:text-yellow-300 group-hover:text-yellow-800 dark:group-hover:text-yellow-200">
+                <p className="text-sm font-medium text-orange-700 dark:text-orange-300 group-hover:text-orange-800 dark:group-hover:text-orange-200">
                   Service Alerts {loading ? '(Refreshing...)' : ''}
                 </p>
-                <p className="text-2xl font-bold text-yellow-900 dark:text-yellow-100">
+                <p className="text-2xl font-bold text-orange-900 dark:text-orange-100">
                   {loading ? '-' : customerStats.serviceAlerts}
                 </p>
               </div>
-              <div className="w-12 h-12 bg-yellow-500/10 dark:bg-yellow-400/10 rounded-xl flex items-center justify-center group-hover:bg-yellow-500/20 dark:group-hover:bg-yellow-400/20">
-                <AlertTriangle className="w-6 h-6 text-yellow-600 dark:text-yellow-400" />
+              <div className="w-12 h-12 bg-orange-500/10 dark:bg-orange-400/10 rounded-xl flex items-center justify-center group-hover:bg-orange-500/20 dark:group-hover:bg-orange-400/20">
+                <AlertTriangle className="w-6 h-6 text-orange-600 dark:text-orange-400" />
               </div>
             </div>
-            <div className="absolute top-0 right-0 w-20 h-20 bg-yellow-500/5 dark:bg-yellow-400/5 rounded-full -mr-10 -mt-10"></div>
+            <div className="absolute top-0 right-0 w-20 h-20 bg-orange-500/5 dark:bg-orange-400/5 rounded-full -mr-10 -mt-10"></div>
           </CardContent>
         </Card>
 
-        {/* Admin-only Credit Limit Increase */}
+        {/* Admin-only VIP Customers */}
         {isAdmin && (
-          <Card className="relative overflow-hidden border-0 shadow-sm bg-gradient-to-r from-purple-50 to-violet-50 dark:from-purple-950/50 dark:to-violet-950/50 hover:shadow-md transition-shadow cursor-pointer group">
+          <Card
+            className={`relative overflow-hidden border-0 shadow-sm bg-gradient-to-r transition-all cursor-pointer group ${
+              vipFilter
+                ? 'from-yellow-100 to-amber-100 dark:from-yellow-900/70 dark:to-amber-900/70 shadow-md ring-2 ring-yellow-400 dark:ring-yellow-500'
+                : 'from-yellow-50 to-amber-50 dark:from-yellow-950/50 dark:to-amber-950/50 hover:shadow-md'
+            }`}
+            onClick={async () => {
+              // Toggle VIP filter
+              const newVipFilter = !vipFilter;
+              setVipFilter(newVipFilter);
+              setCurrentPage(1); // Reset to first page
+              setSelectedCustomerIds([]); // Clear selections
+
+              // Clear search and other filters when applying VIP filter
+              if (newVipFilter) {
+                setSearchQuery('');
+                setDebouncedSearchQuery('');
+                setSearchFields({ firstName: '', lastName: '', phone: '', email: '' });
+                setDebouncedSearchFields({ firstName: '', lastName: '', phone: '', email: '' });
+                setStatusFilter('all'); // Clear status filter
+                setAlertFilter(false); // Clear alert filter
+                setFollowUpFilter(false); // Clear follow-up filter
+              }
+
+              // Load filtered customers
+              await loadCustomerList(1, '', null, false, newVipFilter, false);
+
+              // Show appropriate toast message
+              toast({
+                title: newVipFilter ? 'Showing VIP Customers' : 'Showing All Customers',
+                description: newVipFilter
+                  ? 'Displaying only VIP customers with total loan value of $5,000 or more.'
+                  : 'VIP filter has been removed. Showing all customers.'
+              });
+            }}
+          >
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-purple-700 dark:text-purple-300 group-hover:text-purple-800 dark:group-hover:text-purple-200">
-                    Credit Increase
+                  <p className="text-sm font-medium text-yellow-700 dark:text-yellow-300 group-hover:text-yellow-800 dark:group-hover:text-yellow-200">
+                    VIP Customers
                   </p>
-                  <p className="text-2xl font-bold text-purple-900 dark:text-purple-100">
-                    {customerStats.eligibleForIncrease}
+                  <p className="text-2xl font-bold text-yellow-900 dark:text-yellow-100">
+                    {customerStats.vipCustomers}
                   </p>
                 </div>
-                <div className="w-12 h-12 bg-purple-500/10 dark:bg-purple-400/10 rounded-xl flex items-center justify-center group-hover:bg-purple-500/20 dark:group-hover:bg-purple-400/20">
-                  <TrendingUp className="w-6 h-6 text-purple-600 dark:text-purple-400" />
+                <div className="w-12 h-12 bg-yellow-500/10 dark:bg-yellow-400/10 rounded-xl flex items-center justify-center group-hover:bg-yellow-500/20 dark:group-hover:bg-yellow-400/20">
+                  <Award className="w-6 h-6 text-yellow-600 dark:text-yellow-400" />
                 </div>
               </div>
-              <div className="absolute top-0 right-0 w-20 h-20 bg-purple-500/5 dark:bg-purple-400/5 rounded-full -mr-10 -mt-10"></div>
+              <div className="absolute top-0 right-0 w-20 h-20 bg-yellow-500/5 dark:bg-yellow-400/5 rounded-full -mr-10 -mt-10"></div>
             </CardContent>
           </Card>
         )}
@@ -4374,11 +4495,36 @@ const EnhancedCustomerManagement = () => {
             </CardContent>
           </Card>
 
+          {/* Active Status Filter Indicator */}
+          {statusFilter === 'active' && (
+            <Card className="mb-4 p-3 bg-gradient-to-r from-blue-50 to-sky-50 dark:from-blue-950/30 dark:to-sky-950/30 border-blue-200 dark:border-blue-800">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm text-blue-700 dark:text-blue-300">
+                  <Users className="w-4 h-4" />
+                  <span className="font-medium">Showing active customers only</span>
+                  <span className="text-xs opacity-75">({totalCustomers} found)</span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setStatusFilter('all');
+                    setCurrentPage(1);
+                    loadCustomerList(1, getCurrentSearchTerm(), null, alertFilter, vipFilter, followUpFilter, newThisMonthFilter);
+                  }}
+                  className="h-7 px-3 text-xs text-blue-700 hover:text-blue-900 hover:bg-blue-100 dark:text-blue-300 dark:hover:text-blue-100 dark:hover:bg-blue-900/20"
+                >
+                  Clear filter
+                </Button>
+              </div>
+            </Card>
+          )}
+
           {/* Alert Filter Indicator */}
           {alertFilter && (
-            <Card className="mb-4 p-3 bg-gradient-to-r from-yellow-50 to-amber-50 dark:from-yellow-950/30 dark:to-amber-950/30 border-yellow-200 dark:border-yellow-800">
+            <Card className="mb-4 p-3 bg-gradient-to-r from-orange-50 to-red-50 dark:from-orange-950/30 dark:to-red-950/30 border-orange-200 dark:border-orange-800">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-sm text-yellow-700 dark:text-yellow-300">
+                <div className="flex items-center gap-2 text-sm text-orange-700 dark:text-orange-300">
                   <AlertTriangle className="w-4 h-4" />
                   <span className="font-medium">Showing customers with service alerts only</span>
                   <span className="text-xs opacity-75">({totalCustomers} found)</span>
@@ -4389,9 +4535,84 @@ const EnhancedCustomerManagement = () => {
                   onClick={() => {
                     setAlertFilter(false);
                     setCurrentPage(1);
-                    loadCustomerList(1, getCurrentSearchTerm(), statusFilter, false);
+                    loadCustomerList(1, getCurrentSearchTerm(), statusFilter, false, vipFilter, followUpFilter);
+                  }}
+                  className="h-7 px-3 text-xs text-orange-700 hover:text-orange-900 hover:bg-orange-100 dark:text-orange-300 dark:hover:text-orange-100 dark:hover:bg-orange-900/20"
+                >
+                  Clear filter
+                </Button>
+              </div>
+            </Card>
+          )}
+
+          {/* VIP Filter Indicator */}
+          {vipFilter && (
+            <Card className="mb-4 p-3 bg-gradient-to-r from-yellow-50 to-amber-50 dark:from-yellow-950/30 dark:to-amber-950/30 border-yellow-200 dark:border-yellow-800">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm text-yellow-700 dark:text-yellow-300">
+                  <Award className="w-4 h-4" />
+                  <span className="font-medium">Showing VIP customers only</span>
+                  <span className="text-xs opacity-75">({totalCustomers} found)</span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setVipFilter(false);
+                    setCurrentPage(1);
+                    loadCustomerList(1, getCurrentSearchTerm(), statusFilter, alertFilter, false, false);
                   }}
                   className="h-7 px-3 text-xs text-yellow-700 hover:text-yellow-900 hover:bg-yellow-100 dark:text-yellow-300 dark:hover:text-yellow-100 dark:hover:bg-yellow-900/20"
+                >
+                  Clear filter
+                </Button>
+              </div>
+            </Card>
+          )}
+
+          {/* Follow-Up Filter Indicator */}
+          {followUpFilter && (
+            <Card className="mb-4 p-3 bg-gradient-to-r from-purple-50 to-violet-50 dark:from-purple-950/30 dark:to-violet-950/30 border-purple-200 dark:border-purple-800">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm text-purple-700 dark:text-purple-300">
+                  <Phone className="w-4 h-4" />
+                  <span className="font-medium">Showing customers needing follow-up only</span>
+                  <span className="text-xs opacity-75">({totalCustomers} found)</span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setFollowUpFilter(false);
+                    setCurrentPage(1);
+                    loadCustomerList(1, getCurrentSearchTerm(), statusFilter, alertFilter, vipFilter, false, newThisMonthFilter);
+                  }}
+                  className="h-7 px-3 text-xs text-purple-700 hover:text-purple-900 hover:bg-purple-100 dark:text-purple-300 dark:hover:text-purple-100 dark:hover:bg-purple-900/20"
+                >
+                  Clear filter
+                </Button>
+              </div>
+            </Card>
+          )}
+
+          {/* New This Month Filter Indicator */}
+          {newThisMonthFilter && (
+            <Card className="mb-4 p-3 bg-gradient-to-r from-emerald-50 to-green-50 dark:from-emerald-950/30 dark:to-green-950/30 border-emerald-200 dark:border-emerald-800">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-300">
+                  <TrendingUp className="w-4 h-4" />
+                  <span className="font-medium">Showing new customers this month only</span>
+                  <span className="text-xs opacity-75">({totalCustomers} found)</span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setNewThisMonthFilter(false);
+                    setCurrentPage(1);
+                    loadCustomerList(1, getCurrentSearchTerm(), statusFilter, alertFilter, vipFilter, followUpFilter, false);
+                  }}
+                  className="h-7 px-3 text-xs text-emerald-700 hover:text-emerald-900 hover:bg-emerald-100 dark:text-emerald-300 dark:hover:text-emerald-100 dark:hover:bg-emerald-900/20"
                 >
                   Clear filter
                 </Button>
@@ -4470,9 +4691,9 @@ const EnhancedCustomerManagement = () => {
                       {customerListError.includes('Rate limit') ? 'Too many requests. Please wait a moment and try again.' : customerListError}
                     </p>
                     <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={() => loadCustomerList(currentPage, getCurrentSearchTerm(), statusFilter, alertFilter)}
+                      variant="outline"
+                      size="sm"
+                      onClick={() => loadCustomerList(currentPage, getCurrentSearchTerm(), statusFilter, alertFilter, vipFilter, followUpFilter)}
                       className="mt-2"
                     >
                       Try Again
@@ -4619,10 +4840,10 @@ const EnhancedCustomerManagement = () => {
                         <p className="text-xs text-muted-foreground">
                           {customerListError.includes('Rate limit') ? 'Too many requests. Please wait a moment and try again.' : customerListError}
                         </p>
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          onClick={() => loadCustomerList(currentPage, getCurrentSearchTerm(), statusFilter, alertFilter)}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => loadCustomerList(currentPage, getCurrentSearchTerm(), statusFilter, alertFilter, vipFilter, followUpFilter)}
                           className="mt-2"
                         >
                           Try Again

@@ -63,7 +63,8 @@ async def _invalidate_all_transaction_caches():
                 "transaction:*",            # Individual transaction caches
                 "balance:*",                # Balance calculation caches
                 "customer_stats_*",         # Customer statistics
-                "business_stats_*"          # Business statistics
+                "business_stats_*",         # Business statistics
+                "stats:customer:*"          # Customer stats for follow-up counts
             ]
             
             for pattern in cache_patterns:

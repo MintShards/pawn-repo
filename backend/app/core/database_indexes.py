@@ -47,24 +47,32 @@ class DatabaseIndexes:
         return [
             # Primary lookup by phone number (unique)
             IndexModel([("phone_number", ASCENDING)], unique=True, name="idx_customer_phone"),
-            
-            # Status queries
+
+            # Status queries (CRITICAL for stats and filters)
             IndexModel([("status", ASCENDING)], name="idx_customer_status"),
-            
+
             # Search operations (performance optimization for name search)
             IndexModel([("first_name", TEXT), ("last_name", TEXT), ("email", TEXT)], name="idx_customer_search"),
             IndexModel([("first_name", ASCENDING)], name="idx_customer_first_name"),
             IndexModel([("last_name", ASCENDING)], name="idx_customer_last_name"),
-            
+
             # Customer analytics
             IndexModel([("status", ASCENDING), ("active_loans", ASCENDING)], name="idx_customer_status_loans"),
             IndexModel([("payment_history_score", DESCENDING)], name="idx_customer_payment_score"),
             IndexModel([("total_transactions", DESCENDING)], name="idx_customer_total_transactions"),
-            
-            # Sorting and pagination
+
+            # VIP customer queries (PERFORMANCE - total_loan_value >= 5000)
+            IndexModel([("total_loan_value", DESCENDING)], name="idx_customer_loan_value"),
+            IndexModel([("total_loan_value", DESCENDING), ("status", ASCENDING)], name="idx_customer_value_status"),
+
+            # Sorting and pagination (CRITICAL for list operations)
             IndexModel([("created_at", DESCENDING)], name="idx_customer_created_desc"),
+            IndexModel([("created_at", ASCENDING)], name="idx_customer_created_asc"),
             IndexModel([("last_transaction_date", DESCENDING)], sparse=True, name="idx_customer_last_transaction"),
-            
+
+            # New This Month filter (PERFORMANCE - calendar month queries)
+            IndexModel([("created_at", ASCENDING), ("status", ASCENDING)], name="idx_customer_created_status"),
+
             # Business queries
             IndexModel([("active_loans", ASCENDING)], name="idx_customer_active_loans"),
             IndexModel([("default_count", ASCENDING)], name="idx_customer_defaults"),
@@ -80,13 +88,16 @@ class DatabaseIndexes:
             # Formatted ID for fast lookup (NEW - performance improvement)
             IndexModel([("formatted_id", ASCENDING)], unique=True, sparse=True, name="idx_transaction_formatted_id"),
             
-            # Customer queries
+            # Customer queries (CRITICAL for aggregations)
             IndexModel([("customer_id", ASCENDING)], name="idx_transaction_customer"),
             IndexModel([("customer_id", ASCENDING), ("status", ASCENDING)], name="idx_transaction_customer_status"),
-            
-            # Status queries
+
+            # Status queries (PERFORMANCE for stats and filters)
             IndexModel([("status", ASCENDING)], name="idx_transaction_status"),
             IndexModel([("status", ASCENDING), ("pawn_date", DESCENDING)], name="idx_transaction_status_date"),
+
+            # Overdue customer aggregation (PERFORMANCE - $group by customer_id)
+            IndexModel([("status", ASCENDING), ("customer_id", ASCENDING)], name="idx_transaction_status_customer"),
             
             # Date-based queries (critical for business operations)
             IndexModel([("pawn_date", DESCENDING)], name="idx_transaction_pawn_date"),

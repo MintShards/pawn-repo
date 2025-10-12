@@ -5,23 +5,23 @@ This module handles all service alert-related business operations including
 CRUD operations, customer alert management, and resolution tracking.
 """
 
-from typing import Optional, List, Tuple
+from typing import Optional, List
 from datetime import datetime
 
 from beanie import PydanticObjectId
-from pymongo.errors import DuplicateKeyError
 
 from app.models.service_alert_model import ServiceAlert, AlertStatus, AlertType
 from app.models.customer_model import Customer
 from app.models.pawn_transaction_model import PawnTransaction
 from app.models.pawn_item_model import PawnItem
+from app.core.redis_cache import BusinessCache
 from app.schemas.service_alert_schema import (
     ServiceAlertCreate, ServiceAlertUpdate, ServiceAlertResolve,
     ServiceAlertResponse, ServiceAlertListResponse, ServiceAlertCountResponse,
     CustomerItemResponse
 )
 from app.core.exceptions import (
-    ValidationError, NotFoundError, ConflictError
+    ValidationError, NotFoundError
 )
 
 
@@ -62,6 +62,10 @@ class ServiceAlertService:
         )
         
         await new_alert.insert()
+
+        # Invalidate customer stats cache since alert count changed
+        await BusinessCache.invalidate_by_pattern("stats:customer:*")
+
         alert_dict = new_alert.model_dump()
         alert_dict['id'] = str(new_alert.id)
         return ServiceAlertResponse.model_validate(alert_dict)
@@ -134,28 +138,41 @@ class ServiceAlertService:
     async def get_customer_alert_count(customer_phone: str) -> ServiceAlertCountResponse:
         """
         Get alert count for a customer.
-        
+
         Args:
             customer_phone: Customer phone number
-            
+
         Returns:
             Alert count response
         """
-        # Count active alerts
-        active_count = await ServiceAlert.find(
-            ServiceAlert.customer_phone == customer_phone,
-            ServiceAlert.status == AlertStatus.ACTIVE
-        ).count()
-        
-        # Count resolved alerts
-        resolved_count = await ServiceAlert.find(
-            ServiceAlert.customer_phone == customer_phone,
-            ServiceAlert.status == AlertStatus.RESOLVED
-        ).count()
-        
-        # Total count
-        total_count = active_count + resolved_count
-        
+        # PERFORMANCE OPTIMIZATION: Use single aggregation instead of 2 separate count queries
+        pipeline = [
+            {"$match": {"customer_phone": customer_phone}},
+            {
+                "$facet": {
+                    "active": [
+                        {"$match": {"status": AlertStatus.ACTIVE.value}},
+                        {"$count": "count"}
+                    ],
+                    "resolved": [
+                        {"$match": {"status": AlertStatus.RESOLVED.value}},
+                        {"$count": "count"}
+                    ],
+                    "total": [
+                        {"$count": "count"}
+                    ]
+                }
+            }
+        ]
+
+        result = await ServiceAlert.aggregate(pipeline).to_list()
+        stats = result[0] if result else {}
+
+        # Extract counts from aggregation result
+        active_count = stats.get("active", [{}])[0].get("count", 0)
+        resolved_count = stats.get("resolved", [{}])[0].get("count", 0)
+        total_count = stats.get("total", [{}])[0].get("count", 0)
+
         return ServiceAlertCountResponse(
             customer_phone=customer_phone,
             active_count=active_count,
@@ -227,8 +244,13 @@ class ServiceAlertService:
         # Update audit fields
         alert.updated_by = updated_by
         alert.updated_at = datetime.utcnow()
-        
+
         await alert.replace()
+
+        # Invalidate customer stats cache if status was changed
+        if 'status' in update_data:
+            await BusinessCache.invalidate_by_pattern("stats:customer:*")
+
         alert_dict = alert.model_dump()
         alert_dict['id'] = str(alert.id)
         return ServiceAlertResponse.model_validate(alert_dict)
@@ -270,8 +292,12 @@ class ServiceAlertService:
         alert.resolve(resolved_by, resolve_data.resolution_notes)
         alert.updated_by = resolved_by
         alert.updated_at = datetime.utcnow()
-        
+
         await alert.replace()
+
+        # Invalidate customer stats cache since alert count changed
+        await BusinessCache.invalidate_by_pattern("stats:customer:*")
+
         alert_dict = alert.model_dump()
         alert_dict['id'] = str(alert.id)
         return ServiceAlertResponse.model_validate(alert_dict)
@@ -306,7 +332,11 @@ class ServiceAlertService:
             alert.updated_at = datetime.utcnow()
             await alert.replace()
             resolved_count += 1
-        
+
+        # Invalidate customer stats cache if any alerts were resolved
+        if resolved_count > 0:
+            await BusinessCache.invalidate_by_pattern("stats:customer:*")
+
         return resolved_count
     
     @staticmethod

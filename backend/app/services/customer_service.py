@@ -6,7 +6,7 @@ This module implements all customer-related business operations including
 CRUD operations, search functionality, statistics, and status management.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 from math import ceil
 from decimal import Decimal
@@ -64,6 +64,10 @@ class CustomerService:
         
         try:
             await customer.insert()
+
+            # Invalidate customer stats cache for real-time updates
+            await BusinessCache.invalidate_by_pattern("stats:customer:*")
+
             return customer
         except Exception as e:
             raise HTTPException(
@@ -220,14 +224,18 @@ class CustomerService:
             
             # Immediate cache invalidation and refresh for real-time updates
             await BusinessCache.invalidate_customer(phone_number)
-            
+
+            # Invalidate customer stats cache if status was changed (affects active customer count)
+            if "status" in update_dict:
+                await BusinessCache.invalidate_by_pattern("stats:customer:*")
+
             # Reload the customer from database to get updated data
             updated_customer = await Customer.find_one(Customer.phone_number == phone_number)
-            
+
             # Proactively update cache with fresh data for faster subsequent requests
             if updated_customer:
                 await BusinessCache.set_customer(phone_number, updated_customer.model_dump())
-            
+
             return updated_customer
             
         except HTTPException:
@@ -244,6 +252,10 @@ class CustomerService:
     async def get_customers_list(
         status: Optional[CustomerStatus] = None,
         search: Optional[str] = None,
+        vip_only: bool = False,
+        alerts_only: bool = False,
+        follow_up_only: bool = False,
+        new_this_month: bool = False,
         page: int = 1,
         per_page: int = 10,
         sort_by: str = "created_at",
@@ -253,11 +265,64 @@ class CustomerService:
         try:
             # Build filters
             filters = {}
-            
+
             # Apply status filter if provided
             if status:
                 filters["status"] = status.value
-            
+
+            # Apply VIP filter if requested (total_loan_value >= $5,000)
+            if vip_only:
+                filters["total_loan_value"] = {"$gte": 5000.0}
+
+            # Apply alerts filter if requested (customers with active service alerts)
+            if alerts_only:
+                from app.services.service_alert_service import ServiceAlertService
+                try:
+                    alert_stats = await ServiceAlertService.get_unique_customer_alert_count()
+                    customers_with_alerts = alert_stats.get("customers_with_alerts", [])
+                    if customers_with_alerts:
+                        filters["phone_number"] = {"$in": customers_with_alerts}
+                    else:
+                        # No customers with alerts, return empty result
+                        filters["phone_number"] = {"$in": []}
+                except Exception as e:
+                    # If alert service fails, skip filter to avoid breaking the query
+                    pass
+
+            # Apply follow-up filter if requested (customers with overdue transactions)
+            if follow_up_only:
+                from app.models.pawn_transaction_model import PawnTransaction, TransactionStatus
+
+                try:
+                    # Find all overdue transactions
+                    overdue_transactions = await PawnTransaction.find(
+                        PawnTransaction.status == TransactionStatus.OVERDUE
+                    ).to_list()
+
+                    # Get unique customer IDs (phone numbers)
+                    follow_up_customer_ids = set()
+                    for txn in overdue_transactions:
+                        follow_up_customer_ids.add(txn.customer_id)
+
+                    if follow_up_customer_ids:
+                        filters["phone_number"] = {"$in": list(follow_up_customer_ids)}
+                    else:
+                        # No customers need follow-up, return empty result
+                        filters["phone_number"] = {"$in": []}
+                except Exception as e:
+                    # If follow-up calculation fails, log and skip filter
+                    print(f"ERROR in follow-up filter: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    pass
+
+            # Apply new this month filter if requested (customers created in current calendar month)
+            if new_this_month:
+                now = datetime.utcnow()
+                # Get first day of current month
+                month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                filters["created_at"] = {"$gte": month_start}
+
             # Apply search filter with improved logic
             if search:
                 search = search.strip()
@@ -607,30 +672,72 @@ class CustomerService:
 
     @staticmethod
     async def get_customer_statistics() -> CustomerStatsResponse:
-        """Get comprehensive customer statistics for admin dashboard with customer-focused metrics"""
+        """Get comprehensive customer statistics for admin dashboard - optimized with aggregation pipeline"""
         try:
-            # Use simpler direct counting instead of aggregation
-            total_customers = await Customer.count()
-            active_customers = await Customer.find(Customer.status == "active").count()
-            suspended_customers = await Customer.find(Customer.status == "suspended").count()
-            archived_customers = await Customer.find(Customer.status == "archived").count()
-            
-            # Calculate date boundaries for date-based counts
+            # Calculate date boundaries
             now = datetime.utcnow()
             today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            thirty_days_ago = datetime.fromtimestamp(now.timestamp() - (30 * 24 * 60 * 60))
-            
-            customers_created_today = await Customer.find(Customer.created_at >= today_start).count()
-            new_this_month = await Customer.find(Customer.created_at >= thirty_days_ago).count()
-            
-            # Get unique customer alert count from ServiceAlertService
+            month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+            # Performance optimization: Use single aggregation pipeline for all customer stats
+            pipeline = [
+                {
+                    "$facet": {
+                        "total": [{"$count": "count"}],
+                        "by_status": [
+                            {"$group": {"_id": "$status", "count": {"$sum": 1}}}
+                        ],
+                        "created_today": [
+                            {"$match": {"created_at": {"$gte": today_start}}},
+                            {"$count": "count"}
+                        ],
+                        "created_this_month": [
+                            {"$match": {"created_at": {"$gte": month_start}}},
+                            {"$count": "count"}
+                        ],
+                        "vip_customers": [
+                            {"$match": {"total_loan_value": {"$gte": 5000.0}}},
+                            {"$count": "count"}
+                        ]
+                    }
+                }
+            ]
+
+            result = await Customer.aggregate(pipeline).to_list()
+            stats = result[0] if result else {}
+
+            # Extract counts from aggregation result
+            total_customers = stats.get("total", [{}])[0].get("count", 0)
+            customers_created_today = stats.get("created_today", [{}])[0].get("count", 0)
+            new_this_month = stats.get("created_this_month", [{}])[0].get("count", 0)
+            vip_customers = stats.get("vip_customers", [{}])[0].get("count", 0)
+
+            # Parse status counts
+            status_counts = {item["_id"]: item["count"] for item in stats.get("by_status", [])}
+            active_customers = status_counts.get("active", 0)
+            suspended_customers = status_counts.get("suspended", 0)
+            archived_customers = status_counts.get("archived", 0)
+
+            # Get service alerts count
             from app.services.service_alert_service import ServiceAlertService
             try:
                 alert_stats = await ServiceAlertService.get_unique_customer_alert_count()
                 service_alerts = alert_stats.get("unique_customer_count", 0)
-            except Exception as e:
+            except Exception:
                 service_alerts = 0
-            
+
+            # Calculate customers needing follow-up with optimized aggregation
+            from app.models.pawn_transaction_model import PawnTransaction, TransactionStatus
+
+            # Use aggregation to get unique customers with overdue transactions
+            overdue_pipeline = [
+                {"$match": {"status": TransactionStatus.OVERDUE.value}},
+                {"$group": {"_id": "$customer_id"}},
+                {"$count": "count"}
+            ]
+            overdue_result = await PawnTransaction.aggregate(overdue_pipeline).to_list()
+            needs_follow_up = overdue_result[0]["count"] if overdue_result else 0
+
             return CustomerStatsResponse(
                 total_customers=total_customers,
                 active_customers=active_customers,
@@ -640,8 +747,8 @@ class CustomerService:
                 avg_transactions_per_customer=0.0,
                 new_this_month=new_this_month,
                 service_alerts=service_alerts,
-                needs_follow_up=0,
-                eligible_for_increase=0
+                needs_follow_up=needs_follow_up,
+                vip_customers=vip_customers
             )
         
         except Exception as e:
@@ -663,6 +770,6 @@ class CustomerService:
                 new_this_month=0,
                 service_alerts=service_alerts,
                 needs_follow_up=0,
-                eligible_for_increase=0
+                vip_customers=0
             )
 
