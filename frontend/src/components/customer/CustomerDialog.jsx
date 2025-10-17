@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { User, Phone, Mail, Settings, FileText, AlertTriangle } from 'lucide-react';
+import { User, Phone, Mail, Settings, FileText, AlertTriangle, CheckCircle, PauseCircle, Archive, XCircle } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -398,20 +398,26 @@ const CustomerDialog = ({
                       </FormControl>
                       <SelectContent className="bg-white/95 dark:bg-slate-800/95 backdrop-blur-xl border-slate-200/50 dark:border-slate-700/50">
                         <SelectItem value="active" className="focus:bg-emerald-50 dark:focus:bg-emerald-950/50">
-                          <div className="flex items-center space-x-2">
-                            <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
+                          <div className="flex items-center gap-2">
+                            <CheckCircle className="h-4 w-4 text-emerald-500" />
                             <span>Active</span>
                           </div>
                         </SelectItem>
                         <SelectItem value="suspended" className="focus:bg-amber-50 dark:focus:bg-amber-950/50">
-                          <div className="flex items-center space-x-2">
-                            <div className="w-2 h-2 bg-amber-500 rounded-full"></div>
+                          <div className="flex items-center gap-2">
+                            <PauseCircle className="h-4 w-4 text-amber-500" />
                             <span>Suspended</span>
                           </div>
                         </SelectItem>
+                        <SelectItem value="archived" className="focus:bg-slate-50 dark:focus:bg-slate-950/50">
+                          <div className="flex items-center gap-2">
+                            <Archive className="h-4 w-4 text-slate-500" />
+                            <span>Archived</span>
+                          </div>
+                        </SelectItem>
                         <SelectItem value="banned" className="focus:bg-red-50 dark:focus:bg-red-950/50">
-                          <div className="flex items-center space-x-2">
-                            <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+                          <div className="flex items-center gap-2">
+                            <XCircle className="h-4 w-4 text-red-500" />
                             <span>Banned</span>
                           </div>
                         </SelectItem>

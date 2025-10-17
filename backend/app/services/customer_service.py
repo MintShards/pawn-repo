@@ -6,7 +6,7 @@ This module implements all customer-related business operations including
 CRUD operations, search functionality, statistics, and status management.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional
 from math import ceil
 from decimal import Decimal
@@ -22,7 +22,7 @@ from app.schemas.customer_schema import (
 )
 from app.core.config import settings
 from app.models.loan_config_model import LoanConfig
-from app.core.redis_cache import BusinessCache, CacheConfig
+from app.core.redis_cache import BusinessCache
 
 
 class CustomerService:
@@ -669,51 +669,30 @@ class CustomerService:
 
     @staticmethod
     async def get_customer_statistics() -> CustomerStatsResponse:
-        """Get comprehensive customer statistics for admin dashboard - optimized with aggregation pipeline"""
+        """Get comprehensive customer statistics for admin dashboard - using simple queries for reliability"""
         try:
             # Calculate date boundaries
             now = datetime.utcnow()
             today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
             month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
-            # Performance optimization: Use single aggregation pipeline for all customer stats
-            pipeline = [
-                {
-                    "$facet": {
-                        "total": [{"$count": "count"}],
-                        "by_status": [
-                            {"$group": {"_id": "$status", "count": {"$sum": 1}}}
-                        ],
-                        "created_today": [
-                            {"$match": {"created_at": {"$gte": today_start}}},
-                            {"$count": "count"}
-                        ],
-                        "created_this_month": [
-                            {"$match": {"created_at": {"$gte": month_start}}},
-                            {"$count": "count"}
-                        ],
-                        "vip_customers": [
-                            {"$match": {"total_loan_value": {"$gte": 5000.0}}},
-                            {"$count": "count"}
-                        ]
-                    }
-                }
-            ]
+            # Use simple count queries instead of complex aggregation
+            # Total customers
+            total_customers = await Customer.count()
 
-            result = await Customer.aggregate(pipeline).to_list()
-            stats = result[0] if result else {}
+            # Customers by status
+            active_customers = await Customer.find(Customer.status == CustomerStatus.ACTIVE).count()
+            suspended_customers = await Customer.find(Customer.status == CustomerStatus.SUSPENDED).count()
+            archived_customers = await Customer.find(Customer.status == CustomerStatus.ARCHIVED).count()
 
-            # Extract counts from aggregation result
-            total_customers = stats.get("total", [{}])[0].get("count", 0)
-            customers_created_today = stats.get("created_today", [{}])[0].get("count", 0)
-            new_this_month = stats.get("created_this_month", [{}])[0].get("count", 0)
-            vip_customers = stats.get("vip_customers", [{}])[0].get("count", 0)
+            # Customers created today
+            customers_created_today = await Customer.find(Customer.created_at >= today_start).count()
 
-            # Parse status counts
-            status_counts = {item["_id"]: item["count"] for item in stats.get("by_status", [])}
-            active_customers = status_counts.get("active", 0)
-            suspended_customers = status_counts.get("suspended", 0)
-            archived_customers = status_counts.get("archived", 0)
+            # Customers created this month
+            new_this_month = await Customer.find(Customer.created_at >= month_start).count()
+
+            # VIP customers (total_loan_value >= $5,000)
+            vip_customers = await Customer.find(Customer.total_loan_value >= 5000.0).count()
 
             # Get service alerts count
             from app.services.service_alert_service import ServiceAlertService
@@ -749,6 +728,11 @@ class CustomerService:
             )
         
         except Exception as e:
+            # Log the error for debugging
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error in get_customer_statistics: {str(e)}", exc_info=True)
+
             # Get unique customer alert count even in error case
             from app.services.service_alert_service import ServiceAlertService
             try:
@@ -756,7 +740,8 @@ class CustomerService:
                 service_alerts = alert_stats.get("unique_customer_count", 0)
             except:
                 service_alerts = 0
-            
+
+            # Return zeros with service alerts (so we can see there's an issue but alerts still work)
             return CustomerStatsResponse(
                 total_customers=0,
                 active_customers=0,

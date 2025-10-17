@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   Plus,
-  Filter,
   MoreHorizontal,
   Eye,
   Edit2,
@@ -44,7 +43,9 @@ import {
   ChevronRight,
   LayoutGrid,
   TableIcon,
-  Award
+  Award,
+  Search,
+  PauseCircle
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -65,7 +66,6 @@ import {
   SheetDescription,
   SheetHeader,
   SheetTitle,
-  SheetTrigger,
 } from '../ui/sheet';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -916,8 +916,8 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                 onClick={() => handleViewModeChange('table')}
                 className={`h-7 px-3 ${
                   viewMode === 'table'
-                    ? 'bg-white dark:bg-slate-700 shadow-sm'
-                    : 'hover:bg-slate-200 dark:hover:bg-slate-700'
+                    ? 'bg-white dark:bg-slate-700 shadow-sm text-slate-900 dark:text-slate-100'
+                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-slate-100'
                 }`}
                 title="Table View"
               >
@@ -929,8 +929,8 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                 onClick={() => handleViewModeChange('card')}
                 className={`h-7 px-3 ${
                   viewMode === 'card'
-                    ? 'bg-white dark:bg-slate-700 shadow-sm'
-                    : 'hover:bg-slate-200 dark:hover:bg-slate-700'
+                    ? 'bg-white dark:bg-slate-700 shadow-sm text-slate-900 dark:text-slate-100'
+                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-slate-100'
                 }`}
                 title="Card View"
               >
@@ -2645,18 +2645,6 @@ const EnhancedCustomerManagement = () => {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
-  const [searchFields, setSearchFields] = useState({
-    firstName: '',
-    lastName: '',
-    phone: '',
-    email: ''
-  });
-  const [debouncedSearchFields, setDebouncedSearchFields] = useState({
-    firstName: '',
-    lastName: '',
-    phone: '',
-    email: ''
-  });
   const searchTimeoutRef = useRef(null);
   const [statusFilter, setStatusFilter] = useState('all');
   const [alertFilter, setAlertFilter] = useState(false); // Filter for customers with alerts
@@ -2752,18 +2740,11 @@ const EnhancedCustomerManagement = () => {
 
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState(null);
-  const [showFilters, setShowFilters] = useState(false);
-  const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
   const [sortField, setSortField] = useState('created_at');
   const [sortOrder, setSortOrder] = useState('desc');
   const [currentPage, setCurrentPage] = useState(1);
   const [customersPerPage, setCustomersPerPage] = useState(10);
   const [selectedCustomerIds, setSelectedCustomerIds] = useState([]);
-  const [advancedFilters, setAdvancedFilters] = useState({
-    status: 'all',
-    creditLimit: 'all',
-    paymentHistory: 'all',
-  });
   const [showSuspendDialog, setShowSuspendDialog] = useState(false);
   const [showArchiveDialog, setShowArchiveDialog] = useState(false);
   const [archiveConfirmation, setArchiveConfirmation] = useState('');
@@ -2787,6 +2768,18 @@ const EnhancedCustomerManagement = () => {
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [notesText, setNotesText] = useState('');
   const [saveNotesLoading, setSaveNotesLoading] = useState(false);
+
+  // Customer view mode state (list or card) with localStorage persistence
+  const [customerViewMode, setCustomerViewMode] = useState(() => {
+    const saved = localStorage.getItem('customerViewMode');
+    return saved || 'list';
+  });
+
+  // Handler for customer view mode change
+  const handleCustomerViewModeChange = useCallback((mode) => {
+    setCustomerViewMode(mode);
+    localStorage.setItem('customerViewMode', mode);
+  }, []);
 
   const isAdmin = isAdminRole(user);
 
@@ -2837,30 +2830,6 @@ const EnhancedCustomerManagement = () => {
       }
     };
   }, [searchQuery, debouncedSearchQuery]);
-  
-  // Debounce advanced search fields (500ms delay)
-  useEffect(() => {
-    if (searchTimeoutRef.current) {
-      clearTimeout(searchTimeoutRef.current);
-    }
-    
-    // Show loading if advanced search fields are being typed
-    const fieldsChanged = JSON.stringify(searchFields) !== JSON.stringify(debouncedSearchFields);
-    if (fieldsChanged) {
-      setSearchLoading(true);
-    }
-    
-    searchTimeoutRef.current = setTimeout(() => {
-      setDebouncedSearchFields(searchFields);
-      setSearchLoading(false);
-    }, 500);
-    
-    return () => {
-      if (searchTimeoutRef.current) {
-        clearTimeout(searchTimeoutRef.current);
-      }
-    };
-  }, [searchFields, debouncedSearchFields]);
 
   // Add debounce ref for stats loading to prevent duplicate calls
   const statsLoadingRef = useRef(false);
@@ -2970,59 +2939,10 @@ const EnhancedCustomerManagement = () => {
     };
   }, [debouncedLoadCustomerStats]);
 
-  // Helper function to check if advanced search is active (for Clear button logic)
-  const isAdvancedSearchActive = () => {
-    return searchFields.firstName || searchFields.lastName || searchFields.phone || searchFields.email;
-  };
-
   // Helper function to get current search term (for immediate actions)
   const getCurrentSearchTerm = useCallback(() => {
-    if (searchQuery) {
-      return searchQuery.trim();
-    } else if (searchFields.phone && searchFields.phone.trim()) {
-      return searchFields.phone.trim();
-    } else {
-      const firstName = searchFields.firstName?.trim() || '';
-      const lastName = searchFields.lastName?.trim() || '';
-      const email = searchFields.email?.trim() || '';
-      
-      if (firstName && lastName) {
-        return `${firstName} ${lastName}`;
-      } else if (firstName) {
-        return firstName;
-      } else if (lastName) {
-        return lastName;
-      } else if (email) {
-        return email;
-      }
-    }
-    return '';
-  }, [searchQuery, searchFields.phone, searchFields.firstName, searchFields.lastName, searchFields.email]);
-
-  const clearSearchFields = () => {
-    // Clear timeout to prevent pending searches
-    if (searchTimeoutRef.current) {
-      clearTimeout(searchTimeoutRef.current);
-    }
-    
-    // Clear all search states immediately
-    setSearchFields({
-      firstName: '',
-      lastName: '',
-      phone: '',
-      email: ''
-    });
-    setDebouncedSearchFields({
-      firstName: '',
-      lastName: '',
-      phone: '',
-      email: ''
-    });
-    setSearchQuery('');
-    setDebouncedSearchQuery('');
-    setStatusFilter('all');
-    setSearchLoading(false);
-  };
+    return searchQuery.trim();
+  }, [searchQuery]);
 
   const handleSort = (field) => {
     if (sortField === field) {
@@ -3132,73 +3052,6 @@ const EnhancedCustomerManagement = () => {
     }
   };
 
-  // Apply advanced filters
-  const applyAdvancedFilters = () => {
-    // Close the filter sheet
-    setShowFilters(false);
-    
-    // Update the main status filter to sync with advanced filters
-    setStatusFilter(advancedFilters.status);
-    
-    // Reset to first page when applying filters
-    setCurrentPage(1);
-
-    // Load customers with the applied filters
-    loadCustomerList(1, getCurrentSearchTerm(), advancedFilters.status === 'all' ? null : advancedFilters.status, alertFilter, vipFilter, followUpFilter);
-    
-    // Show appropriate toast message
-    if (advancedFilters.status !== 'all') {
-      const statusText = advancedFilters.status === 'active' ? 'Active' : 
-                        advancedFilters.status === 'suspended' ? 'Suspended' : 
-                        'Archived';
-      toast({
-        title: 'Filter Applied',
-        description: `Showing ${statusText} customers only`,
-        duration: 3000
-      });
-    }
-  };
-
-  // Clear all filters
-  const clearAllFilters = () => {
-    // Reset all filter states
-    setAdvancedFilters({
-      status: 'all',
-      creditLimit: 'all',
-      paymentHistory: 'all',
-      });
-    setStatusFilter('all');
-    setSearchQuery('');
-    setDebouncedSearchQuery('');
-    setSearchFields({
-      firstName: '',
-      lastName: '',
-      phone: '',
-      email: ''
-    });
-    
-    // Close the filter sheet
-    setShowFilters(false);
-    
-    // Reset to first page
-    setCurrentPage(1);
-    
-    // Reset page size to default
-    setCustomersPerPage(10);
-    
-    // Clear alert filter too
-    setAlertFilter(false);
-
-    // Load customers without filters
-    loadCustomerList(1, '', null, false, false, false); // Clear alert, VIP, and follow-up filters when clearing all filters
-    
-    // Show confirmation toast
-    toast({
-      title: 'Filters Cleared',
-      description: 'All filters have been removed',
-      duration: 2000
-    });
-  };
 
   // Note: loadCustomerStats has been moved earlier in the file to fix hoisting issue
 
@@ -3365,28 +3218,8 @@ const EnhancedCustomerManagement = () => {
   
   useEffect(() => {
     // Build search term
-    let searchTerm = '';
-    
-    if (debouncedSearchQuery) {
-      searchTerm = debouncedSearchQuery.trim();
-    } else if (debouncedSearchFields.phone && debouncedSearchFields.phone.trim()) {
-      searchTerm = debouncedSearchFields.phone.trim();
-    } else {
-      const firstName = debouncedSearchFields.firstName?.trim() || '';
-      const lastName = debouncedSearchFields.lastName?.trim() || '';
-      const email = debouncedSearchFields.email?.trim() || '';
-      
-      if (firstName && lastName) {
-        searchTerm = `${firstName} ${lastName}`;
-      } else if (firstName) {
-        searchTerm = firstName;
-      } else if (lastName) {
-        searchTerm = lastName;
-      } else if (email) {
-        searchTerm = email;
-      }
-    }
-    
+    const searchTerm = debouncedSearchQuery ? debouncedSearchQuery.trim() : '';
+
     // Create request signature to prevent duplicate requests
     const requestSignature = `${currentPage}-${searchTerm}-${statusFilter}-${alertFilter}-${vipFilter}-${followUpFilter}-${newThisMonthFilter}-${sortField}-${sortOrder}`;
 
@@ -3396,12 +3229,12 @@ const EnhancedCustomerManagement = () => {
     }
 
     lastRequestRef.current = requestSignature;
-    
+
     // Throttle API calls - only allow one every 500ms
     const now = Date.now();
     const lastCallTime = lastRequestRef.lastCall || 0;
     const timeSinceLastCall = now - lastCallTime;
-    
+
     const makeRequest = () => {
       lastRequestRef.lastCall = Date.now();
 
@@ -3422,7 +3255,7 @@ const EnhancedCustomerManagement = () => {
       const timeoutId = setTimeout(makeRequest, 500 - timeSinceLastCall);
       return () => clearTimeout(timeoutId);
     }
-  }, [currentPage, debouncedSearchQuery, debouncedSearchFields, statusFilter, alertFilter, vipFilter, followUpFilter, newThisMonthFilter, sortField, sortOrder, customersPerPage, loadCustomers, loadCustomerList]);
+  }, [currentPage, debouncedSearchQuery, statusFilter, alertFilter, vipFilter, followUpFilter, newThisMonthFilter, sortField, sortOrder, customersPerPage, loadCustomers, loadCustomerList]);
 
   // Handle page size change
   const handlePageSizeChange = useCallback((value) => {
@@ -3439,7 +3272,7 @@ const EnhancedCustomerManagement = () => {
   useEffect(() => {
     setCurrentPage(1);
     setSelectedCustomerIds([]); // Clear selections when filters change
-  }, [searchQuery, searchFields, statusFilter, alertFilter, vipFilter, followUpFilter, newThisMonthFilter]);
+  }, [searchQuery, statusFilter, alertFilter, vipFilter, followUpFilter, newThisMonthFilter]);
 
   // Simple reload when customersPerPage changes
   const [prevPageSize, setPrevPageSize] = useState(customersPerPage);
@@ -3801,6 +3634,11 @@ const EnhancedCustomerManagement = () => {
     }
   };
 
+  const handleSetCustomLimit = (customer) => {
+    setSelectedCustomerForLimit(customer);
+    setShowCustomLimitDialog(true);
+  };
+
   // Handle Service Alert Bell Click
   const handleBellClick = (customerPhone, alertCount, refreshCount) => {
     const customer = customers.find(c => c.phone_number === customerPhone);
@@ -4047,8 +3885,6 @@ const EnhancedCustomerManagement = () => {
             // Clear all other card filters (independent filter behavior)
             setSearchQuery('');
             setDebouncedSearchQuery('');
-            setSearchFields({ firstName: '', lastName: '', phone: '', email: '' });
-            setDebouncedSearchFields({ firstName: '', lastName: '', phone: '', email: '' });
             setNewThisMonthFilter(false);
             setFollowUpFilter(false);
             setVipFilter(false);
@@ -4098,8 +3934,6 @@ const EnhancedCustomerManagement = () => {
             // Clear all other card filters (independent filter behavior)
             setSearchQuery('');
             setDebouncedSearchQuery('');
-            setSearchFields({ firstName: '', lastName: '', phone: '', email: '' });
-            setDebouncedSearchFields({ firstName: '', lastName: '', phone: '', email: '' });
             setStatusFilter('all');
             setFollowUpFilter(false);
             setVipFilter(false);
@@ -4149,8 +3983,6 @@ const EnhancedCustomerManagement = () => {
             // Clear all other card filters (independent filter behavior)
             setSearchQuery('');
             setDebouncedSearchQuery('');
-            setSearchFields({ firstName: '', lastName: '', phone: '', email: '' });
-            setDebouncedSearchFields({ firstName: '', lastName: '', phone: '', email: '' });
             setStatusFilter('all');
             setNewThisMonthFilter(false);
             setVipFilter(false);
@@ -4201,8 +4033,6 @@ const EnhancedCustomerManagement = () => {
             // Clear all other card filters (independent filter behavior)
             setSearchQuery('');
             setDebouncedSearchQuery('');
-            setSearchFields({ firstName: '', lastName: '', phone: '', email: '' });
-            setDebouncedSearchFields({ firstName: '', lastName: '', phone: '', email: '' });
             setStatusFilter('all');
             setNewThisMonthFilter(false);
             setVipFilter(false);
@@ -4256,8 +4086,6 @@ const EnhancedCustomerManagement = () => {
               // Clear all other card filters (independent filter behavior)
               setSearchQuery('');
               setDebouncedSearchQuery('');
-              setSearchFields({ firstName: '', lastName: '', phone: '', email: '' });
-              setDebouncedSearchFields({ firstName: '', lastName: '', phone: '', email: '' });
               setStatusFilter('all');
               setNewThisMonthFilter(false);
               setAlertFilter(false);
@@ -4296,17 +4124,25 @@ const EnhancedCustomerManagement = () => {
       </div>
 
       {/* Modern Search & Filter Section */}
-      <Card className="border-0 shadow-sm bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
-        <CardContent className="p-6 space-y-6">
+      <Card className="relative overflow-hidden shadow-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+        {/* Gold accent line matching cards */}
+        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600"></div>
+
+        <CardContent className="p-6 pt-7 space-y-6">
           {/* Search Header */}
           <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-                Search & Filter
-              </h2>
-              <p className="text-sm text-slate-600 dark:text-slate-400">
-                Find customers by name, phone, or email
-              </p>
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-blue-500 dark:bg-blue-600 rounded-lg">
+                <Search className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">
+                  Customer Search
+                </h2>
+                <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
+                  Search and filter customers by name, phone number, email, or use advanced filters to find specific customer segments
+                </p>
+              </div>
             </div>
           </div>
 
@@ -4339,181 +4175,55 @@ const EnhancedCustomerManagement = () => {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="active">✅ Active</SelectItem>
-                  <SelectItem value="suspended">⏸️ Suspended</SelectItem>
-                  <SelectItem value="archived">📦 Archived</SelectItem>
+                  <SelectItem value="active">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle className="h-4 w-4 text-emerald-500" />
+                      <span>Active</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="suspended">
+                    <div className="flex items-center gap-2">
+                      <PauseCircle className="h-4 w-4 text-amber-500" />
+                      <span>Suspended</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="archived">
+                    <div className="flex items-center gap-2">
+                      <Archive className="h-4 w-4 text-slate-500" />
+                      <span>Archived</span>
+                    </div>
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            {/* Action Buttons */}
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                onClick={clearSearchFields}
-                disabled={!searchQuery && !isAdvancedSearchActive() && statusFilter === 'all' && !alertFilter}
-                className="h-12 px-4 rounded-xl border-slate-200 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700"
-              >
-                Clear
-              </Button>
-              <Sheet open={showFilters} onOpenChange={setShowFilters}>
-                <SheetTrigger asChild>
-                  <Button variant="outline" className="h-12 px-4 gap-2 rounded-xl border-slate-200 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700">
-                    <Filter className="h-4 w-4" />
-                    Filters
-                  </Button>
-                </SheetTrigger>
-                    <SheetContent>
-                      <SheetHeader>
-                        <SheetTitle>Quick Filters</SheetTitle>
-                        <SheetDescription>
-                          Apply filters to refine the customer list display
-                        </SheetDescription>
-                      </SheetHeader>
-                      
-                      <div className="mt-6 space-y-4">
-                        <div>
-                          <label className="text-sm font-medium">Account Status</label>
-                          <Select 
-                            value={advancedFilters.status} 
-                            onValueChange={(value) => setAdvancedFilters(prev => ({ ...prev, status: value }))}
-                          >
-                            <SelectTrigger className="mt-1">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="all">All Status</SelectItem>
-                              <SelectItem value="active">✅ Active</SelectItem>
-                              <SelectItem value="suspended">⚠️ Suspended</SelectItem>
-                              <SelectItem value="archived">📋 Archived</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        
-                        <div>
-                          <label className="text-sm font-medium">Credit Limit Range <span className="text-xs text-muted-foreground">(Coming Soon)</span></label>
-                          <Select 
-                            value={advancedFilters.creditLimit} 
-                            onValueChange={(value) => setAdvancedFilters(prev => ({ ...prev, creditLimit: value }))}
-                            disabled
-                          >
-                            <SelectTrigger className="mt-1" disabled>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="all">All Limits</SelectItem>
-                              <SelectItem value="under1000">💵 Under $1,000</SelectItem>
-                              <SelectItem value="1000to5000">💰 $1,000 - $5,000</SelectItem>
-                              <SelectItem value="over5000">💸 Over $5,000</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        
-                        
-                        <div className="pt-4 space-y-2">
-                          <Button 
-                            className="w-full" 
-                            onClick={applyAdvancedFilters}
-                          >
-                            Apply Filters
-                          </Button>
-                          <Button 
-                            variant="outline" 
-                            className="w-full"
-                            onClick={clearAllFilters}
-                          >
-                            Clear All Filters
-                          </Button>
-                        </div>
-                      </div>
-                    </SheetContent>
-                  </Sheet>
-                </div>
-              </div>
-
-              {/* Advanced Search Toggle */}
-              <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
+            {/* View Mode Toggle - Desktop Only */}
+            {!isMobile && (
+              <div className="flex items-center bg-slate-100/50 dark:bg-slate-700/50 rounded-xl p-1 h-12">
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => setShowAdvancedSearch(!showAdvancedSearch)}
-                  className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 h-8 px-2"
+                  onClick={() => handleCustomerViewModeChange('list')}
+                  className={`h-9 px-4 rounded-lg ${customerViewMode === 'list' ? 'bg-white dark:bg-slate-800 shadow-sm text-slate-900 dark:text-slate-100' : 'text-slate-600 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-100'}`}
+                  title="List View"
                 >
-                  <Gauge className="w-4 h-4 mr-2" />
-                  Advanced Search
-                  {showAdvancedSearch ? (
-                    <ChevronUp className="w-4 h-4 ml-2" />
-                  ) : (
-                    <ChevronDown className="w-4 h-4 ml-2" />
-                  )}
-                  {(searchFields.firstName || searchFields.lastName || searchFields.phone || searchFields.email) && (
-                    <div className="w-2 h-2 bg-blue-500 rounded-full ml-2"></div>
-                  )}
+                  <TableIcon className="w-4 h-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleCustomerViewModeChange('card')}
+                  className={`h-9 px-4 rounded-lg ${customerViewMode === 'card' ? 'bg-white dark:bg-slate-800 shadow-sm text-slate-900 dark:text-slate-100' : 'text-slate-600 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-100'}`}
+                  title="Card View"
+                >
+                  <LayoutGrid className="w-4 h-4" />
                 </Button>
               </div>
+            )}
+          </div>
 
-              {/* Advanced Search Section - Collapsible */}
-              {showAdvancedSearch && (
-                <div className="pt-4 space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div className="space-y-2">
-                      <Label className="text-xs font-medium text-slate-500 dark:text-slate-400">First Name</Label>
-                      <Input
-                        placeholder="Search by first name..."
-                        value={searchFields.firstName}
-                        onChange={(e) => setSearchFields(prev => ({ ...prev, firstName: e.target.value }))}
-                        className="h-9 rounded-lg border-0 bg-slate-100/50 dark:bg-slate-700/50"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-xs font-medium text-slate-500 dark:text-slate-400">Last Name</Label>
-                      <Input
-                        placeholder="Search by last name..."
-                        value={searchFields.lastName}
-                        onChange={(e) => setSearchFields(prev => ({ ...prev, lastName: e.target.value }))}
-                        className="h-9 rounded-lg border-0 bg-slate-100/50 dark:bg-slate-700/50"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-xs font-medium text-slate-500 dark:text-slate-400">Phone Number</Label>
-                      <Input
-                        placeholder="Search by phone..."
-                        value={searchFields.phone}
-                        onChange={(e) => setSearchFields(prev => ({ ...prev, phone: e.target.value }))}
-                        className="h-9 rounded-lg border-0 bg-slate-100/50 dark:bg-slate-700/50"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-xs font-medium text-slate-500 dark:text-slate-400">Email Address</Label>
-                      <Input
-                        placeholder="Search by email..."
-                        value={searchFields.email}
-                        onChange={(e) => setSearchFields(prev => ({ ...prev, email: e.target.value }))}
-                        className="h-9 rounded-lg border-0 bg-slate-100/50 dark:bg-slate-700/50"
-                      />
-                    </div>
-                  </div>
-                  
-                  {(searchFields.firstName || searchFields.lastName || searchFields.phone || searchFields.email) && (
-                    <div className="flex items-center justify-between pt-2">
-                      <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                        <CheckCircle className="w-3 h-3" />
-                        Advanced search active
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setSearchFields({ firstName: '', lastName: '', phone: '', email: '' })}
-                        className="h-7 px-2 text-xs text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
-                      >
-                        Clear advanced filters
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          </CardContent>
+        </Card>
 
           {/* Active Status Filter Indicator */}
           {statusFilter === 'active' && (
@@ -4702,15 +4412,21 @@ const EnhancedCustomerManagement = () => {
             {customerListLoading ? (
               <CustomerTableSkeleton rows={6} />
             ) : customerListError ? (
-              <Card className="p-8 text-center">
-                <div className="flex flex-col items-center gap-2">
-                  <AlertTriangle className="h-8 w-8 text-orange-500" />
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium text-red-600">Failed to load customers</p>
-                    <p className="text-xs text-muted-foreground">
+              <div className="col-span-full flex justify-center items-center py-20">
+                <div className="text-center space-y-4">
+                  <div className="flex justify-center">
+                    <div className="p-4 bg-red-50 dark:bg-red-950/30 rounded-full">
+                      <AlertTriangle className="h-12 w-12 text-red-500 dark:text-red-400" />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                      Failed to load customers
+                    </h3>
+                    <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm">
                       {customerListError.includes('Rate limit') ? 'Too many requests. Please wait a moment and try again.' : customerListError}
                     </p>
-                    <Button 
+                    <Button
                       variant="outline"
                       size="sm"
                       onClick={() => loadCustomerList(currentPage, getCurrentSearchTerm(), statusFilter, alertFilter, vipFilter, followUpFilter)}
@@ -4720,16 +4436,27 @@ const EnhancedCustomerManagement = () => {
                     </Button>
                   </div>
                 </div>
-              </Card>
+              </div>
             ) : currentCustomers.length === 0 ? (
-              <Card className="p-8 text-center">
-                <div className="flex flex-col items-center gap-2">
-                  <User className="h-8 w-8 text-muted-foreground" />
-                  <p className="text-sm text-muted-foreground">
-                    {searchQuery || statusFilter !== 'all' || alertFilter ? 'No customers found' : 'No customers yet'}
-                  </p>
+              <div className="col-span-full flex justify-center items-center py-20">
+                <div className="text-center space-y-4">
+                  <div className="flex justify-center">
+                    <div className="p-4 bg-slate-100 dark:bg-slate-800 rounded-full">
+                      <User className="h-12 w-12 text-slate-400 dark:text-slate-500" />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                      {searchQuery || statusFilter !== 'all' || alertFilter ? 'No customers found' : 'No customers yet'}
+                    </h3>
+                    <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm">
+                      {searchQuery || statusFilter !== 'all' || alertFilter
+                        ? 'Try adjusting your search or filters to find what you\'re looking for.'
+                        : 'Get started by adding your first customer to the system.'}
+                    </p>
+                  </div>
                 </div>
-              </Card>
+              </div>
             ) : (
               <div className="space-y-3">
                 {currentCustomers.map((customer) => (
@@ -4748,11 +4475,121 @@ const EnhancedCustomerManagement = () => {
                       handleViewCustomer(customer);
                       setTimeout(() => setActiveTab('overview'), 100);
                     }}
+                    onBellClick={handleBellClick}
                     maxActiveLoans={maxActiveLoans}
                     customerTransactions={customerTransactionsMap[customer.phone_number] || []}
+                    calculateLastActivity={calculateLastActivityFromTransactions}
                   />
                 ))}
               </div>
+            )}
+          </div>
+        ) : customerViewMode === 'card' ? (
+          /* Desktop Card View */
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+            {customerListLoading ? (
+              <>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <Card key={i} className="p-6 space-y-4 animate-pulse">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center space-x-3 flex-1">
+                        <div className="h-12 w-12 rounded-full bg-slate-200 dark:bg-slate-700" />
+                        <div className="space-y-2 flex-1">
+                          <div className="h-4 w-32 bg-slate-200 dark:bg-slate-700 rounded" />
+                          <div className="h-3 w-24 bg-slate-200 dark:bg-slate-700 rounded" />
+                        </div>
+                      </div>
+                      <div className="h-6 w-6 bg-slate-200 dark:bg-slate-700 rounded" />
+                    </div>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="h-3 w-20 bg-slate-200 dark:bg-slate-700 rounded" />
+                        <div className="h-3 w-28 bg-slate-200 dark:bg-slate-700 rounded" />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div className="h-3 w-24 bg-slate-200 dark:bg-slate-700 rounded" />
+                        <div className="h-3 w-20 bg-slate-200 dark:bg-slate-700 rounded" />
+                      </div>
+                    </div>
+                    <div className="flex gap-2 pt-2">
+                      <div className="h-8 flex-1 bg-slate-200 dark:bg-slate-700 rounded" />
+                      <div className="h-8 flex-1 bg-slate-200 dark:bg-slate-700 rounded" />
+                    </div>
+                  </Card>
+                ))}
+              </>
+            ) : customerListError ? (
+              <div className="col-span-full flex justify-center items-center py-20">
+                <div className="text-center space-y-4">
+                  <div className="flex justify-center">
+                    <div className="p-4 bg-red-50 dark:bg-red-950/30 rounded-full">
+                      <AlertTriangle className="h-12 w-12 text-red-500 dark:text-red-400" />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                      Failed to load customers
+                    </h3>
+                    <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm">
+                      {customerListError.includes('Rate limit') ? 'Too many requests. Please wait a moment and try again.' : customerListError}
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => loadCustomerList(currentPage, getCurrentSearchTerm(), statusFilter, alertFilter, vipFilter, followUpFilter)}
+                      className="mt-2"
+                    >
+                      Try Again
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : currentCustomers.length === 0 ? (
+              <div className="col-span-full flex justify-center items-center py-20">
+                <div className="text-center space-y-4">
+                  <div className="flex justify-center">
+                    <div className="p-4 bg-slate-100 dark:bg-slate-800 rounded-full">
+                      <User className="h-12 w-12 text-slate-400 dark:text-slate-500" />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                      {searchQuery || statusFilter !== 'all' || alertFilter ? 'No customers found' : 'No customers yet'}
+                    </h3>
+                    <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm">
+                      {searchQuery || statusFilter !== 'all' || alertFilter
+                        ? 'Try adjusting your search or filters to find what you\'re looking for.'
+                        : 'Get started by adding your first customer to the system.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <>
+                {currentCustomers.map((customer) => (
+                  <CustomerCard
+                    key={customer.phone_number}
+                    customer={customer}
+                    isSelected={selectedCustomerIds.includes(customer.phone_number)}
+                    onSelect={handleSelectCustomer}
+                    onView={handleViewCustomer}
+                    onEdit={handleEditCustomer}
+                    onViewTransactions={(customer) => {
+                      handleViewCustomer(customer);
+                      setTimeout(() => setActiveTab('transactions'), 100);
+                    }}
+                    onManageEligibility={(customer) => {
+                      handleViewCustomer(customer);
+                      setTimeout(() => setActiveTab('overview'), 100);
+                    }}
+                    onBellClick={handleBellClick}
+                    onSetCustomLimit={handleSetCustomLimit}
+                    maxActiveLoans={maxActiveLoans}
+                    customerTransactions={customerTransactionsMap[customer.phone_number] || []}
+                    calculateLastActivity={calculateLastActivityFromTransactions}
+                  />
+                ))}
+              </>
             )}
           </div>
         ) : (
@@ -5202,7 +5039,7 @@ const EnhancedCustomerManagement = () => {
         )}
 
         {/* Results Summary and Pagination */}
-        {(totalCustomers > 0 || (hasInitialLoadRef.current && !loading)) && (
+        {totalCustomers > 0 && (
           <div className="mt-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className="text-sm text-muted-foreground">
