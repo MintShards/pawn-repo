@@ -128,6 +128,23 @@ import ExtensionForm from '../transaction/components/ExtensionForm';
 import StatusUpdateForm from '../transaction/components/StatusUpdateForm';
 import StatusBadge from '../transaction/components/StatusBadge';
 
+// Sort field mapping: Frontend display name -> Backend database field
+const CUSTOMER_SORT_FIELD_MAP = {
+  'customer': 'first_name',
+  'loan_activity': 'active_loans',
+  'last_visit': 'last_transaction_date',
+  'contact': 'phone_number',
+  'status': 'status',
+  'created_at': 'created_at'
+};
+
+// Transaction sort field mapping
+const TRANSACTION_SORT_FIELD_MAP = {
+  'transaction_date': 'pawn_date',
+  'status_priority': 'status',
+  'balance': 'loan_amount'
+};
+
 // Transactions Tab Content Component
 const TransactionsTabContent = ({ selectedCustomer }) => {
   const { user } = useAuth(); // Add useAuth hook for user context
@@ -454,16 +471,9 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
       setError(null);
       
       try {
-        // Map frontend sort fields to backend field names
-        let backendSortBy = sortBy;
-        if (sortBy === 'transaction_date') {
-          backendSortBy = 'pawn_date';
-        } else if (sortBy === 'status_priority') {
-          backendSortBy = 'status';
-        } else if (sortBy === 'balance') {
-          backendSortBy = 'loan_amount'; // Backend sorts by loan_amount for balance
-        }
-        
+        // Map frontend sort fields to backend field names using centralized mapping
+        const backendSortBy = TRANSACTION_SORT_FIELD_MAP[sortBy] || sortBy;
+
         const params = {
           page: currentPage,
           page_size: pageSize,
@@ -791,16 +801,9 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
     if (!selectedCustomer?.phone_number) return;
     
     try {
-      // Map frontend sort fields to backend field names
-      let backendSortBy = sortBy;
-      if (sortBy === 'transaction_date') {
-        backendSortBy = 'pawn_date';
-      } else if (sortBy === 'status_priority') {
-        backendSortBy = 'status';
-      } else if (sortBy === 'balance') {
-        backendSortBy = 'loan_amount'; // Backend sorts by loan_amount for balance
-      }
-      
+      // Map frontend sort fields to backend field names using centralized mapping
+      const backendSortBy = TRANSACTION_SORT_FIELD_MAP[sortBy] || sortBy;
+
       const params = {
         page: currentPage,
         page_size: pageSize,
@@ -2740,8 +2743,16 @@ const EnhancedCustomerManagement = () => {
 
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState(null);
-  const [sortField, setSortField] = useState('created_at');
-  const [sortOrder, setSortOrder] = useState('desc');
+
+  // Sort preferences with localStorage persistence
+  const [sortField, setSortField] = useState(() => {
+    const saved = localStorage.getItem('customerSortField');
+    return saved || 'created_at';
+  });
+  const [sortOrder, setSortOrder] = useState(() => {
+    const saved = localStorage.getItem('customerSortOrder');
+    return saved || 'desc';
+  });
   const [currentPage, setCurrentPage] = useState(1);
   const [customersPerPage, setCustomersPerPage] = useState(10);
   const [selectedCustomerIds, setSelectedCustomerIds] = useState([]);
@@ -2946,10 +2957,14 @@ const EnhancedCustomerManagement = () => {
 
   const handleSort = (field) => {
     if (sortField === field) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+      const newOrder = sortOrder === 'asc' ? 'desc' : 'asc';
+      setSortOrder(newOrder);
+      localStorage.setItem('customerSortOrder', newOrder);
     } else {
       setSortField(field);
       setSortOrder('asc');
+      localStorage.setItem('customerSortField', field);
+      localStorage.setItem('customerSortOrder', 'asc');
     }
   };
 
@@ -3095,12 +3110,8 @@ const EnhancedCustomerManagement = () => {
         params.new_this_month = true;
       }
 
-      // Add sorting
-      params.sort_by = sortField === 'customer' ? 'first_name' :
-                       sortField === 'contact' ? 'phone_number' :
-                       sortField === 'loan_activity' ? 'active_loans' :
-                       sortField === 'last_visit' ? 'last_transaction_date' :
-                       sortField;
+      // Add sorting using centralized field mapping
+      params.sort_by = CUSTOMER_SORT_FIELD_MAP[sortField] || sortField;
       params.sort_order = sortOrder;
 
       // Use enhanced search if we have a search term, otherwise use getAllCustomers

@@ -7,6 +7,7 @@ CRUD operations, search, statistics, and status management.
 
 # Standard library imports
 from typing import Optional
+from enum import Enum
 
 # Third-party imports
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
@@ -26,6 +27,21 @@ from app.core.redis_cache import BusinessCache, cached_result, CacheConfig
 
 # Create router
 customer_router = APIRouter()
+
+
+# Customer sort field enum for API validation
+class CustomerSortField(str, Enum):
+    """Valid sort fields for customer queries"""
+    CREATED_AT = "created_at"
+    FIRST_NAME = "first_name"
+    LAST_NAME = "last_name"
+    PHONE_NUMBER = "phone_number"
+    EMAIL = "email"
+    ACTIVE_LOANS = "active_loans"
+    TOTAL_LOAN_VALUE = "total_loan_value"
+    CREDIT_LIMIT = "credit_limit"
+    LAST_TRANSACTION_DATE = "last_transaction_date"
+    STATUS = "status"
 
 
 @customer_router.post(
@@ -112,7 +128,7 @@ async def get_customers_list(
     new_this_month: bool = Query(False, description="Filter customers created in current calendar month"),
     page: int = Query(1, description="Page number", ge=1),
     per_page: int = Query(10, description="Items per page", ge=1, le=100),
-    sort_by: str = Query("created_at", description="Sort field"),
+    sort_by: CustomerSortField = Query(CustomerSortField.CREATED_AT, description="Sort field"),
     sort_order: str = Query("desc", description="Sort order", pattern="^(asc|desc)$"),
     current_user: User = Depends(get_current_user)
 ) -> CustomerListResponse:
@@ -127,7 +143,7 @@ async def get_customers_list(
             new_this_month=new_this_month,
             page=page,
             per_page=per_page,
-            sort_by=sort_by,
+            sort_by=sort_by.value,  # Convert enum to string value
             sort_order=sort_order
         )
     except ValueError as e:

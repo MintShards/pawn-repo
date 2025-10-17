@@ -27,9 +27,23 @@ from app.core.redis_cache import BusinessCache
 
 class CustomerService:
     """Service class for customer business logic"""
-    
+
     # Initialize logger for this service
     logger = structlog.get_logger(__name__)
+
+    # Valid sort fields for customer queries
+    VALID_SORT_FIELDS = {
+        "created_at",
+        "first_name",
+        "last_name",
+        "phone_number",
+        "email",
+        "active_loans",
+        "total_loan_value",
+        "credit_limit",
+        "last_transaction_date",
+        "status"
+    }
 
     @staticmethod
     async def create_customer(customer_data: CustomerCreate, created_by: str) -> Customer:
@@ -256,6 +270,12 @@ class CustomerService:
         alerts_only: bool = False,
         follow_up_only: bool = False,
         new_this_month: bool = False,
+        # New operational filters
+        upcoming_maturity_days: Optional[int] = None,  # 7, 14, or 30 days
+        credit_utilization_threshold: Optional[int] = None,  # 50 or 80 percent
+        late_payers_only: bool = False,
+        dormant_days: Optional[int] = None,  # 90 or 180 days
+        high_value_only: bool = False,  # Average loan > $1000
         page: int = 1,
         per_page: int = 10,
         sort_by: str = "created_at",
@@ -294,23 +314,28 @@ class CustomerService:
                 from app.models.pawn_transaction_model import PawnTransaction, TransactionStatus
 
                 try:
-                    # Find all overdue transactions
-                    overdue_transactions = await PawnTransaction.find(
-                        PawnTransaction.status == TransactionStatus.OVERDUE
-                    ).to_list()
+                    # Optimized aggregation to get unique customer IDs with overdue transactions
+                    pipeline = [
+                        {"$match": {"status": TransactionStatus.OVERDUE.value}},
+                        {"$group": {"_id": "$customer_id"}},
+                        {"$project": {"customer_id": "$_id", "_id": 0}}
+                    ]
 
-                    # Get unique customer IDs (phone numbers)
-                    follow_up_customer_ids = set()
-                    for txn in overdue_transactions:
-                        follow_up_customer_ids.add(txn.customer_id)
+                    # Execute aggregation
+                    results = await PawnTransaction.get_motor_collection().aggregate(pipeline).to_list(None)
+                    follow_up_customer_ids = [result["customer_id"] for result in results]
 
                     if follow_up_customer_ids:
-                        filters["phone_number"] = {"$in": list(follow_up_customer_ids)}
+                        filters["phone_number"] = {"$in": follow_up_customer_ids}
                     else:
                         # No customers need follow-up, return empty result
                         filters["phone_number"] = {"$in": []}
-                except Exception:
+                except Exception as e:
                     # If follow-up calculation fails, silently skip filter
+                    CustomerService.logger.warning(
+                        "follow_up_filter_failed",
+                        error=str(e)
+                    )
                     pass
 
             # Apply new this month filter if requested (customers created in current calendar month)
@@ -382,8 +407,16 @@ class CustomerService:
 
             # Get total count before pagination
             total = await query.count()
-            
-            # Apply sorting
+
+            # Validate and apply sorting
+            if sort_by not in CustomerService.VALID_SORT_FIELDS:
+                CustomerService.logger.warning(
+                    "invalid_sort_field_requested",
+                    sort_by=sort_by,
+                    defaulting_to="created_at"
+                )
+                sort_by = "created_at"  # Default to created_at for invalid fields
+
             sort_direction = DESCENDING if sort_order == "desc" else ASCENDING
             query = query.sort([(sort_by, sort_direction)])
             
@@ -467,9 +500,14 @@ class CustomerService:
                         ]
                 
                 query = Customer.find(filters) if filters else Customer.find()
-                
+
                 # Continue with same pagination logic
                 total = await query.count()
+
+                # Validate sort field (same as main path)
+                if sort_by not in CustomerService.VALID_SORT_FIELDS:
+                    sort_by = "created_at"
+
                 sort_direction = DESCENDING if sort_order == "desc" else ASCENDING
                 query = query.sort([(sort_by, sort_direction)])
                 skip = (page - 1) * per_page
