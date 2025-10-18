@@ -127,6 +127,7 @@ import PaymentForm from '../transaction/components/PaymentForm';
 import ExtensionForm from '../transaction/components/ExtensionForm';
 import StatusUpdateForm from '../transaction/components/StatusUpdateForm';
 import StatusBadge from '../transaction/components/StatusBadge';
+import AdvancedFilters from './AdvancedFilters';
 
 // Sort field mapping: Frontend display name -> Backend database field
 const CUSTOMER_SORT_FIELD_MAP = {
@@ -2654,6 +2655,7 @@ const EnhancedCustomerManagement = () => {
   const [vipFilter, setVipFilter] = useState(false); // Filter for VIP customers only
   const [followUpFilter, setFollowUpFilter] = useState(false); // Filter for customers needing follow-up
   const [newThisMonthFilter, setNewThisMonthFilter] = useState(false); // Filter for customers created this month
+  const [advancedFilters, setAdvancedFilters] = useState({}); // Advanced filters state
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
   
@@ -3071,7 +3073,7 @@ const EnhancedCustomerManagement = () => {
   // Note: loadCustomerStats has been moved earlier in the file to fix hoisting issue
 
   // Load only customer list (for search/pagination)
-  const loadCustomerList = useCallback(async (page = 1, search = '', status = null, filterByAlerts = null, filterByVip = null, filterByFollowUp = null, filterByNewThisMonth = null) => {
+  const loadCustomerList = useCallback(async (page = 1, search = '', status = null, filterByAlerts = null, filterByVip = null, filterByFollowUp = null, filterByNewThisMonth = null, advFilters = {}) => {
     setCustomerListLoading(true);
     setCustomerListError(null);
     try {
@@ -3110,6 +3112,11 @@ const EnhancedCustomerManagement = () => {
         params.new_this_month = true;
       }
 
+      // Add advanced filters
+      if (advFilters && Object.keys(advFilters).length > 0) {
+        Object.assign(params, advFilters);
+      }
+
       // Add sorting using centralized field mapping
       params.sort_by = CUSTOMER_SORT_FIELD_MAP[sortField] || sortField;
       params.sort_order = sortOrder;
@@ -3118,7 +3125,7 @@ const EnhancedCustomerManagement = () => {
       let response = search ?
         await customerService.searchCustomers(search, params) :
         await customerService.getAllCustomers(params);
-      
+
       // Handle paginated response with metadata
       if (response && response.customers) {
         setCustomers(response.customers);
@@ -3231,8 +3238,9 @@ const EnhancedCustomerManagement = () => {
     // Build search term
     const searchTerm = debouncedSearchQuery ? debouncedSearchQuery.trim() : '';
 
-    // Create request signature to prevent duplicate requests
-    const requestSignature = `${currentPage}-${searchTerm}-${statusFilter}-${alertFilter}-${vipFilter}-${followUpFilter}-${newThisMonthFilter}-${sortField}-${sortOrder}`;
+    // Create request signature to prevent duplicate requests (include advanced filters)
+    const advFiltersKey = JSON.stringify(advancedFilters);
+    const requestSignature = `${currentPage}-${searchTerm}-${statusFilter}-${alertFilter}-${vipFilter}-${followUpFilter}-${newThisMonthFilter}-${advFiltersKey}-${sortField}-${sortOrder}`;
 
     // Prevent duplicate API calls
     if (lastRequestRef.current === requestSignature) {
@@ -3255,7 +3263,7 @@ const EnhancedCustomerManagement = () => {
         loadCustomers(currentPage, searchTerm, statusFilter, false, alertFilter, vipFilter, followUpFilter, newThisMonthFilter);
       } else {
         // Subsequent loads - only get customer list
-        loadCustomerList(currentPage, searchTerm, statusFilter, alertFilter, vipFilter, followUpFilter, newThisMonthFilter);
+        loadCustomerList(currentPage, searchTerm, statusFilter, alertFilter, vipFilter, followUpFilter, newThisMonthFilter, advancedFilters);
       }
     };
 
@@ -3266,7 +3274,7 @@ const EnhancedCustomerManagement = () => {
       const timeoutId = setTimeout(makeRequest, 500 - timeSinceLastCall);
       return () => clearTimeout(timeoutId);
     }
-  }, [currentPage, debouncedSearchQuery, statusFilter, alertFilter, vipFilter, followUpFilter, newThisMonthFilter, sortField, sortOrder, customersPerPage, loadCustomers, loadCustomerList]);
+  }, [currentPage, debouncedSearchQuery, statusFilter, alertFilter, vipFilter, followUpFilter, newThisMonthFilter, advancedFilters, sortField, sortOrder, customersPerPage, loadCustomers, loadCustomerList]);
 
   // Handle page size change
   const handlePageSizeChange = useCallback((value) => {
@@ -3283,7 +3291,19 @@ const EnhancedCustomerManagement = () => {
   useEffect(() => {
     setCurrentPage(1);
     setSelectedCustomerIds([]); // Clear selections when filters change
-  }, [searchQuery, statusFilter, alertFilter, vipFilter, followUpFilter, newThisMonthFilter]);
+  }, [searchQuery, statusFilter, alertFilter, vipFilter, followUpFilter, newThisMonthFilter, advancedFilters]);
+
+  // Advanced Filters Handlers
+  const handleAdvancedFilterChange = useCallback((filters) => {
+    setAdvancedFilters(filters);
+    setCurrentPage(1);
+    setSelectedCustomerIds([]);
+  }, []);
+
+  const handleAdvancedFilterReset = useCallback(() => {
+    setAdvancedFilters({});
+    setCurrentPage(1);
+  }, []);
 
   // Simple reload when customersPerPage changes
   const [prevPageSize, setPrevPageSize] = useState(customersPerPage);
@@ -4208,6 +4228,12 @@ const EnhancedCustomerManagement = () => {
               </Select>
             </div>
 
+            {/* Advanced Filters Button */}
+            <AdvancedFilters
+              onFilterChange={handleAdvancedFilterChange}
+              onReset={handleAdvancedFilterReset}
+            />
+
             {/* View Mode Toggle - Desktop Only */}
             {!isMobile && (
               <div className="flex items-center bg-slate-100/50 dark:bg-slate-700/50 rounded-xl p-1 h-12">
@@ -4769,26 +4795,10 @@ const EnhancedCustomerManagement = () => {
                     <TableCell>
                       <div className="space-y-2">
                         {(() => {
-                          // Get transaction data loaded for this customer
-                          const customerTransactions = customerTransactionsMap[customer.phone_number] || [];
-                          
-                          // Filter for slot-using transaction statuses
-                          const slotUsingTransactions = customerTransactions.filter(t => 
-                            t.status === 'active' || t.status === 'overdue' || t.status === 'extended' || 
-                            t.status === 'hold' || t.status === 'damaged'
-                          );
-                          
-                          const usedCreditFromTransactions = slotUsingTransactions.reduce((total, t) => 
-                            total + (t.loan_amount || 0), 0
-                          );
-                          const activeLoansFromTransactions = slotUsingTransactions.length;
-                          
-                          // Prioritize transaction calculations when available
-                          const hasTransactionData = customerTransactions.length > 0;
-                          
-                          // Use calculated values when transaction data is available
-                          const displayUsedCredit = hasTransactionData ? usedCreditFromTransactions : (customer.total_loan_value || 0);
-                          const displayActiveLoans = hasTransactionData ? activeLoansFromTransactions : (customer.active_loans || 0);
+                          // ALWAYS use backend's values - they're the source of truth and automatically maintained
+                          // Backend maintains customer.active_loans and customer.total_loan_value on every transaction status change
+                          const displayUsedCredit = customer.total_loan_value || 0;
+                          const displayActiveLoans = customer.active_loans || 0;
                           
                           
                           // Get loan limits - use custom limit if set, otherwise system default

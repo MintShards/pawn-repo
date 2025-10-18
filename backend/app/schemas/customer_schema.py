@@ -175,6 +175,7 @@ class CustomerResponse(CustomerBase):
     updated_by: Optional[str] = Field(None, description="User ID who last updated")
     total_transactions: int = Field(..., description="Total number of transactions")
     active_loans: int = Field(..., description="Number of active loans")
+    total_loan_value: Decimal = Field(..., description="Total value of all active loans")
     last_transaction_date: Optional[datetime] = Field(
         None,
         description="Date of most recent transaction"

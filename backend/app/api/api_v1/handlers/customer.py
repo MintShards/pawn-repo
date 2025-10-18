@@ -134,6 +134,15 @@ async def get_customers_list(
     alerts_only: bool = Query(False, description="Filter customers with active service alerts only"),
     follow_up_only: bool = Query(False, description="Filter customers needing follow-up (customers with overdue transactions)"),
     new_this_month: bool = Query(False, description="Filter customers created in current calendar month"),
+    # NEW: Advanced filters
+    active_loans_min: Optional[int] = Query(None, ge=0, description="Minimum number of active loans"),
+    active_loans_max: Optional[int] = Query(None, ge=0, description="Maximum number of active loans"),
+    loan_value_min: Optional[float] = Query(None, ge=0, description="Minimum total loan value"),
+    loan_value_max: Optional[float] = Query(None, ge=0, description="Maximum total loan value"),
+    last_activity_days: Optional[int] = Query(None, ge=0, description="Active within last N days"),
+    inactive_days: Optional[int] = Query(None, ge=0, description="Inactive for N or more days"),
+    credit_utilization: Optional[str] = Query(None, regex="^(high|medium|low|none)$", description="Credit utilization level: high (>80%), medium (50-80%), low (<50%), none (0%)"),
+    transaction_frequency: Optional[str] = Query(None, regex="^(one_time|occasional|regular|frequent|vip)$", description="Transaction frequency: one_time (1), occasional (2-5), regular (6-10), frequent (11-20), vip (20+)"),
     page: int = Query(1, description="Page number", ge=1),
     per_page: int = Query(10, description="Items per page", ge=1, le=100),
     sort_by: CustomerSortField = Query(CustomerSortField.CREATED_AT, description="Sort field"),
@@ -149,6 +158,15 @@ async def get_customers_list(
             alerts_only=alerts_only,
             follow_up_only=follow_up_only,
             new_this_month=new_this_month,
+            # Advanced filters
+            active_loans_min=active_loans_min,
+            active_loans_max=active_loans_max,
+            loan_value_min=loan_value_min,
+            loan_value_max=loan_value_max,
+            last_activity_days=last_activity_days,
+            inactive_days=inactive_days,
+            credit_utilization=credit_utilization,
+            transaction_frequency=transaction_frequency,
             page=page,
             per_page=per_page,
             sort_by=sort_by.value,  # Convert enum to string value
@@ -401,7 +419,6 @@ async def deactivate_customer(
         await customer.save()
 
         # Invalidate customer stats cache for real-time updates
-        from app.core.redis_cache import BusinessCache
         await BusinessCache.invalidate_by_pattern("stats:customer:*")
         await BusinessCache.invalidate_customer(phone_number)
 
@@ -461,7 +478,6 @@ async def archive_customer(
         await customer.save()
 
         # Invalidate customer stats cache for real-time updates
-        from app.core.redis_cache import BusinessCache
         await BusinessCache.invalidate_by_pattern("stats:customer:*")
         await BusinessCache.invalidate_customer(phone_number)
 

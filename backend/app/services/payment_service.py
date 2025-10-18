@@ -257,7 +257,13 @@ class PaymentService:
                     total_paid=payment_amount,
                     save_immediately=False  # Save with session
                 )
-            
+
+            # Update customer's last activity date (payment = activity)
+            customer = await Customer.find_one(Customer.phone_number == fresh_transaction.customer_id, session=session)
+            if customer:
+                customer.last_transaction_date = payment.payment_date
+                await customer.save(session=session)
+
             # Save transaction within session
             await fresh_transaction.save(session=session)
             

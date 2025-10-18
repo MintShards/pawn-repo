@@ -6,7 +6,7 @@ This module implements all customer-related business operations including
 CRUD operations, search functionality, statistics, and status management.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 from math import ceil
 from decimal import Decimal
@@ -270,12 +270,21 @@ class CustomerService:
         alerts_only: bool = False,
         follow_up_only: bool = False,
         new_this_month: bool = False,
-        # New operational filters
-        upcoming_maturity_days: Optional[int] = None,  # 7, 14, or 30 days
-        credit_utilization_threshold: Optional[int] = None,  # 50 or 80 percent
+        # Advanced filters (NEW)
+        active_loans_min: Optional[int] = None,
+        active_loans_max: Optional[int] = None,
+        loan_value_min: Optional[float] = None,
+        loan_value_max: Optional[float] = None,
+        last_activity_days: Optional[int] = None,
+        inactive_days: Optional[int] = None,
+        credit_utilization: Optional[str] = None,
+        transaction_frequency: Optional[str] = None,
+        # Old operational filters (kept for backward compatibility)
+        upcoming_maturity_days: Optional[int] = None,
+        credit_utilization_threshold: Optional[int] = None,
         late_payers_only: bool = False,
-        dormant_days: Optional[int] = None,  # 90 or 180 days
-        high_value_only: bool = False,  # Average loan > $1000
+        dormant_days: Optional[int] = None,
+        high_value_only: bool = False,
         page: int = 1,
         per_page: int = 10,
         sort_by: str = "created_at",
@@ -344,6 +353,58 @@ class CustomerService:
                 # Get first day of current month
                 month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
                 filters["created_at"] = {"$gte": month_start}
+
+            # ADVANCED FILTER 1: Active Loans Range
+            if active_loans_min is not None:
+                if "active_loans" not in filters:
+                    filters["active_loans"] = {}
+                filters["active_loans"]["$gte"] = active_loans_min
+            if active_loans_max is not None:
+                if "active_loans" not in filters:
+                    filters["active_loans"] = {}
+                filters["active_loans"]["$lte"] = active_loans_max
+
+            # ADVANCED FILTER 2: Total Loan Value Range
+            if loan_value_min is not None:
+                if "total_loan_value" not in filters:
+                    filters["total_loan_value"] = {}
+                filters["total_loan_value"]["$gte"] = loan_value_min
+            if loan_value_max is not None:
+                if "total_loan_value" not in filters:
+                    filters["total_loan_value"] = {}
+                filters["total_loan_value"]["$lte"] = loan_value_max
+
+            # ADVANCED FILTER 3: Last Activity Date Range
+            if last_activity_days is not None:
+                # Active within last N days
+                cutoff_date = datetime.utcnow() - timedelta(days=last_activity_days)
+                if "last_transaction_date" not in filters:
+                    filters["last_transaction_date"] = {}
+                filters["last_transaction_date"]["$gte"] = cutoff_date
+            if inactive_days is not None:
+                # Inactive for N or more days
+                cutoff_date = datetime.utcnow() - timedelta(days=inactive_days)
+                if "last_transaction_date" not in filters:
+                    filters["last_transaction_date"] = {}
+                filters["last_transaction_date"]["$lt"] = cutoff_date
+
+            # ADVANCED FILTER 4: Credit Utilization
+            # Note: This filter is applied after sorting but before pagination (see below)
+            # to ensure accurate total counts across paginated results
+
+            # ADVANCED FILTER 5: Transaction Frequency
+            if transaction_frequency:
+                frequency_ranges = {
+                    "newcomer": {"$gte": 1, "$lte": 5},
+                    "regular": {"$gte": 6, "$lte": 15},
+                    "loyal": {"$gte": 16, "$lte": 30},
+                    "vip": {"$gte": 31}
+                }
+                if transaction_frequency in frequency_ranges:
+                    range_filter = frequency_ranges[transaction_frequency]
+                    if "total_transactions" not in filters:
+                        filters["total_transactions"] = {}
+                    filters["total_transactions"].update(range_filter)
 
             # Apply search filter with improved logic
             if search:
@@ -419,14 +480,46 @@ class CustomerService:
 
             sort_direction = DESCENDING if sort_order == "desc" else ASCENDING
             query = query.sort([(sort_by, sort_direction)])
-            
-            # Apply pagination with optimized projection
-            skip = (page - 1) * per_page
-            customers = await query.skip(skip).limit(per_page).to_list()
-            
+
+            # ADVANCED FILTER 4: Credit Utilization (Pre-Pagination Processing)
+            # Must be applied BEFORE pagination to get accurate results
+            if credit_utilization:
+                # Fetch ALL customers matching other filters first
+                all_customers = await query.to_list()
+
+                filtered_customers = []
+                for customer in all_customers:
+                    # Calculate utilization percentage
+                    if customer.credit_limit > 0:
+                        utilization = (float(customer.total_loan_value) / float(customer.credit_limit)) * 100
+
+                        # Match against requested tier
+                        if credit_utilization == "high" and utilization > 80:
+                            filtered_customers.append(customer)
+                        elif credit_utilization == "medium" and 50 <= utilization <= 80:
+                            filtered_customers.append(customer)
+                        elif credit_utilization == "low" and 0 < utilization < 50:
+                            filtered_customers.append(customer)
+                        elif credit_utilization == "none" and utilization == 0:
+                            filtered_customers.append(customer)
+                    elif credit_utilization == "none" and customer.total_loan_value == 0:
+                        # No credit limit but also no loans = none tier
+                        filtered_customers.append(customer)
+
+                # Update total to reflect filtered count
+                total = len(filtered_customers)
+
+                # Apply pagination to filtered results
+                skip = (page - 1) * per_page
+                customers = filtered_customers[skip:skip + per_page]
+            else:
+                # Apply pagination with optimized projection (no credit filter)
+                skip = (page - 1) * per_page
+                customers = await query.skip(skip).limit(per_page).to_list()
+
             # Prefetch related data in batches if needed
             # This could include transaction counts or payment history
-            
+
             # Calculate pages
             pages = ceil(total / per_page) if total > 0 else 1
             

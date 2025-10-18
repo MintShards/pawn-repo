@@ -339,6 +339,12 @@ class ExtensionService:
             save_immediately=False  # We'll save separately
         )
 
+        # Update customer's last activity date (extension = activity)
+        customer = await Customer.find_one(Customer.phone_number == transaction.customer_id)
+        if customer:
+            customer.last_transaction_date = extension.extension_date
+            await customer.save()
+
         # Add overdue fee audit entry if overdue fee was collected
         if extension.overdue_fee_collected and extension.overdue_fee_collected > 0:
             from app.models.audit_entry_model import create_audit_entry, AuditActionType

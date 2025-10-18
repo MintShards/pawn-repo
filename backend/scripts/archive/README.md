@@ -2,6 +2,19 @@
 
 This directory contains one-time utility scripts that have been executed and are kept for historical reference.
 
+## backfill_last_transaction_date.py
+
+**Date**: October 18, 2025
+**Purpose**: Backfill `last_transaction_date` field for all existing customers based on their most recent pawn transaction.
+
+**Context**: During Advanced Filters implementation, the `last_transaction_date` field was added to the Customer model to enable "Last Activity" filtering (Active within X days / Inactive for X days). Existing customers in the database needed this field populated from historical transaction data.
+
+**Execution**: Script was run once to populate the field for all customers with transactions. Used MongoDB aggregation pipeline to find most recent `pawn_date` for each customer and update their `last_transaction_date` field.
+
+**Status**: ✅ Completed - Field is now automatically maintained by `PawnTransactionService` (line 252) when new transactions are created. No longer needed for regular operations.
+
+---
+
 ## cleanup_null_formatted_ids.py
 
 **Date**: October 6, 2025
