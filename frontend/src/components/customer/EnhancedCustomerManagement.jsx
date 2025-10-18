@@ -155,6 +155,7 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedTransaction, setSelectedTransaction] = useState(null);
+  const [transactionBalances, setTransactionBalances] = useState({});
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -463,14 +464,41 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
     });
   }, [paymentHistory, selectedTransaction, auditEntries]);
 
+  // Fetch transaction balances
+  const fetchTransactionBalances = async (transactionList) => {
+    const balances = {};
+
+    try {
+      // Fetch balances in parallel for better performance
+      const balancePromises = transactionList.map(async (transaction) => {
+        try {
+          const balance = await transactionService.getTransactionBalance(transaction.transaction_id);
+          return { id: transaction.transaction_id, balance };
+        } catch (error) {
+          return { id: transaction.transaction_id, balance: null };
+        }
+      });
+
+      const results = await Promise.all(balancePromises);
+
+      results.forEach(({ id, balance }) => {
+        balances[id] = balance;
+      });
+
+      setTransactionBalances(balances);
+    } catch (error) {
+      // Failed to fetch transaction balances - continue without them
+    }
+  };
+
   // Fetch customer transactions
   useEffect(() => {
     const fetchTransactions = async () => {
       if (!selectedCustomer?.phone_number) return;
-      
+
       setLoading(true);
       setError(null);
-      
+
       try {
         // Map frontend sort fields to backend field names using centralized mapping
         const backendSortBy = TRANSACTION_SORT_FIELD_MAP[sortBy] || sortBy;
@@ -481,13 +509,13 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
           sort_by: backendSortBy,
           sort_order: sortDirection
         };
-        
+
         const response = await transactionService.getCustomerTransactions(selectedCustomer.phone_number, params);
-        
+
         // Handle different API response formats
         let transactionArray = [];
         let totalCount = 0;
-        
+
         if (Array.isArray(response)) {
           transactionArray = response;
           totalCount = response.length;
@@ -502,10 +530,19 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
           transactionArray = [];
           totalCount = 0;
         }
-        
+
         // Server already sorted the data, so just set it
         setTransactions(transactionArray);
         setTotalTransactionCount(totalCount);
+
+        // Fetch balances for active transactions
+        const activeTransactions = transactionArray.filter(t =>
+          ['active', 'overdue', 'extended'].includes(t.status)
+        );
+
+        if (activeTransactions.length > 0) {
+          await fetchTransactionBalances(activeTransactions);
+        }
       } catch (err) {
         setError(err.message || 'Failed to load transactions');
       } finally {
@@ -800,7 +837,7 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
 
   const refreshTransactions = async () => {
     if (!selectedCustomer?.phone_number) return;
-    
+
     try {
       // Map frontend sort fields to backend field names using centralized mapping
       const backendSortBy = TRANSACTION_SORT_FIELD_MAP[sortBy] || sortBy;
@@ -811,13 +848,13 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
         sort_by: backendSortBy,
         sort_order: sortDirection
       };
-      
+
       const response = await transactionService.getCustomerTransactions(selectedCustomer.phone_number, params);
-      
+
       // Handle different API response formats
       let transactionArray = [];
       let totalCount = 0;
-      
+
       if (Array.isArray(response)) {
         transactionArray = response;
         totalCount = response.length;
@@ -831,9 +868,18 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
         transactionArray = [];
         totalCount = 0;
       }
-      
+
       setTransactions(transactionArray);
       setTotalTransactionCount(totalCount);
+
+      // Fetch balances for active transactions
+      const activeTransactions = transactionArray.filter(t =>
+        ['active', 'overdue', 'extended'].includes(t.status)
+      );
+
+      if (activeTransactions.length > 0) {
+        await fetchTransactionBalances(activeTransactions);
+      }
     } catch (err) {
     }
   };
@@ -1040,6 +1086,7 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                     phone_number: selectedCustomer.phone_number
                   }
                 }}
+                balance={transactionBalances[transaction.transaction_id]}
               />
             ))}
           </div>
@@ -4183,11 +4230,11 @@ const EnhancedCustomerManagement = () => {
             <div className="flex-1">
               <div className="relative">
                 <Command className="rounded-xl border-0 bg-slate-100/50 dark:bg-slate-700/50">
-                  <CommandInput 
-                    placeholder="Search customers by name, phone, or email..." 
+                  <CommandInput
+                    placeholder="Search customers by name, phone, or email..."
                     value={searchQuery}
                     onValueChange={setSearchQuery}
-                    className="h-12 text-base"
+                    className="h-12 text-base font-normal"
                   />
                 </Command>
                 {searchLoading && (
@@ -4201,7 +4248,7 @@ const EnhancedCustomerManagement = () => {
             {/* Status Filter */}
             <div className="sm:w-48">
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="h-12 rounded-xl border-0 bg-slate-100/50 dark:bg-slate-700/50">
+                <SelectTrigger className="h-12 rounded-xl border-0 bg-slate-100/50 dark:bg-slate-700/50 hover:bg-slate-200/50 dark:hover:bg-slate-600/50 text-base font-normal">
                   <SelectValue placeholder="All Status" />
                 </SelectTrigger>
                 <SelectContent>

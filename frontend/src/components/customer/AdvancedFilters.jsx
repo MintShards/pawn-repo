@@ -120,7 +120,7 @@ const AdvancedFilters = ({ onFilterChange, onReset }) => {
   return (
     <Sheet open={isOpen} onOpenChange={setIsOpen}>
       <SheetTrigger asChild>
-        <Button className="h-12 rounded-xl border-0 bg-slate-100/50 dark:bg-slate-700/50 hover:bg-slate-200/50 dark:hover:bg-slate-600/50 gap-2">
+        <Button className="h-12 rounded-xl border-0 bg-slate-100/50 dark:bg-slate-700/50 hover:bg-slate-200/50 dark:hover:bg-slate-600/50 text-base font-normal text-slate-900 dark:text-slate-100 gap-2">
           <Filter className="h-4 w-4" />
           Advanced
           {activeFilterCount > 0 && (

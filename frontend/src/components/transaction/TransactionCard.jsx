@@ -133,9 +133,11 @@ const TransactionCard = React.memo(({
               <span className="text-sm font-medium text-slate-500 dark:text-slate-400">Balance</span>
             </div>
             <p className="text-xl font-bold text-slate-900 dark:text-slate-100">
-              {loading ? '...' : balance?.current_balance !== undefined 
-                ? formatCurrency(balance.current_balance) 
-                : 'Loading...'
+              {loading ? '...' : balance?.current_balance !== undefined
+                ? formatCurrency(balance.current_balance)
+                : ['active', 'overdue', 'extended'].includes(transaction.status)
+                  ? 'Loading...'
+                  : '—'
               }
             </p>
           </div>

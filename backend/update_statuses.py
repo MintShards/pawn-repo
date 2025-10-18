@@ -12,7 +12,7 @@ from pathlib import Path
 backend_dir = Path(__file__).parent
 sys.path.insert(0, str(backend_dir))
 
-from app.core.config import get_settings
+from app.core.config import settings
 from app.models.pawn_transaction_model import PawnTransaction
 from app.services.pawn_transaction_service import PawnTransactionService
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -22,12 +22,14 @@ async def main():
     """Update transaction statuses"""
     try:
         # Initialize database connection
-        settings = get_settings()
         client = AsyncIOMotorClient(settings.MONGO_CONNECTION_STRING)
-        
+
+        # Get database from connection string
+        database = client.get_default_database()
+
         # Initialize Beanie with all models
         await init_beanie(
-            database=client[settings.MONGO_DATABASE_NAME],
+            database=database,
             document_models=[PawnTransaction]
         )
         

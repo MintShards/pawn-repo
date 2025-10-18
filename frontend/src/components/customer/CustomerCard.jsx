@@ -159,33 +159,34 @@ const CustomerCard = ({
               const creditPercentage = Math.min((displayUsedCredit / creditLimit) * 100, 100);
               
               return (
-                <div className="bg-gradient-to-br from-emerald-50 via-green-50 to-emerald-50 dark:from-emerald-950/40 dark:via-green-950/40 dark:to-emerald-950/40 rounded-xl p-3.5 space-y-2.5 border border-emerald-100 dark:border-emerald-900/30 shadow-sm hover:shadow-md transition-all duration-200">
+                <div className="bg-gradient-to-br from-teal-50 via-cyan-50 to-teal-50 dark:from-teal-950/40 dark:via-cyan-950/40 dark:to-teal-950/40 rounded-xl p-3.5 space-y-2.5 border border-teal-100 dark:border-teal-900/30 shadow-sm hover:shadow-md transition-all duration-200">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2.5">
-                      <div className="p-1.5 bg-emerald-100 dark:bg-emerald-900/50 rounded-lg">
-                        <DollarSign className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                      <div className="p-1.5 bg-teal-100 dark:bg-teal-900/50 rounded-lg">
+                        <DollarSign className="h-3.5 w-3.5 text-teal-600 dark:text-teal-400" />
                       </div>
                       <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Credit Usage</span>
                     </div>
                     <span className={`text-sm font-bold tabular-nums ${
                       creditPercentage >= 100 ? 'text-red-600 dark:text-red-400' :
                       creditPercentage >= 80 ? 'text-amber-600 dark:text-amber-400' :
-                      'text-emerald-700 dark:text-emerald-300'
+                      'text-teal-700 dark:text-teal-300'
                     }`}>
                       {Math.round(creditPercentage)}%
                     </span>
                   </div>
                   <div className="space-y-1.5">
-                    <div className="flex justify-between text-xs font-medium">
+                    <div className="text-xs font-medium text-right">
                       <span className="text-slate-600 dark:text-slate-400">{formatCurrency(displayUsedCredit)}</span>
-                      <span className="text-slate-500 dark:text-slate-500">of {formatCurrency(creditLimit)}</span>
+                      <span className="text-slate-500 dark:text-slate-500 mx-1">of</span>
+                      <span className="text-slate-500 dark:text-slate-500">{formatCurrency(creditLimit)}</span>
                     </div>
                     <div className="w-full bg-white/80 dark:bg-slate-800/80 rounded-full h-2.5 overflow-hidden shadow-inner">
                       <div
                         className={`h-2.5 rounded-full transition-all duration-700 ease-out ${
                           creditPercentage >= 100 ? 'bg-gradient-to-r from-red-500 via-red-600 to-red-500' :
                           creditPercentage >= 80 ? 'bg-gradient-to-r from-amber-500 via-amber-600 to-amber-500' :
-                          'bg-gradient-to-r from-emerald-500 via-emerald-600 to-emerald-500'
+                          'bg-gradient-to-r from-teal-500 via-teal-600 to-teal-500'
                         }`}
                         style={{ width: `${creditPercentage}%` }}
                       />
@@ -209,33 +210,34 @@ const CustomerCard = ({
               const slotPercentage = Math.min((displayActiveLoans / effectiveMaxLoans) * 100, 100);
               
               return (
-                <div className="bg-gradient-to-br from-blue-50 via-indigo-50 to-blue-50 dark:from-blue-950/40 dark:via-indigo-950/40 dark:to-blue-950/40 rounded-xl p-3.5 space-y-2.5 border border-blue-100 dark:border-blue-900/30 shadow-sm hover:shadow-md transition-all duration-200">
+                <div className="bg-gradient-to-br from-indigo-50 via-blue-50 to-indigo-50 dark:from-indigo-950/40 dark:via-blue-950/40 dark:to-indigo-950/40 rounded-xl p-3.5 space-y-2.5 border border-indigo-100 dark:border-indigo-900/30 shadow-sm hover:shadow-md transition-all duration-200">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2.5">
-                      <div className="p-1.5 bg-blue-100 dark:bg-blue-900/50 rounded-lg">
-                        <Package className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                      <div className="p-1.5 bg-indigo-100 dark:bg-indigo-900/50 rounded-lg">
+                        <Package className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
                       </div>
                       <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Loan Slots</span>
                     </div>
                     <span className={`text-sm font-bold tabular-nums ${
                       slotPercentage >= 100 ? 'text-red-600 dark:text-red-400' :
                       slotPercentage >= 80 ? 'text-amber-600 dark:text-amber-400' :
-                      'text-blue-700 dark:text-blue-300'
+                      'text-indigo-700 dark:text-indigo-300'
                     }`}>
                       {Math.round(slotPercentage)}%
                     </span>
                   </div>
                   <div className="space-y-1.5">
-                    <div className="flex justify-between text-xs font-medium">
+                    <div className="text-xs font-medium text-right">
                       <span className="text-slate-600 dark:text-slate-400">{displayActiveLoans} active</span>
-                      <span className="text-slate-500 dark:text-slate-500">of {effectiveMaxLoans}</span>
+                      <span className="text-slate-500 dark:text-slate-500 mx-1">of</span>
+                      <span className="text-slate-500 dark:text-slate-500">{effectiveMaxLoans}</span>
                     </div>
                     <div className="w-full bg-white/80 dark:bg-slate-800/80 rounded-full h-2.5 overflow-hidden shadow-inner">
                       <div
                         className={`h-2.5 rounded-full transition-all duration-700 ease-out ${
                           slotPercentage >= 100 ? 'bg-gradient-to-r from-red-500 via-red-600 to-red-500' :
                           slotPercentage >= 80 ? 'bg-gradient-to-r from-amber-500 via-amber-600 to-amber-500' :
-                          'bg-gradient-to-r from-blue-500 via-blue-600 to-blue-500'
+                          'bg-gradient-to-r from-indigo-500 via-indigo-600 to-indigo-500'
                         }`}
                         style={{ width: `${slotPercentage}%` }}
                       />

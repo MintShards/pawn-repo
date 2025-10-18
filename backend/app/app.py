@@ -17,6 +17,8 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 import structlog
 
 # Local imports
@@ -41,9 +43,10 @@ from app.models.service_alert_model import ServiceAlert
 from app.models.user_model import User
 from app.models.transaction_metrics import TransactionMetrics
 
-# Database client, limiter and logger
+# Database client, limiter, scheduler and logger
 db_client = None
 limiter = Limiter(key_func=get_remote_address)
+scheduler = AsyncIOScheduler()
 logger = structlog.get_logger("app")
 
 
@@ -106,10 +109,52 @@ async def lifespan(app: FastAPI):
         logger.info(f"Database indexes: {created_count} created, {error_count} errors")
     except Exception as e:
         logger.warning(f"Failed to create database indexes: {e}")
-    
+
+    # Initialize background scheduler for automatic status updates
+    try:
+        from app.services.pawn_transaction_service import PawnTransactionService
+
+        # Wrap the async function for APScheduler
+        async def scheduled_status_update():
+            """Scheduled task to update transaction statuses daily"""
+            try:
+                logger.info("Starting scheduled status update...")
+                result = await PawnTransactionService.bulk_update_statuses()
+                logger.info(
+                    "Scheduled status update completed",
+                    updated_counts=result
+                )
+            except Exception as e:
+                logger.error(
+                    "Scheduled status update failed",
+                    error=str(e),
+                    exc_info=True
+                )
+
+        # Schedule daily status updates at 2:00 AM
+        scheduler.add_job(
+            scheduled_status_update,
+            CronTrigger(hour=2, minute=0),
+            id='daily_status_update',
+            name='Update transaction statuses to overdue',
+            replace_existing=True
+        )
+
+        scheduler.start()
+        logger.info("Background scheduler started - daily status updates at 2:00 AM")
+
+    except Exception as e:
+        logger.error(f"Failed to initialize background scheduler: {e}")
+
     yield
-    
+
     # Shutdown
+    try:
+        scheduler.shutdown(wait=False)
+        logger.info("Background scheduler stopped")
+    except Exception as e:
+        logger.warning(f"Error stopping scheduler: {e}")
+
     await close_database()
 
 

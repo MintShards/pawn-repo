@@ -1,0 +1,37 @@
+[Unit]
+Description=Pawn Repo Operations API
+Documentation=https://github.com/yourusername/pawn-repo
+After=network.target mongodb.service
+Wants=mongodb.service
+
+[Service]
+Type=simple
+User=mint
+Group=mint
+WorkingDirectory=/mnt/c/Users/seji lamina/Desktop/pawn-repo/backend
+
+# Environment
+Environment="PATH=/mnt/c/Users/seji lamina/Desktop/pawn-repo/backend/env/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+EnvironmentFile=-/mnt/c/Users/seji lamina/Desktop/pawn-repo/backend/.env
+
+# Execution
+ExecStart=/bin/bash "/mnt/c/Users/seji lamina/Desktop/pawn-repo/backend/start_service.sh"
+
+# Restart policy
+Restart=always
+RestartSec=10
+StartLimitInterval=200
+StartLimitBurst=5
+
+# Resource limits
+LimitNOFILE=4096
+MemoryMax=2G
+CPUQuota=200%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pawnrepo-api
+
+[Install]
+WantedBy=multi-user.target

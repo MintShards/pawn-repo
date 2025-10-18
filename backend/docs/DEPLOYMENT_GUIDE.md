@@ -298,6 +298,58 @@ tar -czf /backups/app/pawnshop_$DATE.tar.gz \
 - Caching strategies
 - CDN for static assets
 
+## Automatic Background Tasks
+
+### Transaction Status Updates
+
+The application includes an **automatic background scheduler** that updates transaction statuses daily at 2:00 AM.
+
+**What it does:**
+- Automatically changes `ACTIVE` or `EXTENDED` transactions to `OVERDUE` status when past maturity date
+- Runs automatically while the application is running
+- Logs all status changes for audit trail
+
+**Configuration:**
+
+The scheduler is enabled by default and runs as part of the FastAPI application. No additional configuration is needed.
+
+**Schedule:** Daily at 2:00 AM (configurable in `app/app.py`)
+
+**Manual Trigger:**
+
+If you need to trigger status updates outside the scheduled time:
+
+```bash
+# Option 1: Run the standalone script
+cd backend
+python update_statuses.py
+
+# Option 2: Call the admin API endpoint
+curl -X POST http://localhost:8000/api/v1/pawn-transaction/update-all-statuses \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
+**Monitoring:**
+
+Check application logs for scheduled task execution:
+```bash
+grep "scheduled status update" /var/log/pawnshop/app.log
+```
+
+Expected log output:
+```
+Starting scheduled status update...
+Scheduled status update completed: updated_counts={'overdue': 5}
+```
+
+**Important Notes:**
+- The scheduler only runs while the application is running
+- If the application is restarted, the scheduler resumes automatically
+- Status updates are idempotent - running multiple times has no adverse effects
+- Forfeiture is NOT automatic - staff must manually change overdue transactions to forfeited
+
+---
+
 ## Maintenance
 
 ### Regular Tasks
@@ -392,6 +444,7 @@ systemctl status pawnshop-api nginx
 - [ ] Environment variables configured
 - [ ] SSL certificates installed
 - [ ] Database backups scheduled
+- [ ] Automatic status updates verified (check logs at 2:00 AM)
 - [ ] Monitoring alerts configured
 - [ ] Firewall rules applied
 - [ ] Log rotation configured

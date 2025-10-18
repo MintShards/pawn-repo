@@ -13,6 +13,7 @@ from typing import List, Optional, Dict, Any
 from app.models.payment_model import Payment
 from app.models.pawn_transaction_model import PawnTransaction, TransactionStatus
 from app.models.user_model import User, UserStatus
+from app.models.customer_model import Customer
 from app.models.audit_entry_model import AuditActionType
 from app.schemas.payment_schema import (
     PaymentHistoryResponse, PaymentResponse, PaymentSummaryResponse,
@@ -1233,6 +1234,12 @@ class PaymentService:
                     total_paid=effective_payment,
                     save_immediately=False
                 )
+
+            # Update customer's last activity date (payment = activity)
+            customer = await Customer.find_one(Customer.phone_number == fresh_transaction.customer_id)
+            if customer:
+                customer.last_transaction_date = payment.payment_date
+                await customer.save()
 
             await fresh_transaction.save()
 
