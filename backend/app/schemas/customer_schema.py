@@ -8,11 +8,16 @@ including creation, updates, responses, and search functionality.
 from datetime import datetime
 from typing import Optional, List
 from decimal import Decimal
-import re
 from pydantic import BaseModel, Field, ConfigDict, validator
 from pydantic.networks import EmailStr
 
 from app.models.customer_model import CustomerStatus
+from app.utils.validation import (
+    validate_phone_number,
+    validate_email,
+    validate_name,
+    validate_notes
+)
 
 
 class CustomerBase(BaseModel):
@@ -49,76 +54,30 @@ class CustomerCreate(CustomerBase):
         description="10-digit phone number (unique identifier)"
     )
     
-    @validator('first_name', 'last_name')
-    def validate_names(cls, v):
-        """Enhanced name validation with unicode support for international names"""
-        if not v or not v.strip():
-            raise ValueError('Name cannot be empty')
-        
-        # Remove leading/trailing whitespace
-        v = v.strip()
-        
-        # Enhanced regex pattern for international names:
-        # Support Unicode letters, spaces, hyphens, and apostrophes
-        # This supports names like: José, O'Connor, Mary-Jane, etc.
-        if not re.match(r'^[\w\s\-\'\.]+$', v, re.UNICODE):
-            raise ValueError('Name contains invalid characters. Only letters, spaces, hyphens, and apostrophes are allowed.')
-        
-        # Check length after cleaning
-        if len(v) < 1 or len(v) > 50:
-            raise ValueError('Name must be between 1 and 50 characters')
-        
-        return v
+    @validator('first_name')
+    def validate_first_name(cls, v):
+        """Enhanced name validation using centralized validation utilities"""
+        return validate_name(v, "first_name")
+
+    @validator('last_name')
+    def validate_last_name(cls, v):
+        """Enhanced name validation using centralized validation utilities"""
+        return validate_name(v, "last_name")
     
     @validator('phone_number')
-    def validate_phone_number(cls, v):
-        """Strict phone number validation - exactly 10 digits"""
-        if not v:
-            raise ValueError('Phone number is required')
-        
-        # Remove any non-digit characters for validation
-        digits_only = re.sub(r'[^\d]', '', v)
-        
-        # Must be exactly 10 digits
-        if not re.match(r'^\d{10}$', digits_only):
-            raise ValueError('Phone number must be exactly 10 digits (e.g., 5551234567)')
-        
-        # Return only digits
-        return digits_only
+    def validate_phone(cls, v):
+        """Strict phone number validation using centralized utilities"""
+        return validate_phone_number(v)
     
     @validator('email')
-    def validate_email_security(cls, v):
-        """Additional email security validation"""
-        if v is None:
-            return v
-        
-        # Basic XSS protection - reject emails with suspicious characters
-        if re.search(r'[<>"\'\(\)&]', v):
-            raise ValueError('Email contains invalid characters')
-        
-        # Length check for security
-        if len(v) > 254:  # RFC 5321 limit
-            raise ValueError('Email address is too long')
-            
-        return v
+    def validate_email_field(cls, v):
+        """Email validation using centralized utilities"""
+        return validate_email(v)
     
     @validator('notes')
-    def validate_notes_security(cls, v):
-        """Security validation for notes field"""
-        if v is None:
-            return v
-        
-        v = v.strip()
-        
-        # Basic XSS protection - sanitize HTML-like content
-        if re.search(r'<[^>]+>', v):
-            raise ValueError('Notes cannot contain HTML tags')
-        
-        # Additional XSS patterns
-        if re.search(r'(javascript:|data:|vbscript:|onload=|onerror=)', v, re.IGNORECASE):
-            raise ValueError('Notes contain potentially unsafe content')
-        
-        return v
+    def validate_notes_field(cls, v):
+        """Notes validation using centralized utilities"""
+        return validate_notes(v)
     
     model_config = ConfigDict(
         json_schema_extra={
@@ -164,60 +123,33 @@ class CustomerUpdate(CustomerBase):
         description="Custom maximum active loans for this customer (admin only, overrides system default)"
     )
     
-    @validator('first_name', 'last_name')
-    def validate_names(cls, v):
-        """Enhanced name validation with unicode support for international names"""
+    @validator('first_name')
+    def validate_first_name(cls, v):
+        """Enhanced name validation using centralized validation utilities"""
         if v is None:
             return v
-        
-        if not v.strip():
-            raise ValueError('Name cannot be empty')
-        
-        # Remove leading/trailing whitespace
-        v = v.strip()
-        
-        # Enhanced regex pattern for international names
-        if not re.match(r'^[\w\s\-\'\.]+$', v, re.UNICODE):
-            raise ValueError('Name contains invalid characters. Only letters, spaces, hyphens, and apostrophes are allowed.')
-        
-        # Check length after cleaning
-        if len(v) < 1 or len(v) > 50:
-            raise ValueError('Name must be between 1 and 50 characters')
-        
-        return v
-    
+        return validate_name(v, "first_name")
+
+    @validator('last_name')
+    def validate_last_name(cls, v):
+        """Enhanced name validation using centralized validation utilities"""
+        if v is None:
+            return v
+        return validate_name(v, "last_name")
+
     @validator('email')
-    def validate_email_security(cls, v):
-        """Additional email security validation"""
+    def validate_email_field(cls, v):
+        """Email validation using centralized utilities"""
         if v is None:
             return v
-        
-        # Basic XSS protection
-        if re.search(r'[<>"\'\(\)&]', v):
-            raise ValueError('Email contains invalid characters')
-        
-        # Length check for security
-        if len(v) > 254:
-            raise ValueError('Email address is too long')
-            
-        return v
-    
+        return validate_email(v)
+
     @validator('notes')
-    def validate_notes_security(cls, v):
-        """Security validation for notes field"""
+    def validate_notes_field(cls, v):
+        """Notes validation using centralized utilities"""
         if v is None:
             return v
-        
-        v = v.strip()
-        
-        # Basic XSS protection
-        if re.search(r'<[^>]+>', v):
-            raise ValueError('Notes cannot contain HTML tags')
-        
-        if re.search(r'(javascript:|data:|vbscript:|onload=|onerror=)', v, re.IGNORECASE):
-            raise ValueError('Notes contain potentially unsafe content')
-        
-        return v
+        return validate_notes(v)
     
     model_config = ConfigDict(
         json_schema_extra={

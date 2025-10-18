@@ -10,11 +10,12 @@ from typing import Optional
 from enum import Enum
 
 # Third-party imports
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Body, Request
 
 # Local imports
 from app.api.deps.user_deps import get_current_user
 from app.core.auth import get_admin_user
+from app.core.security_middleware import api_rate_limit, strict_rate_limit
 from app.models.customer_model import CustomerStatus
 from app.models.user_model import User
 from app.schemas.customer_schema import (
@@ -56,6 +57,7 @@ class CustomerSortField(str, Enum):
         403: {"description": "CSRF token required or invalid"},
         409: {"description": "Phone number already exists"},
         422: {"description": "Validation error"},
+        429: {"description": "Rate limit exceeded"},
         500: {"description": "Internal server error"}
     }
 )
@@ -71,10 +73,13 @@ class CustomerSortField(str, Enum):
         400: {"description": "Bad request - Invalid data"},
         409: {"description": "Phone number already exists"},
         422: {"description": "Validation error"},
+        429: {"description": "Rate limit exceeded"},
         500: {"description": "Internal server error"}
     }
 )
+@api_rate_limit()
 async def create_customer(
+    request: Request,
     customer_data: CustomerCreate,
     current_user: User = Depends(get_current_user)
 ) -> CustomerResponse:
@@ -116,10 +121,13 @@ async def create_customer(
         200: {"description": "Customers list retrieved successfully"},
         400: {"description": "Bad request - Invalid parameters"},
         422: {"description": "Validation error"},
+        429: {"description": "Rate limit exceeded"},
         500: {"description": "Internal server error"}
     }
 )
+@api_rate_limit()
 async def get_customers_list(
+    request: Request,
     status_filter: Optional[CustomerStatus] = Query(None, alias="status", description="Filter by customer status"),
     search: Optional[str] = Query(None, description="Search in name and phone number", max_length=100),
     vip_only: bool = Query(False, description="Filter VIP customers only (total_loan_value >= $5,000)"),
@@ -478,10 +486,13 @@ async def archive_customer(
     responses={
         200: {"description": "Eligibility check completed"},
         404: {"description": "Customer not found"},
+        429: {"description": "Rate limit exceeded"},
         500: {"description": "Internal server error"}
     }
 )
+@strict_rate_limit()
 async def check_loan_eligibility(
+    request: Request,
     phone_number: str,
     loan_amount: Optional[float] = Query(None, description="Optional loan amount to validate"),
     current_user: User = Depends(get_current_user)

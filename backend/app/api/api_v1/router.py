@@ -20,6 +20,7 @@ from app.api.api_v1.handlers.stats import router as stats_router
 from app.api.api_v1.handlers.reversal import reversal_router
 from app.api.api_v1.handlers.overdue_fee import router as overdue_fee_router
 from app.api.api_v1.handlers.discount import discount_router
+from app.api.api_v1.handlers.consistency import consistency_router
 
 # Main API v1 router
 router = APIRouter()
@@ -118,5 +119,12 @@ router.include_router(
     prefix="/discount",
     tags=["Discount Management"],
     responses={403: {"description": "Staff or Admin access required"}}
+)
+
+router.include_router(
+    consistency_router,
+    prefix="/consistency",
+    tags=["Data Consistency Validation"],
+    responses={403: {"description": "Admin access required"}}
 )
 
