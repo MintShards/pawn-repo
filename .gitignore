@@ -51,3 +51,13 @@ htmlcov/
 *.cover
 .hypothesis/
 mcp-servers/shadcn-ui-mcp-server/
+
+# Business-sensitive files (company branding, proprietary business logic)
+# Receipt system components
+frontend/src/components/receipt/
+frontend/public/images/logo.png
+frontend/src/components/transaction/CreatePawnDialogRedesigned.jsx
+frontend/src/components/transaction/CreatePawnFormRedesigned.jsx
+backend/app/services/receipt_service.py
+backend/app/schemas/receipt_schema.py
+backend/app/api/api_v1/handlers/__pycache__/receipt.cpython-*.pyc
