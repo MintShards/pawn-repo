@@ -34,6 +34,8 @@ class CustomerService:
     # Valid sort fields for customer queries
     VALID_SORT_FIELDS = {
         "created_at",
+        "updated_at",
+        "last_accessed_at",
         "first_name",
         "last_name",
         "phone_number",
@@ -129,7 +131,14 @@ class CustomerService:
             
             # Get update data excluding unset fields
             update_dict = update_data.model_dump(exclude_unset=True)
-            
+
+            # CRITICAL: Block phone number changes for data integrity
+            if "phone_number" in update_dict:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Phone number cannot be changed. Create a new customer if phone number changed."
+                )
+
             # Handle admin-only fields based on permissions
             admin_only_fields = ["status", "credit_limit", "custom_loan_limit"]
             if not is_admin:
@@ -261,6 +270,35 @@ class CustomerService:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to update customer"
             )
+
+    @staticmethod
+    async def mark_customer_accessed(phone_number: str) -> Optional[Customer]:
+        """
+        Update customer's last_accessed_at timestamp
+
+        Args:
+            phone_number: Customer phone number
+
+        Returns:
+            Updated customer or None if not found
+        """
+        try:
+            customer = await Customer.find_one(Customer.phone_number == phone_number)
+            if not customer:
+                return None
+
+            # Update last accessed timestamp
+            customer.last_accessed_at = datetime.utcnow()
+            await customer.save()
+
+            # Update cache with new timestamp
+            await BusinessCache.set_customer(phone_number, customer.model_dump())
+
+            return customer
+        except Exception as e:
+            CustomerService.logger.error(f"Failed to mark customer accessed: {str(e)}")
+            # Don't raise exception - this is non-critical operation
+            return None
 
     @staticmethod
     async def get_customers_list(

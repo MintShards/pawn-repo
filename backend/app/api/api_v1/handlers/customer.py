@@ -34,6 +34,8 @@ customer_router = APIRouter()
 class CustomerSortField(str, Enum):
     """Valid sort fields for customer queries"""
     CREATED_AT = "created_at"
+    UPDATED_AT = "updated_at"
+    LAST_ACCESSED_AT = "last_accessed_at"
     FIRST_NAME = "first_name"
     LAST_NAME = "last_name"
     PHONE_NUMBER = "phone_number"
@@ -145,7 +147,7 @@ async def get_customers_list(
     transaction_frequency: Optional[str] = Query(None, regex="^(one_time|occasional|regular|frequent|vip)$", description="Transaction frequency: one_time (1), occasional (2-5), regular (6-10), frequent (11-20), vip (20+)"),
     page: int = Query(1, description="Page number", ge=1),
     per_page: int = Query(10, description="Items per page", ge=1, le=100),
-    sort_by: CustomerSortField = Query(CustomerSortField.CREATED_AT, description="Sort field"),
+    sort_by: CustomerSortField = Query(CustomerSortField.LAST_ACCESSED_AT, description="Sort field - defaults to recently accessed first"),
     sort_order: str = Query("desc", description="Sort order", pattern="^(asc|desc)$"),
     current_user: User = Depends(get_current_user)
 ) -> CustomerListResponse:
@@ -288,6 +290,15 @@ async def get_customer_by_phone(
         # Try cache first
         cached_customer = await BusinessCache.get_customer(phone_number)
         if cached_customer:
+            # Ensure cached data has computed properties
+            if "can_borrow_amount" not in cached_customer:
+                # Cache is stale, fetch fresh data
+                customer = await CustomerService.get_customer_by_phone(phone_number)
+                if customer:
+                    customer_dict = customer.model_dump()
+                    customer_dict["can_borrow_amount"] = customer.can_borrow_amount
+                    await BusinessCache.set_customer(phone_number, customer_dict)
+                    return CustomerResponse.model_validate(customer_dict)
             return CustomerResponse.model_validate(cached_customer)
         
         customer = await CustomerService.get_customer_by_phone(phone_number)
@@ -312,6 +323,53 @@ async def get_customer_by_phone(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve customer. Please try again later."
+        )
+
+
+@customer_router.post(
+    "/{phone_number}/mark-accessed",
+    response_model=CustomerResponse,
+    summary="Mark customer as accessed",
+    description="Update customer's last_accessed_at timestamp (Staff and Admin access)",
+    responses={
+        200: {"description": "Customer access timestamp updated successfully"},
+        400: {"description": "Bad request - Invalid phone number format"},
+        404: {"description": "Customer not found"},
+        500: {"description": "Internal server error"}
+    }
+)
+async def mark_customer_accessed(
+    phone_number: str,
+    current_user: User = Depends(get_current_user)
+) -> CustomerResponse:
+    """Mark customer as accessed/viewed"""
+    try:
+        # Validate phone number format
+        if not phone_number.isdigit() or len(phone_number) != 10:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid phone number format. Must be 10 digits."
+            )
+
+        customer = await CustomerService.mark_customer_accessed(phone_number)
+        if not customer:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Customer not found"
+            )
+
+        # Add computed properties before response
+        customer_dict = customer.model_dump()
+        customer_dict["can_borrow_amount"] = customer.can_borrow_amount
+
+        return CustomerResponse.model_validate(customer_dict)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update customer access timestamp. Please try again later."
         )
 
 

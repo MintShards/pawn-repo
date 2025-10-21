@@ -166,7 +166,7 @@ const TransactionCard = React.memo(({
             </div>
             <div className="p-3 space-y-2">
               {transaction.items.slice(0, 2).map((item, index) => (
-                <div key={index} className="text-sm">
+                <div key={index} className={`text-sm ${!item.serial_number ? 'flex items-center' : ''}`}>
                   <div className="text-slate-800 dark:text-slate-200 font-medium">
                     {item.description}
                   </div>

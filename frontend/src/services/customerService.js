@@ -51,6 +51,19 @@ class CustomerService {
     }
   }
 
+  // Mark customer as accessed (updates last_accessed_at timestamp)
+  async markCustomerAccessed(phoneNumber) {
+    try {
+      return await authService.apiRequest(`/api/v1/customer/${phoneNumber}/mark-accessed`, {
+        method: 'POST',
+      });
+    } catch (error) {
+      // Non-critical operation - log but don't throw
+      console.warn(`Failed to mark customer accessed: ${phoneNumber}`, error);
+      return null;
+    }
+  }
+
   // Update customer
   async updateCustomer(phoneNumber, customerData) {
     try {

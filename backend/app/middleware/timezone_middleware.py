@@ -53,20 +53,24 @@ class TimezoneMiddleware(BaseHTTPMiddleware):
         # Store timezone in request state
         request.state.client_timezone = client_timezone
         
-        # Log timezone information for debugging
-        if client_timezone:
-            timezone_logger.info(
-                "🕐 TIMEZONE DETECTED",
-                timezone=client_timezone,
-                path=request.url.path,
-                request_id=getattr(request.state, 'request_id', 'unknown')
-            )
-        else:
-            timezone_logger.warning(
-                "⚠️ NO TIMEZONE HEADER",
-                path=request.url.path,
-                request_id=getattr(request.state, 'request_id', 'unknown')
-            )
+        # Log timezone information for debugging (skip OPTIONS requests to reduce noise)
+        if request.method != "OPTIONS":
+            if client_timezone:
+                timezone_logger.debug(
+                    "🕐 TIMEZONE DETECTED",
+                    timezone=client_timezone,
+                    path=request.url.path,
+                    request_id=getattr(request.state, 'request_id', 'unknown')
+                )
+            else:
+                # Only log warning for non-GET requests (POST/PUT/DELETE need timezone for business logic)
+                if request.method in ["POST", "PUT", "DELETE", "PATCH"]:
+                    timezone_logger.warning(
+                        "⚠️ NO TIMEZONE HEADER",
+                        path=request.url.path,
+                        method=request.method,
+                        request_id=getattr(request.state, 'request_id', 'unknown')
+                    )
         
         # Process request
         response = await call_next(request)

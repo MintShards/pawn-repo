@@ -105,7 +105,11 @@ class Customer(Document):
         None,
         description="User ID who last updated"
     )
-    
+    last_accessed_at: Optional[datetime] = Field(
+        None,
+        description="Last time customer profile was accessed/viewed by staff"
+    )
+
     # Transaction statistics (denormalized for performance)
     total_transactions: int = Field(
         default=0,

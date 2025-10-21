@@ -136,7 +136,8 @@ const CUSTOMER_SORT_FIELD_MAP = {
   'last_visit': 'last_transaction_date',
   'contact': 'phone_number',
   'status': 'status',
-  'created_at': 'created_at'
+  'created_at': 'created_at',
+  'last_accessed_at': 'last_accessed_at'
 };
 
 // Transaction sort field mapping
@@ -164,6 +165,9 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
   // Sorting state
   const [sortBy, setSortBy] = useState('transaction_date'); // Default to newest first
   const [sortDirection, setSortDirection] = useState('desc');
+
+  // Refresh trigger for re-fetching transactions
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   // View mode state (card or table) with localStorage persistence
   const [viewMode, setViewMode] = useState(() => {
@@ -551,7 +555,7 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
     };
 
     fetchTransactions();
-  }, [selectedCustomer?.phone_number, currentPage, sortBy, sortDirection, pageSize]);
+  }, [selectedCustomer?.phone_number, currentPage, sortBy, sortDirection, pageSize, refreshTrigger]);
 
   if (loading) {
     return (
@@ -582,15 +586,43 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
 
   if (!Array.isArray(transactions) || transactions.length === 0) {
     return (
-      <Card className="border-0 shadow-lg bg-gradient-to-br from-cyan-50/80 to-sky-50/80 dark:from-cyan-950/80 dark:to-sky-950/80 backdrop-blur-sm">
-        <CardContent className="p-6">
-          <div className="text-center py-12">
-            <CreditCard className="w-12 h-12 text-cyan-400 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">No Transactions</h3>
-            <p className="text-slate-500 dark:text-slate-400">This customer has no transaction records.</p>
-          </div>
-        </CardContent>
-      </Card>
+      <>
+        <Card className="border-0 shadow-lg bg-gradient-to-br from-cyan-50/80 to-sky-50/80 dark:from-cyan-950/80 dark:to-sky-950/80 backdrop-blur-sm">
+          <CardContent className="p-6">
+            <div className="text-center py-12">
+              <CreditCard className="w-12 h-12 text-cyan-400 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">No Transactions</h3>
+              <p className="text-slate-500 dark:text-slate-400 mb-4">This customer has no transaction records.</p>
+              <Button
+                onClick={() => setShowCreateForm(true)}
+                className="mt-2"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                New Transaction
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Create Transaction Dialog */}
+        <Dialog open={showCreateForm} onOpenChange={setShowCreateForm}>
+          <DialogContent className="max-w-6xl max-h-[95vh] overflow-y-auto p-0 border-0 bg-transparent shadow-none" showCloseButton={false}>
+            <DialogHeader className="sr-only">
+              <DialogTitle>Create New Pawn Transaction</DialogTitle>
+              <DialogDescription>Create a new pawn transaction for {selectedCustomer?.first_name} {selectedCustomer?.last_name}</DialogDescription>
+            </DialogHeader>
+            <CreatePawnDialogRedesigned
+              onSuccess={() => {
+                setShowCreateForm(false);
+                // Trigger a re-fetch of transactions
+                setRefreshTrigger(prev => prev + 1);
+              }}
+              onCancel={() => setShowCreateForm(false)}
+              prefilledCustomer={selectedCustomer}
+            />
+          </DialogContent>
+        </Dialog>
+      </>
     );
   }
 
@@ -2796,7 +2828,7 @@ const EnhancedCustomerManagement = () => {
   // Sort preferences with localStorage persistence
   const [sortField, setSortField] = useState(() => {
     const saved = localStorage.getItem('customerSortField');
-    return saved || 'created_at';
+    return saved || 'last_accessed_at';
   });
   const [sortOrder, setSortOrder] = useState(() => {
     const saved = localStorage.getItem('customerSortOrder');
@@ -3673,9 +3705,12 @@ const EnhancedCustomerManagement = () => {
     }
   };
 
-  const handleViewCustomer = (customer) => {
+  const handleViewCustomer = async (customer) => {
     setSelectedCustomer(customer);
     setShowDetails(true);
+
+    // Mark customer as accessed (non-blocking, updates last_accessed_at timestamp)
+    customerService.markCustomerAccessed(customer.phone_number);
   };
 
   const handleCustomerUpdate = (updatedCustomer) => {
@@ -4842,12 +4877,28 @@ const EnhancedCustomerManagement = () => {
                     <TableCell>
                       <div className="space-y-2">
                         {(() => {
-                          // ALWAYS use backend's values - they're the source of truth and automatically maintained
-                          // Backend maintains customer.active_loans and customer.total_loan_value on every transaction status change
-                          const displayUsedCredit = customer.total_loan_value || 0;
-                          const displayActiveLoans = customer.active_loans || 0;
-                          
-                          
+                          // Calculate from real-time transaction data (same logic as card view)
+                          const customerTransactions = customerTransactionsMap[customer.phone_number] || [];
+
+                          // Filter transactions that use credit/slots
+                          const slotUsingTransactions = customerTransactions.filter(t =>
+                            t.status === 'active' || t.status === 'overdue' || t.status === 'extended' ||
+                            t.status === 'hold' || t.status === 'damaged'
+                          );
+
+                          // Calculate used credit from transactions
+                          const usedCreditFromTransactions = slotUsingTransactions.reduce((total, t) =>
+                            total + (t.loan_amount || 0), 0
+                          );
+
+                          // Calculate active loans count from transactions
+                          const slotsUsedFromTransactions = slotUsingTransactions.length;
+
+                          // Use calculated values if transaction data available, otherwise fall back to backend
+                          const hasTransactionData = customerTransactions.length > 0;
+                          const displayUsedCredit = hasTransactionData ? usedCreditFromTransactions : (customer.total_loan_value || 0);
+                          const displayActiveLoans = hasTransactionData ? slotsUsedFromTransactions : (customer.active_loans || 0);
+
                           // Get loan limits - use custom limit if set, otherwise system default
                           const effectiveMaxLoans = customer.custom_loan_limit || maxActiveLoans;
                           
