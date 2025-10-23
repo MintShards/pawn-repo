@@ -61,3 +61,16 @@ frontend/src/components/transaction/CreatePawnFormRedesigned.jsx
 backend/app/services/receipt_service.py
 backend/app/schemas/receipt_schema.py
 backend/app/api/api_v1/handlers/__pycache__/receipt.cpython-*.pyc
+
+# Extension system (proprietary business logic)
+frontend/src/components/extension/
+frontend/src/pages/TransactionHub.jsx
+backend/app/services/extension_service.py
+backend/app/schemas/extension_schema.py
+backend/app/api/api_v1/handlers/extension.py
+
+# Payment processing (sensitive financial logic)
+backend/app/api/api_v1/handlers/payment.py
+
+# Transaction management (core business operations)
+backend/app/api/api_v1/handlers/pawn_transaction.py
