@@ -1,4 +1,4 @@
-import { MoreHorizontal, Eye, Edit2, CreditCard, TrendingUp, Phone, Mail, DollarSign, Package } from 'lucide-react';
+import { MoreHorizontal, Eye, FilePlus, Bell, CreditCard, TrendingUp, Phone, Mail, DollarSign, Package } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Card, CardContent } from '../ui/card';
 import { Avatar, AvatarImage, AvatarFallback } from '../ui/avatar';
@@ -19,7 +19,7 @@ import AlertBellAction from './AlertBellAction';
 const CustomerCard = ({
   customer,
   onView,
-  onEdit,
+  onCreateTransaction,
   onSelect,
   isSelected = false,
   onViewTransactions,
@@ -289,12 +289,16 @@ const CustomerCard = ({
           <Button
             variant="ghost"
             size="sm"
-            className="h-9 w-9 p-0 rounded-lg hover:bg-amber-50 dark:hover:bg-amber-950/20 hover:text-amber-600 dark:hover:text-amber-400 transition-all duration-200"
-            onClick={() => onEdit?.(customer)}
-            title="Edit Customer"
+            className="h-9 w-9 p-0 rounded-lg hover:bg-cyan-50 dark:hover:bg-cyan-950/20 hover:text-cyan-600 dark:hover:text-cyan-400 transition-all duration-200"
+            onClick={() => onCreateTransaction?.(customer)}
+            title="Create Transaction"
           >
-            <Edit2 className="h-4 w-4" />
+            <FilePlus className="h-4 w-4" />
           </Button>
+          <AlertBellAction
+            customerPhone={customer.phone_number}
+            onBellClick={onBellClick}
+          />
           <Button
             variant="ghost"
             size="sm"
@@ -304,10 +308,6 @@ const CustomerCard = ({
           >
             <Eye className="h-4 w-4" />
           </Button>
-          <AlertBellAction
-            customerPhone={customer.phone_number}
-            onBellClick={onBellClick}
-          />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -320,13 +320,17 @@ const CustomerCard = ({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem onClick={() => onCreateTransaction?.(customer)}>
+                <FilePlus className="h-4 w-4 mr-2" />
+                Create Transaction
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onBellClick?.(customer.phone_number)}>
+                <Bell className="h-4 w-4 mr-2" />
+                Service Alerts
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => onView?.(customer)}>
                 <Eye className="h-4 w-4 mr-2" />
                 View Details
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onEdit?.(customer)}>
-                <Edit2 className="h-4 w-4 mr-2" />
-                Edit Customer
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => onViewTransactions?.(customer)}>
                 <CreditCard className="h-4 w-4 mr-2" />

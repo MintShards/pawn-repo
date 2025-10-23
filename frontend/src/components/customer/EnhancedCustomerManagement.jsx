@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   Plus,
+  FilePlus,
+  Bell,
   MoreHorizontal,
   Eye,
   Edit2,
@@ -126,6 +128,7 @@ import CreatePawnDialogRedesigned from '../transaction/CreatePawnDialogRedesigne
 import PaymentForm from '../transaction/components/PaymentForm';
 import ExtensionForm from '../transaction/components/ExtensionForm';
 import StatusUpdateForm from '../transaction/components/StatusUpdateForm';
+import { ExtensionSuccessDialog } from '../extension/ExtensionSuccessDialog';
 import StatusBadge from '../transaction/components/StatusBadge';
 import AdvancedFilters from './AdvancedFilters';
 
@@ -185,6 +188,8 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
   const [showExtensionForm, setShowExtensionForm] = useState(false);
+  const [showExtensionSuccess, setShowExtensionSuccess] = useState(false);
+  const [extensionSuccessData, setExtensionSuccessData] = useState(null);
   const [showStatusUpdateForm, setShowStatusUpdateForm] = useState(false);
   const [showTransactionDetails, setShowTransactionDetails] = useState(false);
   const [loadingTransactionDetails, setLoadingTransactionDetails] = useState(false);
@@ -626,10 +631,6 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
     );
   }
 
-  const handleNewTransaction = () => {
-    setShowCreateForm(true);
-  };
-
   // Handle viewing items in simple dialog
   const handleViewItems = async (transaction) => {
     try {
@@ -922,6 +923,10 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
     refreshTransactions();
   };
 
+  const handleNewTransaction = () => {
+    setShowCreateForm(true);
+  };
+
   const handlePaymentSuccess = async () => {
     setShowPaymentForm(false);
     
@@ -938,9 +943,15 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
     refreshTransactions();
   };
 
-  const handleExtensionSuccess = async () => {
+  const handleExtensionSuccess = async (extensionData) => {
     setShowExtensionForm(false);
-    
+
+    // Show success dialog with extension data
+    if (extensionData) {
+      setExtensionSuccessData(extensionData);
+      setShowExtensionSuccess(true);
+    }
+
     // If transaction details dialog is open, refresh the transaction data
     if (showTransactionDetails && selectedTransaction) {
       // Use the optimized refresh function for faster updates (skip transaction since we have optimistic update)
@@ -949,7 +960,7 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
         handleViewTransaction(selectedTransaction).catch(() => {});
       });
     }
-    
+
     // Always refresh the transaction list to show updated maturity date
     refreshTransactions();
   };
@@ -1258,6 +1269,16 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Extension Success Dialog */}
+      <ExtensionSuccessDialog
+        open={showExtensionSuccess}
+        extensionData={extensionSuccessData}
+        onClose={() => {
+          setShowExtensionSuccess(false);
+          setExtensionSuccessData(null);
+        }}
+      />
 
       {/* Status Update Dialog */}
       <Dialog open={showStatusUpdateForm} onOpenChange={setShowStatusUpdateForm}>
@@ -3729,22 +3750,9 @@ const EnhancedCustomerManagement = () => {
     }
   };
 
-  const handleEditCustomer = (customer) => {
-    if (isAdminRole(user)) {
-      // For admins, use the tabbed interface
-      setSelectedCustomer(customer);
-      setShowDetails(true);
-      setTimeout(() => setActiveTab('admin'), 100);
-      toast({
-        title: 'Edit Customer',
-        description: 'Switched to Admin Actions for customer editing.',
-        duration: 2000
-      });
-    } else {
-      // For staff, use the dialog
-      setEditingCustomer(customer);
-      setShowAddDialog(true);
-    }
+  const handleNewTransaction = () => {
+    // Switch to transactions tab where the New Transaction button is available
+    setActiveTab('transactions');
   };
 
   const handleSetCustomLimit = (customer) => {
@@ -4585,7 +4593,10 @@ const EnhancedCustomerManagement = () => {
                     isSelected={selectedCustomerIds.includes(customer.phone_number)}
                     onSelect={handleSelectCustomer}
                     onView={handleViewCustomer}
-                    onEdit={handleEditCustomer}
+                    onCreateTransaction={(customer) => {
+                      handleViewCustomer(customer);
+                      handleNewTransaction();
+                    }}
                     onViewTransactions={(customer) => {
                       handleViewCustomer(customer);
                       setTimeout(() => setActiveTab('transactions'), 100);
@@ -4692,7 +4703,10 @@ const EnhancedCustomerManagement = () => {
                     isSelected={selectedCustomerIds.includes(customer.phone_number)}
                     onSelect={handleSelectCustomer}
                     onView={handleViewCustomer}
-                    onEdit={handleEditCustomer}
+                    onCreateTransaction={(customer) => {
+                      handleViewCustomer(customer);
+                      handleNewTransaction();
+                    }}
                     onViewTransactions={(customer) => {
                       handleViewCustomer(customer);
                       setTimeout(() => setActiveTab('transactions'), 100);
@@ -5061,38 +5075,45 @@ const EnhancedCustomerManagement = () => {
                     
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end space-x-1">
-                        <Button 
-                          variant="ghost" 
+                        <Button
+                          variant="ghost"
                           size="sm"
+                          className="h-9 w-9 p-0 rounded-lg hover:bg-cyan-50 dark:hover:bg-cyan-950/20 hover:text-cyan-600 dark:hover:text-cyan-400 transition-all duration-200"
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleEditCustomer(customer);
+                            handleViewCustomer(customer);
+                            handleNewTransaction();
                           }}
+                          title="Create Transaction"
                         >
-                          <Edit2 className="h-4 w-4" />
+                          <FilePlus className="h-4 w-4" />
                         </Button>
-                        <Button 
-                          variant="ghost" 
+                        <AlertBellAction
+                          customerPhone={customer.phone_number}
+                          onBellClick={handleBellClick}
+                        />
+                        <Button
+                          variant="ghost"
                           size="sm"
+                          className="h-9 w-9 p-0 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-950/20 hover:text-blue-600 dark:hover:text-blue-400 transition-all duration-200"
                           onClick={(e) => {
                             e.stopPropagation();
                             handleViewCustomer(customer);
                             // Ensure Overview tab is selected
                             setTimeout(() => setActiveTab('overview'), 100);
                           }}
+                          title="View Details"
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
-                        <AlertBellAction
-                          customerPhone={customer.phone_number}
-                          onBellClick={handleBellClick}
-                        />
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button 
-                              variant="ghost" 
+                            <Button
+                              variant="ghost"
                               size="sm"
+                              className="h-9 w-9 p-0 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-all duration-200"
                               onClick={(e) => e.stopPropagation()}
+                              title="More Actions"
                             >
                               <MoreHorizontal className="h-4 w-4" />
                             </Button>
@@ -5100,15 +5121,22 @@ const EnhancedCustomerManagement = () => {
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem onClick={() => {
                               handleViewCustomer(customer);
+                              handleNewTransaction();
+                            }}>
+                              <FilePlus className="h-4 w-4 mr-2" />
+                              Create Transaction
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleBellClick(customer.phone_number)}>
+                              <Bell className="h-4 w-4 mr-2" />
+                              Service Alerts
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => {
+                              handleViewCustomer(customer);
                               // Ensure Overview tab is selected
                               setTimeout(() => setActiveTab('overview'), 100);
                             }}>
                               <Eye className="h-4 w-4 mr-2" />
                               View Details
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleEditCustomer(customer)}>
-                              <Edit2 className="h-4 w-4 mr-2" />
-                              Edit Customer
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => {
                               handleViewCustomer(customer);
