@@ -18,11 +18,16 @@ import { useStatsPolling } from '../../../hooks/useStatsPolling';
 import { useAuth } from '../../../context/AuthContext';
 import DiscountDialog from './DiscountDialog';
 import StatusBadge from './StatusBadge';
+import RedemptionReceiptPrint from '../../receipt/RedemptionReceiptPrint';
+import RedemptionReceiptPreview from '../../receipt/RedemptionReceiptPreview';
 
 const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
   const { triggerRefresh } = useStatsPolling();
   const { user } = useAuth();
   const [customerName, setCustomerName] = useState(null);
+  const [showReceiptPreview, setShowReceiptPreview] = useState(false);
+  const [redemptionPaymentId, setRedemptionPaymentId] = useState(null);
+  const [showPrePaymentPreview, setShowPrePaymentPreview] = useState(false);
 
   // Check if user is admin
   const isAdmin = user?.role === 'admin';
@@ -38,12 +43,20 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
         return { isValid: true, message: null, suggestions: [] };
       }
       return validateAmount(value, 'Overdue fee', { min: 0, max: 10000 });
+    },
+    discount_amount: (value, data) => {
+      // Optional field - return valid result for empty values
+      if (!value || value === '' || value === '0') {
+        return { isValid: true, message: null, suggestions: [] };
+      }
+      return validateAmount(value, 'Discount amount', { min: 0, max: 10000 });
     }
   };
 
   const {
     data: formData,
     updateField,
+    updateFields,
     touchField,
     validateAll,
     getFieldError,
@@ -51,7 +64,10 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
     isFormValid
   } = useFormValidation({
     payment_amount: '',
-    overdue_fee: ''
+    overdue_fee: '',
+    discount_amount: '',
+    discount_reason: '',
+    admin_pin: '' // Admin PIN for discount verification
   }, formValidators);
   
   const [balance, setBalance] = useState(null);
@@ -60,6 +76,7 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [paymentBreakdown, setPaymentBreakdown] = useState(null);
   const [showDiscountDialog, setShowDiscountDialog] = useState(false);
+  const [autoUpdatePayment, setAutoUpdatePayment] = useState(false);
 
   // Define functions before use
   const loadBalance = useCallback(async () => {
@@ -79,7 +96,8 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
 
     try {
       const overdueFee = parseFloat(overdueFeeAmount) || 0;
-      const totalBalance = balance.current_balance + overdueFee;
+      const discountAmount = parseFloat(formData.discount_amount) || 0;
+      const totalBalance = balance.current_balance + overdueFee - discountAmount;
 
       const breakdown = {
         paymentAmount: parseFloat(amount),
@@ -87,6 +105,7 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
         principalDue: balance.principal_balance || 0,
         interestDue: balance.interest_due || 0,
         overdueFee: overdueFee,
+        discountAmount: discountAmount,
         totalWithFee: totalBalance,
         isFullPayment: parseFloat(amount) >= totalBalance
       };
@@ -110,10 +129,35 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
       // Error calculating payment breakdown - clear breakdown
       setPaymentBreakdown(null);
     }
-  }, [balance]);
+  }, [balance, formData.discount_amount]);
+
+  // Auto-update payment amount when overdue fee or discount changes (if user was paying full)
+  useEffect(() => {
+    if (!balance || !autoUpdatePayment) return;
+
+    const overdueFee = parseFloat(formData.overdue_fee) || 0;
+    const discount = parseFloat(formData.discount_amount) || 0;
+    const newTotal = balance.current_balance + overdueFee - discount;
+    const currentPaymentAmount = parseFloat(formData.payment_amount) || 0;
+
+    // Only update if the new total is different from current payment amount
+    if (Math.abs(newTotal - currentPaymentAmount) < 0.01) return;
+
+    // Update payment amount to match new total
+    updateField('payment_amount', newTotal.toString());
+
+    // Recalculate breakdown
+    calculatePaymentBreakdown(newTotal, overdueFee);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.overdue_fee, formData.discount_amount, balance, autoUpdatePayment]);
 
   const handleInputChange = useCallback((field, value) => {
     updateField(field, value);
+
+    // Disable auto-update if user manually changes payment amount
+    if (field === 'payment_amount') {
+      setAutoUpdatePayment(false);
+    }
 
     // Calculate payment breakdown for amount or overdue fee changes
     if (field === 'payment_amount' && value) {
@@ -172,6 +216,7 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
       setSubmitting(true);
 
       const overdueFeeAmount = parseFloat(formData.overdue_fee) || 0;
+      const discountAmount = parseFloat(formData.discount_amount) || 0;
 
       // Step 1: Set overdue fee on transaction if provided
       if (overdueFeeAmount > 0) {
@@ -188,13 +233,26 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
         }
       }
 
-      // Step 2: Process payment (backend now knows about the overdue fee)
-      const paymentData = {
-        transaction_id: transaction.transaction_id,
-        payment_amount: Math.round(parseFloat(formData.payment_amount)) // Convert to integer dollars
-      };
-
-      const result = await paymentService.processPayment(paymentData);
+      // Step 2: Process payment with or without discount
+      let result;
+      if (discountAmount > 0) {
+        // Process payment with discount (requires admin PIN - already verified)
+        const paymentData = {
+          transaction_id: transaction.transaction_id,
+          payment_amount: Math.round(parseFloat(formData.payment_amount)), // Actual cash customer pays (after discount)
+          discount_amount: discountAmount,
+          discount_reason: formData.discount_reason || '',
+          admin_pin: formData.admin_pin // Admin PIN from discount dialog
+        };
+        result = await paymentService.processPaymentWithDiscount(paymentData);
+      } else {
+        // Regular payment without discount
+        const paymentData = {
+          transaction_id: transaction.transaction_id,
+          payment_amount: Math.round(parseFloat(formData.payment_amount)) // Convert to integer dollars
+        };
+        result = await paymentService.processPayment(paymentData);
+      }
 
       // Trigger immediate stats refresh after successful payment
       triggerRefresh();
@@ -209,6 +267,12 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
         message = overdueFeeAmount > 0
           ? `Payment of $${parseFloat(formData.payment_amount).toFixed(2)} processed (includes $${overdueFeeAmount.toFixed(2)} overdue fee) - Transaction redeemed!`
           : `Payment processed - Transaction redeemed!`;
+
+        // Store payment ID and show receipt preview for redemptions
+        if (result && result.payment_id) {
+          setRedemptionPaymentId(result.payment_id);
+          setShowReceiptPreview(true);
+        }
       } else {
         message = overdueFeeAmount > 0
           ? `Payment of $${parseFloat(formData.payment_amount).toFixed(2)} processed (includes $${overdueFeeAmount.toFixed(2)} overdue fee)`
@@ -228,19 +292,36 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
     }
   }, [formData, transaction, paymentBreakdown, onSuccess, triggerRefresh, loadBalance]);
 
-  const handleDiscountSuccess = useCallback(async (result) => {
-    // Trigger immediate stats refresh after successful discount payment
-    triggerRefresh();
+  const handleDiscountApplied = useCallback((discountAmount, discountReason, adminPin) => {
+    console.log('Applying discount:', { discountAmount, discountReason, adminPin });
 
-    // Immediately refresh balance after successful payment
-    await loadBalance();
+    // Calculate new payment amount with discount
+    const currentPaymentAmount = parseFloat(formData.payment_amount || 0);
+    const overdueFeeAmount = parseFloat(formData.overdue_fee || 0);
+    const totalWithDiscount = balance.current_balance + overdueFeeAmount - discountAmount;
 
-    handleSuccess('Payment with discount processed - Transaction redeemed!');
+    // Update payment amount if it was set to full balance (auto-adjust)
+    const shouldUpdatePaymentAmount = currentPaymentAmount === (balance.current_balance + overdueFeeAmount);
 
-    if (onSuccess) {
-      onSuccess(result, true); // Pass flag to indicate balance should be refreshed
+    // Set all discount values in the form at once (batched update)
+    updateFields({
+      discount_amount: discountAmount.toString(),
+      discount_reason: discountReason,
+      admin_pin: adminPin,
+      // Update payment amount if it was previously set to full amount
+      ...(shouldUpdatePaymentAmount && { payment_amount: totalWithDiscount.toString() })
+    });
+
+    // Enable auto-update so payment amount adjusts when overdue fee changes
+    if (shouldUpdatePaymentAmount) {
+      setAutoUpdatePayment(true);
     }
-  }, [triggerRefresh, loadBalance, onSuccess]);
+
+    console.log('Discount fields updated');
+
+    // Dialog will be closed by DiscountDialog's onOpenChange
+    handleSuccess(`Discount of $${discountAmount} added to payment form`);
+  }, [updateFields, handleSuccess, formData.payment_amount, formData.overdue_fee, balance]);
 
   const handleSubmit = useCallback(async (e) => {
     e.preventDefault();
@@ -266,7 +347,7 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
         try {
           const customer = await customerService.getCustomerByPhone(transaction.customer_id);
           if (customer) {
-            setCustomerName(customerService.getCustomerNameFormatted(customer));
+            setCustomerName(customerService.getCustomerFullName(customer));
           }
         } catch (error) {
           // If customer fetch fails, we'll just show the customer_id
@@ -382,22 +463,32 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
                 </div>
 
                 {formData.overdue_fee && parseFloat(formData.overdue_fee) > 0 && (
-                  <>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-medium text-amber-700 dark:text-amber-400">Overdue Fee:</span>
+                    <span className="text-lg font-bold text-amber-800 dark:text-amber-300">
+                      +{formatCurrency(parseFloat(formData.overdue_fee))}
+                    </span>
+                  </div>
+                )}
+
+                {formData.discount_amount && parseFloat(formData.discount_amount) > 0 && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-medium text-emerald-700 dark:text-emerald-400">Discount Applied:</span>
+                    <span className="text-lg font-bold text-emerald-900 dark:text-emerald-100">
+                      -{formatCurrency(parseFloat(formData.discount_amount))}
+                    </span>
+                  </div>
+                )}
+
+                {((formData.overdue_fee && parseFloat(formData.overdue_fee) > 0) || (formData.discount_amount && parseFloat(formData.discount_amount) > 0)) && (
+                  <div className="border-t border-emerald-200 dark:border-emerald-800 pt-3">
                     <div className="flex justify-between items-center">
-                      <span className="text-sm font-medium text-amber-700 dark:text-amber-400">Overdue Fee:</span>
-                      <span className="text-lg font-bold text-amber-800 dark:text-amber-300">
-                        +{formatCurrency(parseFloat(formData.overdue_fee))}
+                      <span className="text-base font-semibold text-emerald-900 dark:text-emerald-100">Total Amount Due:</span>
+                      <span className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">
+                        {formatCurrency(balance ? balance.current_balance + parseFloat(formData.overdue_fee || 0) - parseFloat(formData.discount_amount || 0) : 0)}
                       </span>
                     </div>
-                    <div className="border-t border-emerald-200 dark:border-emerald-800 pt-3">
-                      <div className="flex justify-between items-center">
-                        <span className="text-base font-semibold text-emerald-900 dark:text-emerald-100">Total Amount Due:</span>
-                        <span className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">
-                          {formatCurrency(balance ? balance.current_balance + parseFloat(formData.overdue_fee) : 0)}
-                        </span>
-                      </div>
-                    </div>
-                  </>
+                  </div>
                 )}
               </div>
             </CardContent>
@@ -471,8 +562,9 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
                     size="sm"
                     className="h-9 px-3 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
                     onClick={() => {
-                      const totalWithFee = balance.current_balance + parseFloat(formData.overdue_fee || 0);
+                      const totalWithFee = balance.current_balance + parseFloat(formData.overdue_fee || 0) - parseFloat(formData.discount_amount || 0);
                       handleInputChange('payment_amount', totalWithFee.toString());
+                      setAutoUpdatePayment(true); // Enable auto-update for full payments
                     }}
                   >
                     Pay Full
@@ -511,11 +603,25 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
             </div>
           )}
 
-          {/* Full Payment Badge */}
+          {/* Full Payment Badge with Preview Button */}
           {paymentBreakdown && paymentBreakdown.isFullPayment && (
-            <div className="flex items-center justify-center gap-2 p-3 bg-gradient-to-r from-emerald-600 to-green-600 rounded-lg shadow-md border border-emerald-400">
-              <CheckCircle className="h-5 w-5 text-white animate-pulse" />
-              <span className="font-semibold text-sm text-white">Transaction Will Be Fully Redeemed</span>
+            <div className="space-y-2">
+              <div className="flex items-center justify-center gap-2 p-3 bg-gradient-to-r from-emerald-600 to-green-600 rounded-lg shadow-md border border-emerald-400">
+                <CheckCircle className="h-5 w-5 text-white animate-pulse" />
+                <span className="font-semibold text-sm text-white">Transaction Will Be Fully Redeemed</span>
+              </div>
+              <div className="flex justify-center">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowPrePaymentPreview(true)}
+                  className="border-green-300 text-green-700 hover:bg-green-50 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-950"
+                >
+                  <CreditCard className="h-4 w-4 mr-2" />
+                  Preview Redemption Receipt
+                </Button>
+              </div>
             </div>
           )}
 
@@ -648,9 +754,35 @@ const PaymentForm = ({ transaction, onSuccess, onCancel }) => {
             balance.current_balance + parseFloat(formData.overdue_fee || 0) : 0
           }
           overdueFee={parseFloat(formData.overdue_fee || 0)}
-          onSuccess={handleDiscountSuccess}
+          onDiscountApplied={handleDiscountApplied}
         />
       )}
+
+      {/* Redemption Receipt After Payment - Shows actual receipt with payment_id */}
+      {redemptionPaymentId && (
+        <RedemptionReceiptPrint
+          transactionId={transaction.transaction_id}
+          paymentId={redemptionPaymentId}
+          showPreview={showReceiptPreview}
+          onPreviewClose={() => {
+            setShowReceiptPreview(false);
+            // Don't clear redemptionPaymentId - allow reprinting
+          }}
+        />
+      )}
+
+      {/* Redemption Receipt Preview Before Payment - Shows what receipt will look like */}
+      <RedemptionReceiptPreview
+        open={showPrePaymentPreview}
+        onOpenChange={setShowPrePaymentPreview}
+        transaction={transaction}
+        balance={balance}
+        paymentAmount={parseFloat(formData.payment_amount || 0)}
+        customerName={customerName}
+        overdueFee={parseFloat(formData.overdue_fee || 0)}
+        discountAmount={parseFloat(formData.discount_amount || 0)}
+        discountReason={formData.discount_reason}
+      />
     </Card>
   );
 };

@@ -226,13 +226,26 @@ export const useFormValidation = (initialData, validators) => {
   const updateField = React.useCallback((field, value) => {
     const newData = { ...data, [field]: value }
     setData(newData)
-    
+
     // Only validate if field has been touched
     if (touched[field]) {
       validateField(field, value, newData)
     }
   }, [data, touched, validateField])
-  
+
+  // Update multiple fields at once (batched update)
+  const updateFields = React.useCallback((updates) => {
+    const newData = { ...data, ...updates }
+    setData(newData)
+
+    // Validate touched fields
+    Object.keys(updates).forEach(field => {
+      if (touched[field]) {
+        validateField(field, updates[field], newData)
+      }
+    })
+  }, [data, touched, validateField])
+
   // Mark field as touched
   const touchField = React.useCallback((field) => {
     setTouched(prev => ({ ...prev, [field]: true }))
@@ -273,6 +286,7 @@ export const useFormValidation = (initialData, validators) => {
   return {
     data,
     updateField,
+    updateFields,
     touchField,
     validateAll,
     getFieldError,

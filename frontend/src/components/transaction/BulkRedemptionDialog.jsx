@@ -15,6 +15,7 @@ import { Loader2, CheckCircle2, Banknote, DollarSign, AlertCircle, ChevronDown, 
 import transactionService from '../../services/transactionService';
 import { toast } from 'sonner';
 import StatusBadge from './components/StatusBadge';
+import RedemptionReceiptPrint from '../receipt/RedemptionReceiptPrint';
 
 export default function BulkRedemptionDialog({
   isOpen,
@@ -31,6 +32,9 @@ export default function BulkRedemptionDialog({
   const [overdueFees, setOverdueFees] = useState({}); // Store overdue fees per transaction
   const [discounts, setDiscounts] = useState({}); // Store discounts per transaction {transactionId: {amount: 0, reason: ''}}
   const [adminPin, setAdminPin] = useState(''); // Admin PIN for discount approval
+  const [showReceiptPreview, setShowReceiptPreview] = useState(false);
+  const [currentReceiptTransaction, setCurrentReceiptTransaction] = useState(null);
+  const [currentReceiptPaymentId, setCurrentReceiptPaymentId] = useState(null);
 
   // Filter to only redeemable transactions
   const redeemableTransactions = selectedTransactions.filter(t =>
@@ -198,6 +202,16 @@ export default function BulkRedemptionDialog({
         const successMessage = `Successfully redeemed ${response.success_count} transaction${response.success_count !== 1 ? 's' : ''} - Total: $${response.total_amount_processed.toLocaleString()}`;
         toast.success(successMessage);
 
+        // For single redemption, show receipt preview
+        if (response.success_count === 1 && response.results && response.results.length > 0) {
+          const successResult = response.results.find(r => r.success);
+          if (successResult && successResult.payment_id) {
+            setCurrentReceiptTransaction(successResult.transaction_id);
+            setCurrentReceiptPaymentId(successResult.payment_id);
+            setShowReceiptPreview(true);
+          }
+        }
+
         // Close dialog after a short delay if all were successful
         if (response.error_count === 0) {
           setTimeout(() => {
@@ -231,6 +245,9 @@ export default function BulkRedemptionDialog({
     setOverdueFees({}); // Clear overdue fees
     setDiscounts({}); // Clear discounts
     setAdminPin(''); // Clear admin PIN
+    setCurrentReceiptTransaction(null);
+    setCurrentReceiptPaymentId(null);
+    setShowReceiptPreview(false);
     onClose();
   };
 
@@ -617,6 +634,19 @@ export default function BulkRedemptionDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      {/* Redemption Receipt Preview - Only for single redemption */}
+      {currentReceiptTransaction && currentReceiptPaymentId && (
+        <RedemptionReceiptPrint
+          transactionId={currentReceiptTransaction}
+          paymentId={currentReceiptPaymentId}
+          showPreview={showReceiptPreview}
+          onPreviewClose={() => {
+            setShowReceiptPreview(false);
+            // Don't clear transaction/payment - allow reprinting
+          }}
+        />
+      )}
     </Dialog>
   );
 }

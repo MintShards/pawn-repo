@@ -96,7 +96,7 @@ class CustomerService {
     if (!customer) return '';
     const firstName = customer.first_name ? customer.first_name.toUpperCase() : '';
     const lastName = customer.last_name ? customer.last_name.toUpperCase() : '';
-    return `${firstName} ${lastName}`.trim();
+    return `${lastName}, ${firstName}`.trim();
   }
 
   // Get customer name in DOE, J. format

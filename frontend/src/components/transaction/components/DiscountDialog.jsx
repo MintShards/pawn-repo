@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Percent, Shield, CheckCircle, DollarSign } from 'lucide-react';
+import { Percent, Shield, CheckCircle, DollarSign, Eye } from 'lucide-react';
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
@@ -18,6 +18,7 @@ import {
 import paymentService from '../../../services/paymentService';
 import { formatCurrency } from '../../../utils/transactionUtils';
 import { handleError } from '../../../utils/errorHandling';
+import RedemptionReceiptPreview from '../../receipt/RedemptionReceiptPreview';
 
 const DiscountDialog = ({
   open,
@@ -26,7 +27,7 @@ const DiscountDialog = ({
   paymentAmount,
   currentBalance,
   overdueFee = 0,
-  onSuccess
+  onDiscountApplied
 }) => {
   const [discountAmount, setDiscountAmount] = useState('');
   const [discountReason, setDiscountReason] = useState('');
@@ -35,6 +36,7 @@ const DiscountDialog = ({
   const [submitting, setSubmitting] = useState(false);
   const [validationResult, setValidationResult] = useState(null);
   const [errors, setErrors] = useState({});
+  const [showPreview, setShowPreview] = useState(false);
 
   // Reset form when dialog opens/closes
   useEffect(() => {
@@ -130,59 +132,20 @@ const DiscountDialog = ({
     try {
       setSubmitting(true);
 
-      // Step 1: Set overdue fee if provided
-      if (overdueFee > 0) {
-        try {
-          await paymentService.setOverdueFee(
-            transaction.transaction_id,
-            overdueFee,
-            null  // No automatic notes
-          );
-        } catch (err) {
-          // If overdue fee can't be set (e.g., wrong status), continue with payment
-          console.warn('Could not set overdue fee in discount flow:', err.message);
-        }
-      }
-
-      // Step 2: Calculate actual cash payment inside submit to ensure fresh values
-      const cashPayment = parseFloat(paymentAmount) - parseFloat(discountAmount);
-
-      const paymentData = {
-        transaction_id: transaction.transaction_id,
-        payment_amount: cashPayment, // Actual cash customer pays (after discount)
-        discount_amount: parseFloat(discountAmount),
-        discount_reason: discountReason.trim(),
-        admin_pin: adminPin
-      };
-
-      const result = await paymentService.processPaymentWithDiscount(paymentData);
-
-      if (onSuccess) {
-        onSuccess(result);
+      // Pass discount values back to PaymentForm instead of processing payment here
+      if (onDiscountApplied) {
+        onDiscountApplied(
+          parseFloat(discountAmount),
+          discountReason.trim(),
+          adminPin
+        );
       }
 
       // Close dialog
       onOpenChange(false);
     } catch (err) {
-      console.error('Discount processing error:', {
-        message: err.message,
-        status: err.status,
-        response: err.response,
-        detail: err.response?.data?.detail,
-        backendMessage: err.response?.data?.message,
-        nestedDetail: err.response?.data?.details?.message
-      });
-
-      // Show specific error message if available (check all possible locations)
-      const errorMessage =
-        err.response?.data?.detail ||
-        err.response?.data?.details?.message ||  // Nested in HTTPException
-        err.response?.data?.message ||
-        err.message;
-      handleError({
-        ...err,
-        message: errorMessage
-      }, 'Processing payment with discount');
+      console.error('Discount application error:', err);
+      handleError(err, 'Adding discount to payment');
     } finally {
       setSubmitting(false);
     }
@@ -371,6 +334,17 @@ const DiscountDialog = ({
             >
               Cancel
             </Button>
+            {validationResult?.is_valid && discountAmount && (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setShowPreview(true)}
+                disabled={submitting}
+              >
+                <Eye className="h-4 w-4 mr-2" />
+                Preview Receipt
+              </Button>
+            )}
             <Button
               type="submit"
               className="bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white"
@@ -379,18 +353,37 @@ const DiscountDialog = ({
               {submitting ? (
                 <>
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current mr-2"></div>
-                  Processing...
+                  Adding...
                 </>
               ) : (
                 <>
                   <Percent className="h-4 w-4 mr-2" />
-                  Apply Discount
+                  Add Discount to Payment
                 </>
               )}
             </Button>
           </DialogFooter>
         </form>
       </DialogContent>
+
+      {/* Receipt Preview */}
+      <RedemptionReceiptPreview
+        open={showPreview}
+        onOpenChange={setShowPreview}
+        transaction={transaction}
+        balance={{
+          current_balance: currentBalance,
+          interest_due: validationResult?.breakdown?.interest || 0,
+          interest_balance: validationResult?.breakdown?.interest || 0,
+          extension_fees: validationResult?.breakdown?.extension_fees || 0,
+          overdue_fee_balance: overdueFee
+        }}
+        paymentAmount={paymentAmount}
+        customerName={transaction?.customer_name || 'Customer'}
+        overdueFee={overdueFee}
+        discountAmount={parseFloat(discountAmount || 0)}
+        discountReason={discountReason}
+      />
     </Dialog>
   );
 };

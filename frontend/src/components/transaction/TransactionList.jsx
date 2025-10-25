@@ -65,6 +65,163 @@ import { initializeSequenceNumbers, formatTransactionId, formatExtensionId, form
 import { formatBusinessDate } from '../../utils/timezoneUtils';
 import { useOptimisticTransactionUpdate } from '../../hooks/useOptimisticTransactionUpdate';
 
+// Optimized Pagination Component with memoization
+const PaginationBar = React.memo(({
+  currentPage,
+  totalPages,
+  transactionsPerPage,
+  effectiveTotalTransactions,
+  onPageChange,
+  onPageSizeChange
+}) => {
+  // Memoize pagination range calculation
+  const pageNumbers = useMemo(() => {
+    if (totalPages <= 1) return [];
+
+    const pages = [];
+    const maxVisible = 7; // Maximum number of page buttons to show
+
+    if (totalPages <= maxVisible) {
+      // Show all pages if total is small
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      // Smart pagination: show first, last, current, and surrounding pages
+      const leftSiblingIndex = Math.max(currentPage - 1, 1);
+      const rightSiblingIndex = Math.min(currentPage + 1, totalPages);
+
+      const showLeftDots = leftSiblingIndex > 2;
+      const showRightDots = rightSiblingIndex < totalPages - 1;
+
+      // Always show first page
+      pages.push(1);
+
+      // Show left dots if needed
+      if (showLeftDots) {
+        pages.push('left-dots');
+      }
+
+      // Show range around current page
+      for (let i = leftSiblingIndex; i <= rightSiblingIndex; i++) {
+        if (i !== 1 && i !== totalPages) {
+          pages.push(i);
+        }
+      }
+
+      // Show right dots if needed
+      if (showRightDots) {
+        pages.push('right-dots');
+      }
+
+      // Always show last page
+      if (totalPages !== 1) {
+        pages.push(totalPages);
+      }
+    }
+
+    return pages;
+  }, [currentPage, totalPages]);
+
+  // Memoize display text
+  const displayText = useMemo(() => {
+    const start = Math.min((currentPage - 1) * transactionsPerPage + 1, effectiveTotalTransactions);
+    const end = Math.min(currentPage * transactionsPerPage, effectiveTotalTransactions);
+    return `Showing ${start}-${end} of ${effectiveTotalTransactions} transactions`;
+  }, [currentPage, transactionsPerPage, effectiveTotalTransactions]);
+
+  // Memoize page change handler
+  const handlePageChange = useCallback((pageNum) => {
+    return (e) => {
+      e.preventDefault();
+      onPageChange(pageNum);
+    };
+  }, [onPageChange]);
+
+  // Memoize previous/next handlers
+  const handlePrevious = useCallback((e) => {
+    e.preventDefault();
+    onPageChange(prev => Math.max(1, prev - 1));
+  }, [onPageChange]);
+
+  const handleNext = useCallback((e) => {
+    e.preventDefault();
+    onPageChange(prev => Math.min(totalPages, prev + 1));
+  }, [onPageChange, totalPages]);
+
+  return (
+    <div className="!mt-0 mb-0 flex items-center justify-between px-6 py-2">
+      <div className="flex items-center gap-4">
+        <div className="text-sm text-muted-foreground font-medium">
+          {displayText}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">Show:</span>
+          <Select
+            value={transactionsPerPage.toString()}
+            onValueChange={onPageSizeChange}
+          >
+            <SelectTrigger className="w-20 h-8">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="5">5</SelectItem>
+              <SelectItem value="10">10</SelectItem>
+              <SelectItem value="20">20</SelectItem>
+              <SelectItem value="50">50</SelectItem>
+              <SelectItem value="100">100</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handlePrevious}
+            disabled={currentPage === 1}
+          >
+            Previous
+          </Button>
+
+          <div className="flex items-center gap-1">
+            {pageNumbers.map((pageNum, index) => {
+              if (pageNum === 'left-dots' || pageNum === 'right-dots') {
+                return <span key={`dots-${index}`} className="px-1">...</span>;
+              }
+
+              return (
+                <Button
+                  key={pageNum}
+                  variant="outline"
+                  size="sm"
+                  className={`w-8 h-8 p-0 ${currentPage === pageNum ? 'bg-orange-600 text-white border-orange-600 hover:bg-orange-700' : 'hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                  onClick={handlePageChange(pageNum)}
+                >
+                  {pageNum}
+                </Button>
+              );
+            })}
+          </div>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleNext}
+            disabled={currentPage === totalPages}
+          >
+            Next
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+});
+
+PaginationBar.displayName = 'PaginationBar';
+
 const TransactionList = ({ 
   onCreateNew, 
   onViewTransaction, 
@@ -666,25 +823,29 @@ const TransactionList = ({
   // Calculate total pages for pagination
   // Check if any advanced filters are active
   const hasAdvancedFilters = Object.values(searchFields).some(v => v && v.trim() !== '');
-  
+
   // Check if frontend-only filters are active (memoized for performance)
   const hasFrontendFilters = false;
-  
-  
-  // During search/filter operations, use appropriate count
-  let effectiveTotalTransactions;
-  if (hasFrontendFilters) {
-    // If frontend filters are applied, use the actual filtered list length
-    effectiveTotalTransactions = filteredAndSortedTransactions.length;
-  } else if (activeSearchTerm || hasAdvancedFilters) {
-    // If only backend filters/search, use API result count
-    effectiveTotalTransactions = totalTransactions;
-  } else {
-    // For normal browsing (no filters), use status count
-    effectiveTotalTransactions = allTransactionsCounts[filters.status] || allTransactionsCounts.all || 0;
-  }
-  
-  const totalPages = Math.ceil(effectiveTotalTransactions / transactionsPerPage);
+
+
+  // During search/filter operations, use appropriate count (memoized for performance)
+  const effectiveTotalTransactions = useMemo(() => {
+    if (hasFrontendFilters) {
+      // If frontend filters are applied, use the actual filtered list length
+      return filteredAndSortedTransactions.length;
+    } else if (activeSearchTerm || hasAdvancedFilters) {
+      // If only backend filters/search, use API result count
+      return totalTransactions;
+    } else {
+      // For normal browsing (no filters), use status count
+      return allTransactionsCounts[filters.status] || allTransactionsCounts.all || 0;
+    }
+  }, [hasFrontendFilters, filteredAndSortedTransactions.length, activeSearchTerm, hasAdvancedFilters, totalTransactions, allTransactionsCounts, filters.status]);
+
+  const totalPages = useMemo(
+    () => Math.ceil(effectiveTotalTransactions / transactionsPerPage),
+    [effectiveTotalTransactions, transactionsPerPage]
+  );
 
   // Apply frontend pagination when frontend filters are active
   const paginatedTransactions = hasFrontendFilters 
@@ -1849,95 +2010,17 @@ const TransactionList = ({
 
       {/* Enhanced Pagination - Always show if there are transactions */}
       {effectiveTotalTransactions > 0 && (
-        <div className="!mt-0 mb-0 flex items-center justify-between px-6 py-2">
-          <div className="flex items-center gap-4">
-            <div className="text-sm text-muted-foreground font-medium">
-              Showing {Math.min((currentPage - 1) * transactionsPerPage + 1, effectiveTotalTransactions)}-{Math.min(currentPage * transactionsPerPage, effectiveTotalTransactions)} of {effectiveTotalTransactions} transactions
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Show:</span>
-              <Select
-                value={transactionsPerPage.toString()}
-                onValueChange={(value) => {
-                  setTransactionsPerPage(parseInt(value));
-                  setCurrentPage(1); // Reset to first page when changing page size
-                }}
-              >
-                <SelectTrigger className="w-20 h-8">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="5">5</SelectItem>
-                  <SelectItem value="10">10</SelectItem>
-                  <SelectItem value="20">20</SelectItem>
-                  <SelectItem value="50">50</SelectItem>
-                  <SelectItem value="100">100</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          
-          {totalPages > 1 && (
-            <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={(e) => {
-                e.preventDefault();
-                setCurrentPage(prev => Math.max(1, prev - 1));
-              }}
-              disabled={currentPage === 1}
-            >
-              Previous
-            </Button>
-            
-            <div className="flex items-center gap-1">
-              {[...Array(totalPages)].map((_, index) => {
-                const pageNumber = index + 1;
-                // Show first page, last page, current page, and pages around current
-                if (
-                  pageNumber === 1 ||
-                  pageNumber === totalPages ||
-                  (pageNumber >= currentPage - 1 && pageNumber <= currentPage + 1)
-                ) {
-                  return (
-                    <Button
-                      key={pageNumber}
-                      variant="outline"
-                      size="sm"
-                      className={`w-8 h-8 p-0 ${currentPage === pageNumber ? 'bg-orange-600 text-white border-orange-600 hover:bg-orange-700' : 'hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        setCurrentPage(pageNumber);
-                      }}
-                    >
-                      {pageNumber}
-                    </Button>
-                  );
-                } else if (
-                  pageNumber === currentPage - 2 ||
-                  pageNumber === currentPage + 2
-                ) {
-                  return <span key={pageNumber} className="px-1">...</span>;
-                }
-                return null;
-              })}
-            </div>
-            
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={(e) => {
-                e.preventDefault();
-                setCurrentPage(prev => Math.min(totalPages, prev + 1));
-              }}
-              disabled={currentPage === totalPages}
-            >
-              Next
-            </Button>
-            </div>
-          )}
-        </div>
+        <PaginationBar
+          currentPage={currentPage}
+          totalPages={totalPages}
+          transactionsPerPage={transactionsPerPage}
+          effectiveTotalTransactions={effectiveTotalTransactions}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={(value) => {
+            setTransactionsPerPage(parseInt(value));
+            setCurrentPage(1);
+          }}
+        />
       )}
 
       {/* Bulk Status Update Dialog */}

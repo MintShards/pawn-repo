@@ -29,6 +29,7 @@ import {
 import { Skeleton } from '../ui/skeleton';
 import { Separator } from '../ui/separator';
 import { User, CheckCircle, Bell, AlertCircle, Plus, X, Zap, Calendar, Phone, Clock, FileText, Star } from 'lucide-react';
+import StatusBadge from '../transaction/components/StatusBadge';
 import serviceAlertService from '../../services/serviceAlertService';
 import { useToast } from '../ui/toast';
 import { formatBusinessDate } from '../../utils/timezoneUtils';
@@ -361,9 +362,10 @@ const ServiceAlertDialog = ({
                                     {field.value && field.value !== "none" ? (
                                       <div className="flex items-center gap-2">
                                         <span className="font-medium text-blue-600 dark:text-blue-400">{field.value}</span>
-                                        <span className="text-xs text-slate-500 dark:text-slate-400">
-                                          {customerItems.find(t => t.transaction_id === field.value)?.status}
-                                        </span>
+                                        <StatusBadge
+                                          status={customerItems.find(t => t.transaction_id === field.value)?.status}
+                                          size="sm"
+                                        />
                                       </div>
                                     ) : field.value === "none" ? (
                                       <span className="text-slate-500 dark:text-slate-400">No specific transaction</span>
@@ -380,9 +382,7 @@ const ServiceAlertDialog = ({
                                     <div className="flex flex-col py-1">
                                       <div className="flex items-center gap-2 mb-1">
                                         <span className="font-bold text-blue-600 dark:text-blue-400">{transaction.transaction_id}</span>
-                                        <span className="text-xs px-2 py-0.5 bg-slate-100 dark:bg-slate-700 rounded-full text-slate-600 dark:text-slate-300">
-                                          {transaction.status}
-                                        </span>
+                                        <StatusBadge status={transaction.status} size="sm" />
                                       </div>
                                       <span className="font-medium text-slate-900 dark:text-slate-100 line-clamp-2">
                                         {transaction.description}
