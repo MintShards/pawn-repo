@@ -71,6 +71,12 @@ backend/app/api/api_v1/handlers/extension.py
 
 # Payment processing (sensitive financial logic)
 backend/app/api/api_v1/handlers/payment.py
+frontend/src/components/transaction/components/PaymentForm.jsx
+frontend/src/components/transaction/components/DiscountDialog.jsx
+
+# Bulk operations (proprietary workflow logic)
+frontend/src/components/transaction/BulkRedemptionDialog.jsx
+frontend/src/components/transaction/BulkExtensionPaymentDialog.jsx
 
 # Transaction management (core business operations)
 backend/app/api/api_v1/handlers/pawn_transaction.py
