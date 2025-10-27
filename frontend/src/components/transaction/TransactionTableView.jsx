@@ -9,13 +9,13 @@ import {
   TableHeader,
   TableRow,
 } from '../ui/table';
-import StatusBadge from './components/StatusBadge';
 import { formatTransactionId, formatCurrency } from '../../utils/transactionUtils';
 import { formatBusinessDate } from '../../utils/timezoneUtils';
 
 // Constants
 const STATUSES_WITHOUT_MATURITY = ['redeemed', 'sold', 'voided', 'forfeited'];
 const ACTIVE_STATUSES = ['active', 'overdue', 'extended'];
+const TERMINAL_STATUSES = ['sold', 'voided', 'forfeited']; // Statuses that show "—" for balance
 const ROW_BACKGROUND = 'bg-slate-50 dark:bg-slate-800';
 const MATURITY_WARNING_DAYS = 7;
 
@@ -192,14 +192,18 @@ const TransactionTableView = React.memo(({
 
                   {/* Balance */}
                   <TableCell className={`text-xs font-semibold py-3 ${
-                    isPaid
+                    (isPaid && isActiveStatus) || transaction.status === 'redeemed'
                       ? 'text-green-600 dark:text-green-400'
                       : isPartiallyPaid
                         ? 'text-amber-600 dark:text-amber-400'
-                        : 'text-slate-900 dark:text-slate-100'
+                        : 'text-slate-400 dark:text-slate-500'
                   }`}>
                     <span className="font-mono tabular-nums">
-                      {formatCurrency(currentBalance)}
+                      {transaction.status === 'redeemed' || (isPaid && isActiveStatus)
+                        ? 'Paid'
+                        : TERMINAL_STATUSES.includes(transaction.status)
+                          ? '—'
+                          : formatCurrency(currentBalance)}
                     </span>
                   </TableCell>
 

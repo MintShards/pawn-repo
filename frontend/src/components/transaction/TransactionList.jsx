@@ -197,7 +197,7 @@ const PaginationBar = React.memo(({
                   key={pageNum}
                   variant="outline"
                   size="sm"
-                  className={`w-8 h-8 p-0 ${currentPage === pageNum ? 'bg-orange-600 text-white border-orange-600 hover:bg-orange-700' : 'hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                  className={`w-8 h-8 p-0 ${currentPage === pageNum ? 'bg-orange-600 text-white border-orange-600 hover:bg-orange-700' : 'hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-100'}`}
                   onClick={handlePageChange(pageNum)}
                 >
                   {pageNum}
@@ -2090,12 +2090,12 @@ const TransactionList = ({
                     #{formatTransactionId(selectedTransactionItems)}
                   </h3>
                   {customerData[selectedTransactionItems.customer_id] && (
-                    <div className="text-base font-semibold text-slate-800 dark:text-slate-200">
-                      {customerData[selectedTransactionItems.customer_id].first_name} {customerData[selectedTransactionItems.customer_id].last_name}
+                    <div className="text-base font-semibold text-slate-800 dark:text-slate-200 uppercase">
+                      {customerService.getCustomerFullName(customerData[selectedTransactionItems.customer_id])}
                     </div>
                   )}
                   <div className="text-sm text-slate-600 dark:text-slate-400">
-                    {selectedTransactionItems.customer_id}
+                    {customerService.formatPhoneNumber(selectedTransactionItems.customer_id)}
                   </div>
                 </div>
                 <StatusBadge status={getEffectiveTransactionStatus(selectedTransactionItems)} />

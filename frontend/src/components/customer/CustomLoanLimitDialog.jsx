@@ -229,10 +229,10 @@ const CustomLoanLimitDialog = ({
       }
       
       onOpenChange(false);
-      
-      toast.success(limitNumber ? 
-        `Custom loan limit set to ${limitNumber} for ${customer.first_name} ${customer.last_name}.` :
-        `Loan limit reset to system default (${systemDefault}) for ${customer.first_name} ${customer.last_name}.`
+
+      toast.success(limitNumber ?
+        `Custom loan limit set to ${limitNumber} for ${customerService.getCustomerFullName(customer)}.` :
+        `Loan limit reset to system default (${systemDefault}) for ${customerService.getCustomerFullName(customer)}.`
       );
 
       // Allow parent component update to complete first, then refresh cache

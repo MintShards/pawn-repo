@@ -10,7 +10,7 @@ import {
 } from '../ui/dropdown-menu';
 import { StatusBadge } from '../ui/enhanced-badge';
 import { formatBusinessDate } from '../../utils/timezoneUtils';
-import { formatCurrency } from '../../utils/transactionUtils';
+import { formatCurrency, formatCount } from '../../utils/transactionUtils';
 import customerService from '../../services/customerService';
 import { useAuth } from '../../context/AuthContext';
 import { isAdmin as isAdminRole } from '../../utils/roleUtils';
@@ -87,7 +87,7 @@ const CustomerCard = ({
           {/* Avatar and basic info */}
           <div className="flex items-center gap-4 flex-1">
             <div
-              className="flex items-center gap-4 flex-1 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors duration-200 rounded-xl p-3 -m-3"
+              className="flex items-center gap-4 flex-1 cursor-pointer rounded-xl p-3 -m-3"
               onClick={() => onView?.(customer)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
@@ -228,9 +228,9 @@ const CustomerCard = ({
                   </div>
                   <div className="space-y-1.5">
                     <div className="text-xs font-medium text-right">
-                      <span className="text-slate-600 dark:text-slate-400">{displayActiveLoans} active</span>
+                      <span className="text-slate-600 dark:text-slate-400">{formatCount(displayActiveLoans)} active</span>
                       <span className="text-slate-500 dark:text-slate-500 mx-1">of</span>
-                      <span className="text-slate-500 dark:text-slate-500">{effectiveMaxLoans}</span>
+                      <span className="text-slate-500 dark:text-slate-500">{formatCount(effectiveMaxLoans)}</span>
                     </div>
                     <div className="w-full bg-white/80 dark:bg-slate-800/80 rounded-full h-2.5 overflow-hidden shadow-inner">
                       <div

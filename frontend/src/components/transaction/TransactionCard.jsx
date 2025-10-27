@@ -1,9 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React from 'react';
 import { DollarSign, CreditCard, Eye, Banknote, ArrowRightLeft, MapPin } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader } from '../ui/card';
 import StatusBadge from './components/StatusBadge';
-import transactionService from '../../services/transactionService';
 import { formatTransactionId, formatStorageLocation, formatCurrency } from '../../utils/transactionUtils';
 import { formatBusinessDate } from '../../utils/timezoneUtils';
 
@@ -14,17 +13,17 @@ const TransactionCard = React.memo(({
   onExtension,
   isSelected = false,
   onSelect,
-  refreshTrigger, // Add prop to trigger balance refresh
   balance: parentBalance // Balance passed from parent
 }) => {
   // Performance optimization: Use parent balance directly to avoid API calls
   const balance = parentBalance || null;
   const loading = false; // No loading state needed when using parent balance
 
-  // formatCurrency is now imported from transactionUtils
-
 
   if (!transaction) return null;
+
+  // Terminal statuses that show "—" for balance (not paid, transaction closed)
+  const TERMINAL_STATUSES = ['sold', 'voided', 'forfeited'];
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -132,12 +131,20 @@ const TransactionCard = React.memo(({
               <CreditCard className="h-4 w-4 text-slate-500 dark:text-slate-400" />
               <span className="text-sm font-medium text-slate-500 dark:text-slate-400">Balance</span>
             </div>
-            <p className="text-xl font-bold text-slate-900 dark:text-slate-100">
+            <p className={`text-xl font-bold ${
+              (balance?.current_balance === 0 && ['active', 'overdue', 'extended'].includes(transaction.status)) || transaction.status === 'redeemed'
+                ? 'text-green-600 dark:text-green-400'
+                : 'text-slate-900 dark:text-slate-100'
+            }`}>
               {loading ? '...' : balance?.current_balance !== undefined
-                ? formatCurrency(balance.current_balance)
+                ? (balance.current_balance === 0 && ['active', 'overdue', 'extended'].includes(transaction.status) ? 'Paid' : TERMINAL_STATUSES.includes(transaction.status) ? '—' : formatCurrency(balance.current_balance))
                 : ['active', 'overdue', 'extended'].includes(transaction.status)
                   ? 'Loading...'
-                  : '—'
+                  : transaction.status === 'redeemed'
+                    ? 'Paid'
+                    : TERMINAL_STATUSES.includes(transaction.status)
+                      ? '—'
+                      : 'Loading...'
               }
             </p>
           </div>
@@ -189,14 +196,14 @@ const TransactionCard = React.memo(({
         {/* Quick Actions */}
         <div className="pt-2" onClick={(e) => e.stopPropagation()}>
           {/* View Button */}
-          <Button 
-            variant="outline" 
-            size="default" 
+          <Button
+            variant="outline"
+            size="default"
             onClick={(e) => {
               e.stopPropagation();
               onView?.(transaction);
             }}
-            className="w-full h-10 flex items-center justify-center gap-2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border-slate-300 dark:border-slate-600 font-medium"
+            className="w-full h-10 flex items-center justify-center gap-2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border-slate-300 dark:border-slate-600 text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100 font-medium"
           >
             <Eye className="w-4 h-4" />
             View Details
@@ -257,8 +264,7 @@ const TransactionCard = React.memo(({
   return (
     prevProps.transaction?.transaction_id === nextProps.transaction?.transaction_id &&
     prevProps.isSelected === nextProps.isSelected &&
-    prevProps.balance?.current_balance === nextProps.balance?.current_balance &&
-    prevProps.refreshTrigger === nextProps.refreshTrigger
+    prevProps.balance?.current_balance === nextProps.balance?.current_balance
   );
 });
 

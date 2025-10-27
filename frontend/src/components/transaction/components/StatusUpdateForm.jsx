@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Alert, AlertDescription } from '../../ui/alert';
 import StatusBadge from './StatusBadge';
 import transactionService from '../../../services/transactionService';
+import customerService from '../../../services/customerService';
 import { useStatsPolling } from '../../../hooks/useStatsPolling';
 import { useAuth } from '../../../context/AuthContext';
 import { formatTransactionId } from '../../../utils/transactionUtils';
@@ -147,7 +148,7 @@ const StatusUpdateForm = ({ transaction, customer, onSuccess, onCancel }) => {
           <p><strong>Transaction ID:</strong> {formatTransactionId(transaction)}</p>
           <div><strong>Current Status:</strong> <StatusBadge status={transaction.status} /></div>
           {customer && (
-            <p><strong>Customer:</strong> {`${customer.first_name || ''} ${customer.last_name || ''}`.trim().toUpperCase()}</p>
+            <p><strong>Customer:</strong> {customerService.getCustomerFullName(customer)}</p>
           )}
           {transaction.loan_amount && (
             <p><strong>Loan Amount:</strong> ${transaction.loan_amount}</p>

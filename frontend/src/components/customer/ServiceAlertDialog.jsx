@@ -242,8 +242,7 @@ const ServiceAlertDialog = ({
                       Service Alerts
                     </span>
                   </DialogTitle>
-                  <DialogDescription className="text-slate-600 dark:text-slate-400 mt-2 text-sm flex items-center gap-2">
-                    <Star className="w-4 h-4 text-amber-500" />
+                  <DialogDescription className="text-slate-600 dark:text-slate-400 mt-2 text-sm">
                     Manage service alerts for enhanced customer service
                   </DialogDescription>
                 </div>
@@ -257,7 +256,7 @@ const ServiceAlertDialog = ({
                 </Badge>
                 <Badge variant="outline" className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/60 dark:to-indigo-950/60 border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300 px-3 py-1 text-sm font-medium shadow-sm">
                   <Phone className="w-3 h-3 mr-2" />
-                  {customerPhone}
+                  {customerPhone?.replace(/(\d{3})(\d{3})(\d{4})/, '($1) $2-$3') || customerPhone}
                 </Badge>
               </div>
             </div>
@@ -269,17 +268,17 @@ const ServiceAlertDialog = ({
             <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-xl transition-all duration-300 hover:shadow-2xl">
             {showCreateForm ? (
             <>
-              <div className="p-6 border-b border-slate-200/60 dark:border-slate-700/60">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-4">
+              <div className="p-5 border-b border-slate-200/60 dark:border-slate-700/60">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/30 group-hover:scale-110 transition-transform duration-300">
                       <Plus className="w-5 h-5 text-white" />
                     </div>
                     <div>
-                      <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100">
+                      <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
                         Create New Alert
                       </h3>
-                      <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
+                      <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
                         Add a new service alert for {customerName}
                       </p>
                     </div>
@@ -294,10 +293,10 @@ const ServiceAlertDialog = ({
                   </Button>
                 </div>
               </div>
-              
-              <div className="p-6">
+
+              <div className="p-5">
                 <Form {...form}>
-                  <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                  <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
                     <FormField
                       control={form.control}
                       name="alert_type"
@@ -465,22 +464,22 @@ const ServiceAlertDialog = ({
 
             {/* Active Alerts Section */}
             <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-xl transition-all duration-300 hover:shadow-2xl">
-            <div className="p-6 border-b border-slate-200/60 dark:border-slate-700/60">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-4">
+            <div className="p-5 border-b border-slate-200/60 dark:border-slate-700/60">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/30 group-hover:scale-110 transition-transform duration-300">
                     <AlertCircle className="w-5 h-5 text-white" />
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100">
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
                       Active Alerts
                     </h3>
-                    <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
+                    <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
                       {alerts.length} {alerts.length === 1 ? 'alert' : 'alerts'} requiring attention
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center space-x-3">
+                <div className="flex items-center gap-2">
                   <Button
                     onClick={() => setShowCreateForm(true)}
                     size="sm"
@@ -505,7 +504,7 @@ const ServiceAlertDialog = ({
               </div>
             </div>
 
-            <div className="p-4">
+            <div className="p-5">
               {loading && alerts.length === 0 ? (
                 <div className="text-center py-12">
                   <div className="space-y-4">

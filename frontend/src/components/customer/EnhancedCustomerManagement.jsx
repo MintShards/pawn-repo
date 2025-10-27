@@ -111,7 +111,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useAlertCount } from '../../context/AlertCountContext';
 import { isAdmin as isAdminRole } from '../../utils/roleUtils';
 import { formatBusinessDate, canReversePayment } from '../../utils/timezoneUtils';
-import { formatCurrency, formatStorageLocation, formatTransactionId } from '../../utils/transactionUtils';
+import { formatCurrency, formatStorageLocation, formatTransactionId, formatCount } from '../../utils/transactionUtils';
 import { handleError } from '../../utils/errorHandling';
 import useExtensionCancellation from '../../hooks/useExtensionCancellation';
 import usePaymentReversal from '../../hooks/usePaymentReversal';
@@ -997,7 +997,7 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
           <div className="flex items-center gap-3">
             {totalTransactionCount > 0 && (
               <span className="px-3 py-1 text-sm bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300 rounded-full font-semibold">
-                {totalTransactionCount}
+                {formatCount(totalTransactionCount)}
               </span>
             )}
 
@@ -1140,6 +1140,7 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
             onViewItems={handleViewItems}
             onPayment={handlePayment}
             onExtension={handleExtension}
+            balances={transactionBalances}
             customerData={{
               [selectedCustomer.phone_number]: {
                 first_name: selectedCustomer.first_name,
@@ -1154,7 +1155,7 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
         {totalTransactionCount > pageSize && (
           <div className="mt-6 flex items-center justify-between">
             <div className="text-sm text-slate-600 dark:text-slate-400">
-              Showing {((currentPage - 1) * pageSize) + 1}-{Math.min(currentPage * pageSize, totalTransactionCount)} of {totalTransactionCount}
+              Showing {((currentPage - 1) * pageSize) + 1}-{Math.min(currentPage * pageSize, totalTransactionCount)} of {formatCount(totalTransactionCount)}
             </div>
             
             <div className="flex items-center space-x-2">
@@ -1192,9 +1193,9 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                         size="sm"
                         onClick={() => setCurrentPage(i)}
                         className={`h-8 w-8 p-0 ${
-                          currentPage === i 
-                            ? 'bg-cyan-600 text-white hover:bg-cyan-700' 
-                            : 'hover:bg-slate-100 dark:hover:bg-slate-800'
+                          currentPage === i
+                            ? 'bg-cyan-600 text-white hover:bg-cyan-700'
+                            : 'hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-100'
                         }`}
                       >
                         {i}
@@ -1517,7 +1518,7 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                                         {customerName}
                                       </div>
                                       <div className="text-xs text-slate-600 dark:text-slate-400 font-mono">
-                                        {customerPhone}
+                                        {customerPhone?.replace(/(\d{3})(\d{3})(\d{4})/, '($1) $2-$3') || customerPhone}
                                       </div>
                                     </div>
                                   );
@@ -1525,7 +1526,7 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                                   return (
                                     <div className="space-y-0.5">
                                       <div className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                                        {customerPhone}
+                                        {customerPhone?.replace(/(\d{3})(\d{3})(\d{4})/, '($1) $2-$3') || customerPhone}
                                       </div>
                                       {loadingTransactionDetails && (
                                         <div className="text-xs text-slate-500 dark:text-slate-400">
@@ -2355,9 +2356,14 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                       </CardHeader>
                       <CardContent>
                         <div className="text-lg font-bold">
-                          {getTransactionField('customer_phone') ||
-                           getTransactionField('customer_name') ||
-                           getTransactionField('customer_id') || 'No Customer'}
+                          {(() => {
+                            const phone = getTransactionField('customer_phone') || getTransactionField('customer_id');
+                            const name = getTransactionField('customer_name');
+                            if (phone && phone !== 'No Customer') {
+                              return phone?.replace(/(\d{3})(\d{3})(\d{4})/, '($1) $2-$3') || phone;
+                            }
+                            return name || 'No Customer';
+                          })()}
                         </div>
                       </CardContent>
                     </Card>
@@ -2657,7 +2663,7 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                     </div>
                   )}
                   <div className="text-sm text-slate-600 dark:text-slate-400">
-                    {selectedTransactionItems.customer_phone || selectedTransactionItems.customer_id}
+                    {(selectedTransactionItems.customer_phone || selectedTransactionItems.customer_id)?.replace(/(\d{3})(\d{3})(\d{4})/, '($1) $2-$3') || selectedTransactionItems.customer_phone || selectedTransactionItems.customer_id}
                   </div>
                 </div>
                 <StatusBadge status={selectedTransactionItems.status} />
@@ -3766,7 +3772,7 @@ const EnhancedCustomerManagement = () => {
     if (customer) {
       setSelectedCustomerForAlert({
         phone: customer.phone_number,
-        name: `${customer.first_name} ${customer.last_name}`,
+        name: customerService.getCustomerFullName(customer),
         refreshCount
       });
       setShowServiceAlertDialog(true);
@@ -4028,7 +4034,7 @@ const EnhancedCustomerManagement = () => {
                   Active Customers {loading ? '(Refreshing...)' : ''}
                 </p>
                 <p className="text-2xl font-bold text-blue-900 dark:text-blue-100">
-                  {loading ? '-' : customerStats.active}
+                  {loading ? '-' : formatCount(customerStats.active)}
                 </p>
               </div>
               <div className="w-12 h-12 bg-blue-500/10 dark:bg-blue-400/10 rounded-xl flex items-center justify-center group-hover:bg-blue-500/20 dark:group-hover:bg-blue-400/20">
@@ -4077,7 +4083,7 @@ const EnhancedCustomerManagement = () => {
                   New This Month {loading ? '(Refreshing...)' : ''}
                 </p>
                 <p className="text-2xl font-bold text-emerald-900 dark:text-emerald-100">
-                  {loading ? '-' : customerStats.newThisMonth}
+                  {loading ? '-' : formatCount(customerStats.newThisMonth)}
                 </p>
               </div>
               <div className="w-12 h-12 bg-emerald-500/10 dark:bg-emerald-400/10 rounded-xl flex items-center justify-center group-hover:bg-emerald-500/20 dark:group-hover:bg-emerald-400/20">
@@ -4126,7 +4132,7 @@ const EnhancedCustomerManagement = () => {
                   Needs Follow-Up {loading ? '(Refreshing...)' : ''}
                 </p>
                 <p className="text-2xl font-bold text-purple-900 dark:text-purple-100">
-                  {loading ? '-' : customerStats.needsFollowUp}
+                  {loading ? '-' : formatCount(customerStats.needsFollowUp)}
                 </p>
               </div>
               <div className="w-12 h-12 bg-purple-500/10 dark:bg-purple-400/10 rounded-xl flex items-center justify-center group-hover:bg-purple-500/20 dark:group-hover:bg-purple-400/20">
@@ -4178,7 +4184,7 @@ const EnhancedCustomerManagement = () => {
                   Service Alerts {loading ? '(Refreshing...)' : ''}
                 </p>
                 <p className="text-2xl font-bold text-orange-900 dark:text-orange-100">
-                  {loading ? '-' : customerStats.serviceAlerts}
+                  {loading ? '-' : formatCount(customerStats.serviceAlerts)}
                 </p>
               </div>
               <div className="w-12 h-12 bg-orange-500/10 dark:bg-orange-400/10 rounded-xl flex items-center justify-center group-hover:bg-orange-500/20 dark:group-hover:bg-orange-400/20">
@@ -4231,7 +4237,7 @@ const EnhancedCustomerManagement = () => {
                     VIP Customers
                   </p>
                   <p className="text-2xl font-bold text-yellow-900 dark:text-yellow-100">
-                    {customerStats.vipCustomers}
+                    {formatCount(customerStats.vipCustomers)}
                   </p>
                 </div>
                 <div className="w-12 h-12 bg-yellow-500/10 dark:bg-yellow-400/10 rounded-xl flex items-center justify-center group-hover:bg-yellow-500/20 dark:group-hover:bg-yellow-400/20">
@@ -4733,7 +4739,7 @@ const EnhancedCustomerManagement = () => {
             
             <Table>
               <TableHeader>
-                <TableRow className="border-slate-200 dark:border-slate-700">
+                <TableRow className="border-slate-200 dark:border-slate-700 hover:bg-transparent">
                   <TableHead className="w-[60px] pt-6">
                     <Checkbox
                       checked={currentCustomers.length > 0 && selectedCustomerIds.length === currentCustomers.length}
@@ -4855,9 +4861,9 @@ const EnhancedCustomerManagement = () => {
                 </TableRow>
               ) : (
                 currentCustomers.map((customer) => (
-                  <TableRow 
+                  <TableRow
                     key={customer.phone_number}
-                    className="hover:bg-muted/50 group transition-colors"
+                    className="group hover:bg-transparent"
                   >
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <Checkbox
@@ -5237,7 +5243,11 @@ const EnhancedCustomerManagement = () => {
                         key={pageNumber}
                         variant={currentPage === pageNumber ? "default" : "outline"}
                         size="sm"
-                        className="w-8 h-8 p-0"
+                        className={`w-8 h-8 p-0 ${
+                          currentPage === pageNumber
+                            ? ''
+                            : 'hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-100'
+                        }`}
                         onClick={() => setCurrentPage(pageNumber)}
                       >
                         {pageNumber}

@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     JWT_REFRESH_SECRET_KEY: str = config("JWT_REFRESH_SECRET_KEY", cast=str)
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRATION: int = 30  # 30 minutes
-    REFRESH_TOKEN_EXPIRATION: int = 60 * 24 * 7  # 7 days
+    REFRESH_TOKEN_EXPIRATION: int = 60 * 24 * 30  # 30 days (extended for active users)
     PROJECT_NAME: str = "Pawn Repo"
     
     # CORS Configuration

@@ -9,7 +9,9 @@ import {
   Loader2,
   Info,
   CreditCard,
-  Target
+  Target,
+  Award,
+  Calendar
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -18,7 +20,6 @@ import { Separator } from '../ui/separator';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -297,101 +298,298 @@ const LoanEligibilityManager = ({ customer, onEligibilityUpdate }) => {
                 Set Custom Loan Limit
               </Button>
 
-              {/* View Detailed Info */}
+              {/* View Details */}
               <Dialog open={showDetailsDialog} onOpenChange={setShowDetailsDialog}>
                 <DialogTrigger asChild>
                   <Button variant="outline" className="w-full justify-start bg-white/60 dark:bg-slate-800/60 hover:bg-white/80 dark:hover:bg-slate-800/80 border-slate-200/50 dark:border-slate-700/50 shadow-sm">
                     <div className="w-8 h-8 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center mr-3">
                       <Info className="w-4 h-4 text-green-600 dark:text-green-400" />
                     </div>
-                    View Detailed Information
+                    View Full Details
                   </Button>
                 </DialogTrigger>
-                <DialogContent className="max-w-2xl">
-                  <DialogHeader>
-                    <DialogTitle>Detailed Eligibility Information</DialogTitle>
-                    <DialogDescription>
-                      Complete eligibility analysis for {customerService.getCustomerFullName(customer)}
-                    </DialogDescription>
+                <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto bg-slate-50 dark:bg-slate-900 [&>button]:z-50">
+                  <DialogHeader className="sticky top-0 bg-slate-50 dark:bg-slate-900 pb-4 pr-12 border-b border-slate-200 dark:border-slate-700 z-40">
+                    <div className="flex items-start gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 dark:from-blue-600 dark:to-indigo-700 flex items-center justify-center shadow-lg flex-shrink-0">
+                        <Shield className="w-6 h-6 text-white" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <DialogTitle className="text-xl font-bold text-slate-900 dark:text-slate-100 mb-1">
+                          Loan Eligibility Details
+                        </DialogTitle>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                          <span className="font-semibold text-slate-700 dark:text-slate-300">
+                            {customerService.getCustomerFullName(customer)}
+                          </span>
+                          <span className="text-slate-400 dark:text-slate-500">•</span>
+                          <span className="font-mono text-slate-600 dark:text-slate-400">
+                            {customer.phone_number.replace(/(\d{3})(\d{3})(\d{4})/, '($1) $2-$3')}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
                   </DialogHeader>
                   {eligibilityData && (
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <Card>
-                          <CardContent className="p-4">
-                            <div className="text-center">
-                              <Target className="h-8 w-8 mx-auto mb-2 text-blue-600" />
-                              <p className="text-sm text-muted-foreground">Credit Limit</p>
-                              <p className="text-xl font-bold">${eligibilityData.credit_limit?.toLocaleString()}</p>
-                            </div>
-                          </CardContent>
-                        </Card>
-                        <Card>
-                          <CardContent className="p-4">
-                            <div className="text-center">
-                              <DollarSign className="h-8 w-8 mx-auto mb-2 text-green-600" />
-                              <p className="text-sm text-muted-foreground">Available</p>
-                              <p className="text-xl font-bold">${eligibilityData.available_credit?.toLocaleString()}</p>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      </div>
-                      
-                      <Separator />
-                      
-                      <div className="space-y-2">
-                        <h4 className="font-semibold">Eligibility Status</h4>
-                        <div className="flex items-center gap-2">
-                          <Shield className="h-4 w-4" />
-                          <span>Status: </span>
-                          <Badge variant={eligibilityData.eligible ? "default" : "destructive"}>
-                            {eligibilityData.eligible ? 'ELIGIBLE' : 'NOT ELIGIBLE'}
-                          </Badge>
-                        </div>
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <h4 className="font-semibold">Loan Capacity</h4>
-                        <div className="grid grid-cols-2 gap-4 text-sm">
-                          <div>Active Loans: {eligibilityData.slots_used || eligibilityData.active_loans}</div>
-                          <div>Maximum Loans: {eligibilityData.max_loans}</div>
-                          <div>Remaining Slots: {eligibilityData.slots_available !== undefined ? eligibilityData.slots_available : (eligibilityData.max_loans - eligibilityData.active_loans)}</div>
-                          <div>Utilization: {(((eligibilityData.slots_used || eligibilityData.active_loans) / eligibilityData.max_loans) * 100).toFixed(1)}%</div>
-                        </div>
-                      </div>
-
-                      {eligibilityData.reasons && eligibilityData.reasons.length > 0 && (
-                        <div className="space-y-2">
-                          <h4 className="font-semibold">Notes & Conditions</h4>
-                          <ul className="list-disc list-inside space-y-1 text-sm">
-                            {eligibilityData.reasons.map((reason, index) => (
-                              <li key={index}>{reason}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      
-                      {isAdmin && (
-                        <div className="space-y-2">
-                          <h4 className="font-semibold">Admin Information</h4>
-                          <div className="text-sm space-y-1">
-                            <div className="flex justify-between">
-                              <span className="text-muted-foreground">Custom Slot Limit:</span>
-                              <span>{customer.custom_loan_limit ? `${customer.custom_loan_limit} slots` : 'Using system default'}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-muted-foreground">Last Updated:</span>
-                              <span>{new Date(customer.updated_at).toLocaleDateString()}</span>
-                            </div>
-                            {customer.updated_by && (
-                              <div className="flex justify-between">
-                                <span className="text-muted-foreground">Updated By:</span>
-                                <span>User {customer.updated_by}</span>
-                              </div>
+                    <div className="space-y-5 pt-4">
+                      {/* Status Banner */}
+                      <div className={`p-5 rounded-xl border-2 shadow-sm ${
+                        eligibilityData.eligible
+                          ? 'bg-green-50 dark:bg-green-900/20 border-green-500'
+                          : 'bg-red-50 dark:bg-red-900/20 border-red-500'
+                      }`}>
+                        <div className="flex items-center gap-4">
+                          <div className={`w-14 h-14 rounded-xl flex items-center justify-center shadow-md ${
+                            eligibilityData.eligible
+                              ? 'bg-green-500 dark:bg-green-600'
+                              : 'bg-red-500 dark:bg-red-600'
+                          }`}>
+                            {eligibilityData.eligible ? (
+                              <CheckCircle className="w-7 h-7 text-white" />
+                            ) : (
+                              <XCircle className="w-7 h-7 text-white" />
+                            )}
+                          </div>
+                          <div className="flex-1">
+                            <p className={`font-bold text-xl ${
+                              eligibilityData.eligible
+                                ? 'text-green-700 dark:text-green-200'
+                                : 'text-red-700 dark:text-red-200'
+                            }`}>
+                              {eligibilityData.eligible ? 'Eligible for New Loan' : 'Not Eligible for New Loan'}
+                            </p>
+                            {eligibilityData.reasons && eligibilityData.reasons.length > 0 && (
+                              <p className={`text-sm mt-1.5 ${
+                                eligibilityData.eligible
+                                  ? 'text-green-600 dark:text-green-300'
+                                  : 'text-red-600 dark:text-red-300'
+                              }`}>
+                                {eligibilityData.reasons.join(' • ')}
+                              </p>
                             )}
                           </div>
                         </div>
-                      )}
+                      </div>
+
+                      {/* Credit Information Section */}
+                      <div className="space-y-3">
+                        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 uppercase tracking-wide flex items-center gap-2">
+                          <CreditCard className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                          Credit Information
+                        </h3>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          {/* Credit Limit */}
+                          <Card className="border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+                            <CardContent className="p-4">
+                              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Credit Limit</p>
+                              <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">${eligibilityData.credit_limit?.toLocaleString()}</p>
+                            </CardContent>
+                          </Card>
+
+                          {/* Credit Used */}
+                          <Card className="border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+                            <CardContent className="p-4">
+                              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Credit Used</p>
+                              <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">${eligibilityData.credit_used?.toLocaleString()}</p>
+                            </CardContent>
+                          </Card>
+
+                          {/* Available Credit */}
+                          <Card className={`border ${
+                            eligibilityData.available_credit > 0
+                              ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
+                              : 'border-red-500 bg-red-50 dark:bg-red-900/20'
+                          }`}>
+                            <CardContent className="p-4">
+                              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Available</p>
+                              <p className={`text-2xl font-bold ${
+                                eligibilityData.available_credit > 0
+                                  ? 'text-green-700 dark:text-green-300'
+                                  : 'text-red-700 dark:text-red-300'
+                              }`}>
+                                ${eligibilityData.available_credit?.toLocaleString()}
+                              </p>
+                            </CardContent>
+                          </Card>
+
+                          {/* Credit Utilization */}
+                          <Card className="border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+                            <CardContent className="p-4">
+                              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Utilization</p>
+                              <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                                {eligibilityData.credit_limit > 0 ? Math.round((eligibilityData.credit_used / eligibilityData.credit_limit) * 100) : 0}%
+                              </p>
+                            </CardContent>
+                          </Card>
+                        </div>
+                      </div>
+
+                      <Separator />
+
+                      {/* Loan Capacity Section */}
+                      <div className="space-y-3">
+                        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 uppercase tracking-wide flex items-center gap-2">
+                          <Target className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                          Loan Capacity
+                        </h3>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          {/* Active Loans */}
+                          <Card className="border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+                            <CardContent className="p-4">
+                              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Active Loans</p>
+                              <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">
+                                {eligibilityData.slots_used || eligibilityData.active_loans}
+                              </p>
+                            </CardContent>
+                          </Card>
+
+                          {/* Maximum Loans */}
+                          <Card className="border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+                            <CardContent className="p-4">
+                              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Maximum</p>
+                              <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">
+                                {eligibilityData.max_loans}
+                              </p>
+                            </CardContent>
+                          </Card>
+
+                          {/* Remaining Slots */}
+                          <Card className={`border ${
+                            (eligibilityData.slots_available !== undefined ? eligibilityData.slots_available : (eligibilityData.max_loans - eligibilityData.active_loans)) > 0
+                              ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
+                              : 'border-red-500 bg-red-50 dark:bg-red-900/20'
+                          }`}>
+                            <CardContent className="p-4">
+                              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Remaining</p>
+                              <p className={`text-2xl font-bold ${
+                                (eligibilityData.slots_available !== undefined ? eligibilityData.slots_available : (eligibilityData.max_loans - eligibilityData.active_loans)) > 0
+                                  ? 'text-green-700 dark:text-green-300'
+                                  : 'text-red-700 dark:text-red-300'
+                              }`}>
+                                {eligibilityData.slots_available !== undefined ? eligibilityData.slots_available : ((eligibilityData.max_loans - eligibilityData.active_loans) || 0)}
+                              </p>
+                            </CardContent>
+                          </Card>
+
+                          {/* Slot Utilization */}
+                          <Card className="border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+                            <CardContent className="p-4">
+                              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Utilization</p>
+                              <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">
+                                {Math.round(((eligibilityData.slots_used || eligibilityData.active_loans) / eligibilityData.max_loans) * 100)}%
+                              </p>
+                            </CardContent>
+                          </Card>
+                        </div>
+                      </div>
+
+                      <Separator />
+
+                      {/* Customer Summary Section */}
+                      <div className="space-y-3">
+                        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 uppercase tracking-wide flex items-center gap-2">
+                          <DollarSign className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                          Financial Summary
+                        </h3>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          {/* Total Loan Value */}
+                          <Card className="border border-amber-200 dark:border-amber-700 bg-gradient-to-br from-white to-amber-50/30 dark:from-slate-800 dark:to-amber-950/10 shadow-sm hover:shadow-md transition-shadow">
+                            <CardContent className="p-4">
+                              <div className="flex items-start gap-2.5">
+                                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-amber-500 to-amber-600 dark:from-amber-600 dark:to-amber-700 flex items-center justify-center flex-shrink-0 shadow-md">
+                                  <DollarSign className="w-5 h-5 text-white" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wide mb-1">Total Portfolio</p>
+                                  <p className="text-2xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">
+                                    ${Math.round(customer.total_loan_value || 0).toLocaleString()}
+                                  </p>
+                                  <div className="flex items-center gap-1.5 mt-1.5">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-amber-500 dark:bg-amber-400"></div>
+                                    <p className="text-xs text-slate-600 dark:text-slate-400 font-medium">
+                                      {eligibilityData.active_loans || 0} active {eligibilityData.active_loans === 1 ? 'loan' : 'loans'}
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+
+                          {/* Customer Since */}
+                          <Card className="border border-blue-200 dark:border-blue-700 bg-gradient-to-br from-white to-blue-50/30 dark:from-slate-800 dark:to-blue-950/10 shadow-sm hover:shadow-md transition-shadow">
+                            <CardContent className="p-4">
+                              <div className="flex items-start gap-2.5">
+                                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 dark:from-blue-600 dark:to-blue-700 flex items-center justify-center flex-shrink-0 shadow-md">
+                                  <Calendar className="w-5 h-5 text-white" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs font-semibold text-blue-700 dark:text-blue-400 uppercase tracking-wide mb-1">Member Since</p>
+                                  <p className="text-2xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">
+                                    {new Date(customer.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                                  </p>
+                                  <div className="flex items-center gap-1.5 mt-1.5">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500 dark:bg-blue-400"></div>
+                                    <p className="text-xs text-slate-600 dark:text-slate-400 font-medium">
+                                      {(() => {
+                                        const months = Math.floor((new Date() - new Date(customer.created_at)) / (1000 * 60 * 60 * 24 * 30));
+                                        if (months < 1) return 'New customer';
+                                        if (months < 12) return `${months} ${months === 1 ? 'month' : 'months'} tenure`;
+                                        const years = Math.floor(months / 12);
+                                        return `${years} ${years === 1 ? 'year' : 'years'} tenure`;
+                                      })()}
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+
+                          {/* VIP Status */}
+                          <Card className={`border shadow-sm hover:shadow-md transition-all ${
+                            customer.is_vip
+                              ? 'border-yellow-300 dark:border-yellow-600 bg-gradient-to-br from-yellow-50 to-amber-50 dark:from-yellow-950/20 dark:to-amber-950/20 ring-2 ring-yellow-400/20 dark:ring-yellow-500/20'
+                              : 'border-slate-200 dark:border-slate-700 bg-gradient-to-br from-white to-slate-50/30 dark:from-slate-800 dark:to-slate-900/30'
+                          }`}>
+                            <CardContent className="p-4">
+                              <div className="flex items-start gap-2.5">
+                                <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 shadow-md ${
+                                  customer.is_vip
+                                    ? 'bg-gradient-to-br from-yellow-400 to-amber-500 dark:from-yellow-500 dark:to-amber-600'
+                                    : 'bg-gradient-to-br from-slate-400 to-slate-500 dark:from-slate-600 dark:to-slate-700'
+                                }`}>
+                                  <Award className="w-5 h-5 text-white" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className={`text-xs font-semibold uppercase tracking-wide mb-1 ${
+                                    customer.is_vip
+                                      ? 'text-yellow-700 dark:text-yellow-400'
+                                      : 'text-slate-600 dark:text-slate-400'
+                                  }`}>
+                                    Membership Tier
+                                  </p>
+                                  <div className="flex items-center gap-2 mb-1.5">
+                                    {customer.is_vip ? (
+                                      <Badge className="bg-gradient-to-r from-yellow-500 to-amber-500 hover:from-yellow-600 hover:to-amber-600 text-white border-0 text-sm font-bold px-2.5 py-0.5 shadow-sm">
+                                        VIP
+                                      </Badge>
+                                    ) : (
+                                      <span className="text-xl font-bold text-slate-700 dark:text-slate-300">Standard</span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-1.5">
+                                    <div className={`w-1.5 h-1.5 rounded-full ${
+                                      customer.is_vip ? 'bg-yellow-500 dark:bg-yellow-400' : 'bg-slate-400 dark:bg-slate-500'
+                                    }`}></div>
+                                    <p className="text-xs text-slate-600 dark:text-slate-400 font-medium">
+                                      {customer.is_vip ? 'Premium benefits active' : 'Regular customer'}
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </DialogContent>

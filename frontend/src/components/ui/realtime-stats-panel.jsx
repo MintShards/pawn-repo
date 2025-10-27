@@ -148,16 +148,7 @@ export const StatsPanel = memo(({
               theme={stat.theme}
               isLoading={isLoading}
               description={stat.metric?.description}
-              className="transition-all duration-300 hover:scale-105 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-              onClick={() => handleStatClick(stat)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  handleStatClick(stat);
-                }
-              }}
-              tabIndex={0}
-              role="button"
+              className="select-none pointer-events-none"
               aria-label={stat.ariaLabel}
             />
         ))}
