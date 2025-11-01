@@ -4,11 +4,12 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 class AuthService {
   constructor() {
-    this.token = localStorage.getItem('pawn_repo_token');
-    this.refreshToken = localStorage.getItem('pawn_repo_refresh_token');
+    // Use sessionStorage for tab-isolated authentication
+    this.token = sessionStorage.getItem('pawn_repo_token');
+    this.refreshToken = sessionStorage.getItem('pawn_repo_refresh_token');
     this.lastVerifyCall = 0;
     this.verifyThrottleMs = 30000; // Only allow verify calls every 30 seconds
-    
+
     // EMERGENCY: Rate limit protection
     this.requestQueue = new Map(); // Track ongoing requests
     this.requestCache = new Map(); // Cache recent responses
@@ -16,6 +17,11 @@ class AuthService {
     this.minRequestInterval = 50; // Reduced to 50ms for better responsiveness
     this.rateLimitRetryDelay = 1000; // Reduced to 1 second delay for rate limit retries
     this.cacheExpiry = 20000; // Reduced to 20 second cache for more up-to-date data
+
+    // Session validation cache to prevent excessive /verify calls
+    this.lastSessionCheck = 0;
+    this.sessionCheckInterval = 25000; // Cache session validity for 25 seconds (slightly less than 30s interval)
+    this.lastSessionValid = null;
   }
 
   async login(userCredentials) {
@@ -31,19 +37,34 @@ class AuthService {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Login failed');
+        let errorData = {};
+        try {
+          errorData = await response.json();
+        } catch (parseError) {
+          console.error('Failed to parse error response:', parseError);
+          throw new Error('Login failed - unable to read error details');
+        }
+
+        // Extract error message from various possible fields (check nested details.message first)
+        const errorMessage =
+          errorData.detail ||                    // FastAPI HTTPException
+          (errorData.details && errorData.details.message) ||  // Nested exception middleware format
+          errorData.message ||                   // Top-level message
+          errorData.error ||                     // Error field
+          'Login failed';                        // Fallback
+
+        throw new Error(errorMessage);
       }
 
       const data = await response.json();
-      
+
       if (data.access_token) {
-        localStorage.setItem('pawn_repo_token', data.access_token);
+        sessionStorage.setItem('pawn_repo_token', data.access_token);
         this.token = data.access_token;
       }
-      
+
       if (data.refresh_token) {
-        localStorage.setItem('pawn_repo_refresh_token', data.refresh_token);
+        sessionStorage.setItem('pawn_repo_refresh_token', data.refresh_token);
         this.refreshToken = data.refresh_token;
       }
 
@@ -81,15 +102,15 @@ class AuthService {
       }
 
       const data = await response.json();
-      
+
       if (data.access_token) {
-        localStorage.setItem('pawn_repo_token', data.access_token);
+        sessionStorage.setItem('pawn_repo_token', data.access_token);
         this.token = data.access_token;
       }
-      
+
       // Backend only returns new access token, refresh token stays the same
       if (data.refresh_token) {
-        localStorage.setItem('pawn_repo_refresh_token', data.refresh_token);
+        sessionStorage.setItem('pawn_repo_refresh_token', data.refresh_token);
         this.refreshToken = data.refresh_token;
       }
 
@@ -152,7 +173,7 @@ class AuthService {
     try {
       // Update timestamp before making the call
       this.lastVerifyCall = now;
-      
+
       const response = await fetch(`${API_BASE_URL}/api/v1/auth/jwt/verify`, {
         method: 'GET',
         headers: {
@@ -182,6 +203,64 @@ class AuthService {
     }
   }
 
+  async checkSessionValid() {
+    if (!this.token) {
+      return false;
+    }
+
+    // Cache session validity check for 25 seconds to prevent excessive API calls
+    // This aligns with the 30-second validation interval to minimize redundant checks
+    const now = Date.now();
+    if (now - this.lastSessionCheck < this.sessionCheckInterval && this.lastSessionValid !== null) {
+      return this.lastSessionValid;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/auth/jwt/verify`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        // Cache successful validation
+        this.lastSessionCheck = now;
+        this.lastSessionValid = true;
+        return true;
+      }
+
+      // Check for session revocation specifically
+      if (response.status === 401) {
+        const errorData = await response.json().catch(() => ({}));
+        const errorMessage = errorData.detail || errorData.message || '';
+
+        if (errorMessage.toLowerCase().includes('session has been revoked') ||
+            errorMessage.toLowerCase().includes('session revoked')) {
+          // Clear cache on revocation - this is a definite revocation
+          this.lastSessionCheck = 0;
+          this.lastSessionValid = false;
+          return false; // Session revoked
+        }
+      }
+
+      // Other 401 errors or non-200 responses - treat as invalid but not necessarily revoked
+      this.lastSessionCheck = now;
+      this.lastSessionValid = false;
+      return false;
+    } catch (error) {
+      // Network error or fetch failure - do NOT cache this result
+      // We want to retry on next check, not assume session is invalid
+      // This prevents logout on temporary network issues
+      console.warn('Session validation network error:', error.message);
+
+      // Don't update cache on network errors - return null to signal "unknown"
+      // Caller should handle this gracefully (keep user logged in)
+      throw error; // Re-throw so caller knows this was a network error, not revocation
+    }
+  }
+
   async getCurrentUser() {
     if (!this.token) return null;
 
@@ -205,12 +284,15 @@ class AuthService {
   }
 
   logout() {
-    localStorage.removeItem('pawn_repo_token');
-    localStorage.removeItem('pawn_repo_refresh_token');
+    sessionStorage.removeItem('pawn_repo_token');
+    sessionStorage.removeItem('pawn_repo_refresh_token');
     this.token = null;
     this.refreshToken = null;
     // Clear caches on logout
     this.clearCache();
+    // Clear session validation cache
+    this.lastSessionCheck = 0;
+    this.lastSessionValid = null;
   }
   
   // EMERGENCY: Cache management utilities
@@ -356,6 +438,15 @@ class AuthService {
       // Check if this is an admin PIN error, not a token expiration
       const errorData = await response.clone().json().catch(() => ({}));
       const errorMessage = errorData.message || errorData.detail || errorData.details?.message || errorData.details?.detail || '';
+
+      // Check for session revocation - force immediate logout without retry
+      if (errorMessage.toLowerCase().includes('session has been revoked') ||
+          errorMessage.toLowerCase().includes('session revoked')) {
+        // Session was revoked by admin - force logout immediately
+        this.logout();
+        window.location.href = '/login?reason=session_revoked';
+        throw new Error('Your session has been revoked by an administrator. Please login again.');
+      }
 
       // Don't retry for admin PIN validation errors or other authentication errors
       if (errorMessage.toLowerCase().includes('admin pin') ||

@@ -41,6 +41,7 @@ from app.models.pawn_transaction_model import PawnTransaction
 from app.models.payment_model import Payment
 from app.models.service_alert_model import ServiceAlert
 from app.models.user_model import User
+from app.models.user_activity_log_model import UserActivityLog
 from app.models.transaction_metrics import TransactionMetrics
 
 # Database client, limiter, scheduler and logger
@@ -64,7 +65,7 @@ async def lifespan(app: FastAPI):
     
     await init_beanie(
         database=db_client,
-        document_models=[User, Customer, PawnTransaction, PawnItem, Payment, Extension, ServiceAlert, LoanConfig, TransactionMetrics]
+        document_models=[User, UserActivityLog, Customer, PawnTransaction, PawnItem, Payment, Extension, ServiceAlert, LoanConfig, TransactionMetrics]
     )
     
     # Initialize Redis-based services

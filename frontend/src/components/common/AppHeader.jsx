@@ -12,6 +12,7 @@ import {
   CreditCard,
   Crown,
   UserCheck,
+  Shield,
 } from 'lucide-react';
 import { getRoleTitle, getUserDisplayString } from '../../utils/roleUtils';
 
@@ -76,8 +77,6 @@ const AppHeader = ({ pageTitle = 'Dashboard' }) => {
                 </Button>
               )}
 
-              <div className="h-6 w-px bg-slate-200 dark:bg-slate-700 mx-2"></div>
-
               {isActivePage('/transactions') ? (
                 <div className="flex items-center space-x-2 px-3 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/50 dark:to-indigo-950/50 rounded-lg border border-blue-100 dark:border-blue-900/50">
                   <CreditCard className="w-4 h-4 text-blue-600 dark:text-blue-400" />
@@ -115,6 +114,30 @@ const AppHeader = ({ pageTitle = 'Dashboard' }) => {
                   Customers
                 </Button>
               )}
+
+              {/* Admin-only navigation */}
+              {user?.role === 'admin' && (
+                <>
+                  {isActivePage('/admin/users') ? (
+                    <div className="flex items-center space-x-2 px-3 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/50 dark:to-indigo-950/50 rounded-lg border border-blue-100 dark:border-blue-900/50">
+                      <Shield className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                      <span className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                        Users
+                      </span>
+                    </div>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => navigate('/admin/users')}
+                      className="h-9 px-3 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100"
+                    >
+                      <Shield className="w-4 h-4 mr-2" />
+                      Users
+                    </Button>
+                  )}
+                </>
+              )}
             </nav>
           </div>
 
@@ -125,7 +148,7 @@ const AppHeader = ({ pageTitle = 'Dashboard' }) => {
               <div className="flex items-center space-x-3 px-4 py-2">
                 <Avatar className="h-8 w-8">
                   <AvatarImage
-                    src={`https://api.dicebear.com/7.x/initials/svg?seed=${user?.user_id || 'XX'}&backgroundColor=f59e0b`}
+                    src={`https://api.dicebear.com/7.x/bottts/svg?seed=${user?.user_id || 'XX'}`}
                   />
                   <AvatarFallback className="bg-amber-500 text-white text-xs font-semibold">
                     {user?.user_id || 'XX'}

@@ -36,6 +36,7 @@ class UserCreate(BaseModel):
     first_name: str = Field(..., min_length=1, max_length=50)
     last_name: str = Field(..., min_length=1, max_length=50)
     email: Optional[EmailStr] = None
+    phone: str = Field(..., description="10-digit phone number (required)", pattern=r'^\d{10}$')
     role: UserRole = Field(default=UserRole.STAFF)
     notes: Optional[str] = Field(None, max_length=500, description="Internal admin notes")
     
@@ -55,6 +56,21 @@ class UserCreate(BaseModel):
             raise ValueError(f'PIN must be exactly {AuthConfig.MIN_PIN_LENGTH} digits')
         return v
 
+    @field_validator('phone')
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
+        """Validate phone number format (10 digits) - REQUIRED"""
+        if not v:
+            raise ValueError('Phone number is required')
+        if not isinstance(v, str):
+            raise ValueError('Phone number must be a string')
+        # Remove any non-digit characters for validation
+        digits_only = re.sub(r'\D', '', v)
+        if len(digits_only) != 10:
+            raise ValueError('Phone number must be exactly 10 digits')
+        # Return only digits
+        return digits_only
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -63,6 +79,7 @@ class UserCreate(BaseModel):
                 "first_name": "John",
                 "last_name": "Doe",
                 "email": "john.doe@pawnshop.com",
+                "phone": "5551234567",
                 "role": "staff",
                 "notes": "New staff member"
             }
@@ -74,9 +91,25 @@ class UserUpdate(BaseModel):
     first_name: Optional[str] = Field(None, min_length=1, max_length=50)
     last_name: Optional[str] = Field(None, min_length=1, max_length=50)
     email: Optional[EmailStr] = None
+    phone: Optional[str] = Field(None, description="10-digit phone number", pattern=r'^\d{10}$')
     role: Optional[UserRole] = None
     status: Optional[UserStatus] = None
     notes: Optional[str] = Field(None, max_length=500)
+
+    @field_validator('phone')
+    @classmethod
+    def validate_phone(cls, v: Optional[str]) -> Optional[str]:
+        """Validate phone number format (10 digits)"""
+        if v is None:
+            return v
+        if not isinstance(v, str):
+            raise ValueError('Phone number must be a string')
+        # Remove any non-digit characters for validation
+        digits_only = re.sub(r'\D', '', v)
+        if len(digits_only) != 10:
+            raise ValueError('Phone number must be exactly 10 digits')
+        # Return only digits
+        return digits_only
 
     class Config:
         json_schema_extra = {
@@ -84,6 +117,7 @@ class UserUpdate(BaseModel):
                 "first_name": "John",
                 "last_name": "Smith",
                 "email": "john.smith@pawnshop.com",
+                "phone": "5551234567",
                 "role": "admin",
                 "status": "active",
                 "notes": "Promoted to admin"
@@ -115,10 +149,13 @@ class UserResponse(BaseModel):
     first_name: str
     last_name: str
     email: Optional[EmailStr]
+    phone: str  # Required field
     role: UserRole
     status: UserStatus
     created_at: datetime
     last_login: Optional[datetime]
+    locked_until: Optional[datetime] = None  # For showing unlock option in UI
+    failed_login_attempts: int = 0  # For showing lock status
     notes: Optional[str] = None  # Only visible to admins
 
     class Config:
@@ -129,6 +166,7 @@ class UserResponse(BaseModel):
                 "first_name": "John",
                 "last_name": "Doe",
                 "email": "john.doe@pawnshop.com",
+                "phone": "5551234567",
                 "role": "staff",
                 "status": "active",
                 "created_at": "2024-01-01T10:00:00Z",
@@ -168,6 +206,7 @@ class UserListResponse(BaseModel):
                         "first_name": "John",
                         "last_name": "Doe",
                         "email": "john.doe@pawnshop.com",
+                        "phone": "5551234567",
                         "role": "staff",
                         "status": "active",
                         "created_at": "2024-01-01T10:00:00Z",
@@ -235,6 +274,7 @@ class UserStatsResponse(BaseModel):
     admin_users: int
     staff_users: int
     users_created_today: int
+    users_created_this_month: int
     recent_logins: int
 
     class Config:

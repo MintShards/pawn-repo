@@ -64,163 +64,7 @@ import extensionService from '../../services/extensionService';
 import { initializeSequenceNumbers, formatTransactionId, formatExtensionId, formatStorageLocation, formatCurrency, formatCount } from '../../utils/transactionUtils';
 import { formatBusinessDate } from '../../utils/timezoneUtils';
 import { useOptimisticTransactionUpdate } from '../../hooks/useOptimisticTransactionUpdate';
-
-// Optimized Pagination Component with memoization
-const PaginationBar = React.memo(({
-  currentPage,
-  totalPages,
-  transactionsPerPage,
-  effectiveTotalTransactions,
-  onPageChange,
-  onPageSizeChange
-}) => {
-  // Memoize pagination range calculation
-  const pageNumbers = useMemo(() => {
-    if (totalPages <= 1) return [];
-
-    const pages = [];
-    const maxVisible = 7; // Maximum number of page buttons to show
-
-    if (totalPages <= maxVisible) {
-      // Show all pages if total is small
-      for (let i = 1; i <= totalPages; i++) {
-        pages.push(i);
-      }
-    } else {
-      // Smart pagination: show first, last, current, and surrounding pages
-      const leftSiblingIndex = Math.max(currentPage - 1, 1);
-      const rightSiblingIndex = Math.min(currentPage + 1, totalPages);
-
-      const showLeftDots = leftSiblingIndex > 2;
-      const showRightDots = rightSiblingIndex < totalPages - 1;
-
-      // Always show first page
-      pages.push(1);
-
-      // Show left dots if needed
-      if (showLeftDots) {
-        pages.push('left-dots');
-      }
-
-      // Show range around current page
-      for (let i = leftSiblingIndex; i <= rightSiblingIndex; i++) {
-        if (i !== 1 && i !== totalPages) {
-          pages.push(i);
-        }
-      }
-
-      // Show right dots if needed
-      if (showRightDots) {
-        pages.push('right-dots');
-      }
-
-      // Always show last page
-      if (totalPages !== 1) {
-        pages.push(totalPages);
-      }
-    }
-
-    return pages;
-  }, [currentPage, totalPages]);
-
-  // Memoize display text
-  const displayText = useMemo(() => {
-    const start = Math.min((currentPage - 1) * transactionsPerPage + 1, effectiveTotalTransactions);
-    const end = Math.min(currentPage * transactionsPerPage, effectiveTotalTransactions);
-    return `Showing ${start}-${end} of ${effectiveTotalTransactions} transactions`;
-  }, [currentPage, transactionsPerPage, effectiveTotalTransactions]);
-
-  // Memoize page change handler
-  const handlePageChange = useCallback((pageNum) => {
-    return (e) => {
-      e.preventDefault();
-      onPageChange(pageNum);
-    };
-  }, [onPageChange]);
-
-  // Memoize previous/next handlers
-  const handlePrevious = useCallback((e) => {
-    e.preventDefault();
-    onPageChange(prev => Math.max(1, prev - 1));
-  }, [onPageChange]);
-
-  const handleNext = useCallback((e) => {
-    e.preventDefault();
-    onPageChange(prev => Math.min(totalPages, prev + 1));
-  }, [onPageChange, totalPages]);
-
-  return (
-    <div className="!mt-0 mb-0 flex items-center justify-between px-6 py-2">
-      <div className="flex items-center gap-4">
-        <div className="text-sm text-muted-foreground font-medium">
-          {displayText}
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">Show:</span>
-          <Select
-            value={transactionsPerPage.toString()}
-            onValueChange={onPageSizeChange}
-          >
-            <SelectTrigger className="w-20 h-8">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="5">5</SelectItem>
-              <SelectItem value="10">10</SelectItem>
-              <SelectItem value="20">20</SelectItem>
-              <SelectItem value="50">50</SelectItem>
-              <SelectItem value="100">100</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      {totalPages > 1 && (
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handlePrevious}
-            disabled={currentPage === 1}
-          >
-            Previous
-          </Button>
-
-          <div className="flex items-center gap-1">
-            {pageNumbers.map((pageNum, index) => {
-              if (pageNum === 'left-dots' || pageNum === 'right-dots') {
-                return <span key={`dots-${index}`} className="px-1">...</span>;
-              }
-
-              return (
-                <Button
-                  key={pageNum}
-                  variant="outline"
-                  size="sm"
-                  className={`w-8 h-8 p-0 ${currentPage === pageNum ? 'bg-orange-600 text-white border-orange-600 hover:bg-orange-700' : 'hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-100'}`}
-                  onClick={handlePageChange(pageNum)}
-                >
-                  {pageNum}
-                </Button>
-              );
-            })}
-          </div>
-
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleNext}
-            disabled={currentPage === totalPages}
-          >
-            Next
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-});
-
-PaginationBar.displayName = 'PaginationBar';
+import UnifiedPagination from '../ui/unified-pagination';
 
 const TransactionList = ({ 
   onCreateNew, 
@@ -1894,28 +1738,70 @@ const TransactionList = ({
                   </TableBody>
                 </Table>
               </div>
+
+              {/* Pagination for table view */}
+              {effectiveTotalTransactions > 0 && (
+                <div className="border-t border-slate-200 dark:border-slate-700 px-6 py-4">
+                  <UnifiedPagination
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    pageSize={transactionsPerPage}
+                    totalItems={effectiveTotalTransactions}
+                    onPageChange={setCurrentPage}
+                    onPageSizeChange={(value) => {
+                      setTransactionsPerPage(value);
+                      setCurrentPage(1);
+                    }}
+                    pageSizeOptions={[5, 10, 20, 50, 100]}
+                    theme={{ primary: 'orange' }}
+                    itemLabel="transactions"
+                  />
+                </div>
+              )}
             </Card>
           ) : (
             /* Enhanced Card View */
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-              {paginatedTransactions.map((transaction) => (
-                <TransactionCard
-                  key={transaction.transaction_id}
-                  transaction={transaction}
-                  onView={onViewTransaction}
-                  onViewCustomer={onViewCustomer}
-                  onPayment={onPayment}
-                  onExtension={onExtension}
-                  onStatusUpdate={onStatusUpdate}
-                  onVoidTransaction={onVoidTransaction}
-                  isSelected={selectedTransactionIds.includes(transaction.transaction_id)}
-                  onSelect={() => handleSelectTransaction(transaction.transaction_id)}
-                  refreshTrigger={refreshTrigger}
-                  customerData={customerData}
-                  balance={transactionBalances[transaction.transaction_id]}
-                />
-              ))}
-            </div>
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                {paginatedTransactions.map((transaction) => (
+                  <TransactionCard
+                    key={transaction.transaction_id}
+                    transaction={transaction}
+                    onView={onViewTransaction}
+                    onViewCustomer={onViewCustomer}
+                    onPayment={onPayment}
+                    onExtension={onExtension}
+                    onStatusUpdate={onStatusUpdate}
+                    onVoidTransaction={onVoidTransaction}
+                    isSelected={selectedTransactionIds.includes(transaction.transaction_id)}
+                    onSelect={() => handleSelectTransaction(transaction.transaction_id)}
+                    refreshTrigger={refreshTrigger}
+                    customerData={customerData}
+                    balance={transactionBalances[transaction.transaction_id]}
+                  />
+                ))}
+              </div>
+
+              {/* Pagination for card view */}
+              {effectiveTotalTransactions > 0 && (
+                <div className="border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-6 py-4 rounded-lg mt-6">
+                  <UnifiedPagination
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    pageSize={transactionsPerPage}
+                    totalItems={effectiveTotalTransactions}
+                    onPageChange={setCurrentPage}
+                    onPageSizeChange={(value) => {
+                      setTransactionsPerPage(value);
+                      setCurrentPage(1);
+                    }}
+                    pageSizeOptions={[5, 10, 20, 50, 100]}
+                    theme={{ primary: 'orange' }}
+                    itemLabel="transactions"
+                  />
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -2006,21 +1892,6 @@ const TransactionList = ({
             </div>
           </CardContent>
         </Card>
-      )}
-
-      {/* Enhanced Pagination - Always show if there are transactions */}
-      {effectiveTotalTransactions > 0 && (
-        <PaginationBar
-          currentPage={currentPage}
-          totalPages={totalPages}
-          transactionsPerPage={transactionsPerPage}
-          effectiveTotalTransactions={effectiveTotalTransactions}
-          onPageChange={setCurrentPage}
-          onPageSizeChange={(value) => {
-            setTransactionsPerPage(parseInt(value));
-            setCurrentPage(1);
-          }}
-        />
       )}
 
       {/* Bulk Status Update Dialog */}

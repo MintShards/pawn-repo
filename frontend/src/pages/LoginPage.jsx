@@ -1,5 +1,6 @@
-import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { toast } from 'sonner';
 import {
   Card,
   CardContent,
@@ -20,6 +21,18 @@ import {
 
 const LoginPage = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  // Check for session revocation notice
+  useEffect(() => {
+    const reason = searchParams.get('reason');
+    if (reason === 'session_revoked') {
+      toast.error('Session Revoked', {
+        description: 'Your session has been revoked by an administrator. Please login again.',
+        duration: 6000,
+      });
+    }
+  }, [searchParams]);
 
   const handleLoginSuccess = (user) => {
     // Redirect to dashboard on successful login

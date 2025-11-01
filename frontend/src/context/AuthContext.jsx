@@ -51,13 +51,30 @@ export const AuthProvider = ({ children }) => {
     enabled: isAuthenticated
   });
 
-  // Automatic token refresh - check every 5 minutes for proactive refresh
+  // Automatic token refresh and session validation - check every 30 seconds
   useEffect(() => {
     if (!isAuthenticated) return;
 
     const refreshInterval = setInterval(async () => {
       const currentToken = authService.getToken();
       if (!currentToken) return;
+
+      // Validate session is still active by checking token validity
+      try {
+        const isValid = await authService.checkSessionValid();
+        if (!isValid) {
+          // Session has been revoked or token is invalid - logout
+          logout('session_invalid');
+          window.location.href = '/login?reason=session_revoked';
+          return;
+        }
+      } catch (error) {
+        // Network error during session check - do NOT logout
+        // This could be temporary network issue, backend restart, etc.
+        // User stays logged in, will retry in 30 seconds
+        console.warn('Session validation failed (network error), will retry:', error.message);
+        return; // Skip to next interval check
+      }
 
       // Check if token is expiring soon (within 5 minutes)
       if (authService.isTokenExpiringSoon(currentToken)) {
@@ -72,16 +89,16 @@ export const AuthProvider = ({ children }) => {
           // Token auto-refresh error
         }
       }
-    }, 5 * 60 * 1000); // Check every 5 minutes for proactive refresh
+    }, 30 * 1000); // Check every 30 seconds for session validation
 
     return () => clearInterval(refreshInterval);
-  }, [isAuthenticated]);
+  }, [isAuthenticated]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const initializeAuth = useCallback(async () => {
     try {
       // Initialize authentication state
       const hasToken = !!authService.getToken();
-      const hasRefreshToken = !!localStorage.getItem('pawn_repo_refresh_token');
+      const hasRefreshToken = !!sessionStorage.getItem('pawn_repo_refresh_token');
       
       if (!hasToken) {
         // No access token found
@@ -101,13 +118,35 @@ export const AuthProvider = ({ children }) => {
           setLoading(false);
           return;
         }
-        
-        // Trust the stored tokens and set authenticated state
+
+        // CRITICAL: Validate session before trusting token to prevent request loops
+        // Check if session has been revoked before setting authenticated state
+        try {
+          const isValid = await authService.checkSessionValid();
+          if (!isValid) {
+            // Session has been revoked - clear auth and redirect to login
+            authService.logout();
+            setIsAuthenticated(false);
+            setLoading(false);
+            window.location.href = '/login?reason=session_revoked';
+            return;
+          }
+        } catch (error) {
+          // Session validation failed - but be resilient to network errors
+          // Only logout if it's definitely a session revocation, not a network issue
+          console.warn('Session validation failed during initialization:', error);
+
+          // If we have a valid token and refresh token, trust them temporarily
+          // The 30-second interval will catch revocations once network is restored
+          // This prevents logout on temporary network issues during page refresh
+        }
+
+        // Session is valid - trust the stored tokens and set authenticated state
         setIsAuthenticated(true);
-        
+
         // Don't fetch user data here - let components request it when needed
         // This prevents request storms during initialization
-        
+
         // Start security timer for existing session
         setTimeout(() => startTimer(), 200);
         setLoading(false);
@@ -131,6 +170,14 @@ export const AuthProvider = ({ children }) => {
   }, [startTimer]);
 
   useEffect(() => {
+    // One-time migration: Clear old localStorage tokens
+    // This ensures clean transition from localStorage to sessionStorage
+    if (localStorage.getItem('pawn_repo_token') || localStorage.getItem('pawn_repo_refresh_token')) {
+      localStorage.removeItem('pawn_repo_token');
+      localStorage.removeItem('pawn_repo_refresh_token');
+      // Migration: Cleared old localStorage tokens
+    }
+
     initializeAuth();
   }, [initializeAuth]);
 
@@ -161,9 +208,10 @@ export const AuthProvider = ({ children }) => {
       }
     } catch (error) {
       // Login error
-      return { 
-        success: false, 
-        error: error.message || 'Login failed. Please check your credentials.' 
+      console.log('AuthContext login error:', error);
+      return {
+        success: false,
+        error: error.message || 'Login failed. Please check your credentials.'
       };
     } finally {
       setLoading(false);

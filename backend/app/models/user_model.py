@@ -29,7 +29,9 @@ class AuthenticationError(Exception):
 
 class AccountLockedError(AuthenticationError):
     """Raised when account is locked due to failed attempts"""
-    pass
+    def __init__(self, message: str, locked_until: Optional[datetime] = None):
+        super().__init__(message)
+        self.locked_until = locked_until
 
 
 class InvalidCredentialsError(AuthenticationError):
@@ -67,7 +69,8 @@ class User(Document):
     first_name: str = Field(..., min_length=1, max_length=50)
     last_name: str = Field(..., min_length=1, max_length=50)
     email: Optional[EmailStr] = Field(None)
-    
+    phone: str = Field(..., description="10-digit phone number (required)", pattern=r'^\d{10}$')
+
     # Role and status
     role: UserRole = Field(default=UserRole.STAFF)
     status: UserStatus = Field(default=UserStatus.ACTIVE)
@@ -109,7 +112,22 @@ class User(Document):
         if not v.startswith('$2b$'):
             raise ValueError('PIN hash must be a valid bcrypt hash')
         return v
-    
+
+    @field_validator('phone')
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
+        """Validate phone number format (10 digits) - REQUIRED"""
+        if not v:
+            raise ValueError('Phone number is required')
+        if not isinstance(v, str):
+            raise ValueError('Phone number must be a string')
+        # Remove any non-digit characters for validation
+        digits_only = re.sub(r'\D', '', v)
+        if len(digits_only) != 10:
+            raise ValueError('Phone number must be exactly 10 digits')
+        # Return only digits
+        return digits_only
+
     def is_locked(self) -> bool:
         """Check if user account is locked due to failed login attempts"""
         if self.locked_until and self.locked_until > datetime.utcnow():
@@ -211,6 +229,7 @@ class User(Document):
         indexes = [
             "user_id",
             "email",
+            "phone",  # For phone number lookups
             "role",
             "status",
             "created_at",  # Added for audit queries
@@ -225,6 +244,7 @@ class User(Document):
                 "first_name": "John",
                 "last_name": "Doe",
                 "email": "john.doe@pawnshop.com",
+                "phone": "5551234567",
                 "role": "staff",
                 "status": "active",
                 "notes": "Regular staff member"

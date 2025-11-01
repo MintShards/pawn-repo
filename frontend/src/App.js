@@ -8,6 +8,7 @@ import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import CustomersPage from './pages/CustomersPage';
 import TransactionHub from './pages/TransactionHub';
+import UserManagementPage from './pages/UserManagementPage';
 import { Toaster } from './components/ui/sonner';
 
 function App() {
@@ -45,15 +46,24 @@ function App() {
                 } 
               />
               
-              <Route 
-                path="/transactions" 
+              <Route
+                path="/transactions"
                 element={
                   <ProtectedRoute>
                     <TransactionHub />
                   </ProtectedRoute>
-                } 
+                }
               />
-              
+
+              <Route
+                path="/admin/users"
+                element={
+                  <ProtectedRoute>
+                    <UserManagementPage />
+                  </ProtectedRoute>
+                }
+              />
+
               {/* Redirect root to dashboard */}
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               

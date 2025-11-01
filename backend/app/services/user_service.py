@@ -8,11 +8,13 @@ from fastapi import HTTPException, status
 from app.models.user_model import User, UserRole, UserStatus, AuthConfig
 from app.models.user_model import AuthenticationError, AccountLockedError, InvalidCredentialsError
 from app.schemas.user_schema import (
-    UserCreate, UserUpdate, UserAuth, UserPinChange, 
-    UserResponse, UserDetailResponse, UserListResponse, 
+    UserCreate, UserUpdate, UserAuth, UserPinChange,
+    UserResponse, UserDetailResponse, UserListResponse,
     LoginResponse, UserStatsResponse, UserFilters
 )
 from app.core.config import settings
+from app.services.user_activity_service import UserActivityService
+from app.models.user_activity_log_model import UserActivityType
 
 class UserService:
     
@@ -36,22 +38,40 @@ class UserService:
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail="Email address already registered"
                     )
-            
+
+            # Check if phone number already exists (if provided)
+            if user_data.phone:
+                existing_phone = await User.find_one(User.phone == user_data.phone)
+                if existing_phone:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Phone number already registered"
+                    )
+
             # Hash the PIN
             pin_hash = User.hash_pin(user_data.pin)
-            
-            # Create user document
-            user = User(
-                user_id=user_data.user_id,
-                pin_hash=pin_hash,
-                first_name=user_data.first_name,
-                last_name=user_data.last_name,
-                email=user_data.email,
-                role=user_data.role,
-                notes=user_data.notes,
-                created_by=created_by,
-                password_changed_at=datetime.utcnow()
-            )
+
+            # Create user document (exclude None email to avoid sparse index issues)
+            user_dict = {
+                "user_id": user_data.user_id,
+                "pin_hash": pin_hash,
+                "first_name": user_data.first_name,
+                "last_name": user_data.last_name,
+                "phone": user_data.phone,
+                "role": user_data.role,
+                "created_by": created_by,
+                "password_changed_at": datetime.utcnow()
+            }
+
+            # Only include email if it's not None (sparse index compatibility)
+            if user_data.email:
+                user_dict["email"] = user_data.email
+
+            # Only include notes if it's not None
+            if user_data.notes:
+                user_dict["notes"] = user_data.notes
+
+            user = User(**user_dict)
             
             await user.insert()
             return UserResponse.model_validate(user.model_dump())
@@ -81,7 +101,10 @@ class UserService:
             
             # Check if account is locked
             if user.is_locked():
-                raise AccountLockedError(f"Account locked until {user.locked_until}")
+                raise AccountLockedError(
+                    "Account locked due to too many failed login attempts",
+                    locked_until=user.locked_until
+                )
             
             # Check if user is active
             if user.status != UserStatus.ACTIVE:
@@ -94,22 +117,31 @@ class UserService:
             if not user.verify_pin(auth_data.pin):
                 user.increment_failed_login()
                 await user.save()
-                
+
                 attempts_remaining = AuthConfig.MAX_FAILED_LOGIN_ATTEMPTS - user.failed_login_attempts
                 if attempts_remaining <= 0:
-                    raise AccountLockedError("Account locked due to too many failed attempts")
-                
+                    # Log account lockout activity
+                    await UserActivityService.log_account_locked(
+                        user_id=user.user_id,
+                        reason="Too many failed login attempts"
+                    )
+
+                    raise AccountLockedError(
+                        "Account locked due to too many failed login attempts",
+                        locked_until=user.locked_until
+                    )
+
                 raise InvalidCredentialsError(f"Invalid user ID or PIN. {attempts_remaining} attempts remaining")
             
             # Successful login
             user.update_last_login()
-            
-            # Generate JWT token
-            access_token = UserService._create_access_token(user)
-            
-            # Generate session ID  
+
+            # Generate session ID first
             session_id = f"sess_{secrets.token_urlsafe(16)}"
             user.add_session(session_id)
+
+            # Generate JWT token with session ID
+            access_token = UserService._create_access_token(user, session_id=session_id)
             
             # Use try/catch around save to handle concurrent modifications gracefully
             try:
@@ -177,16 +209,41 @@ class UserService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Email address already registered"
                 )
-        
-        # Apply updates
+
+        # Check phone number uniqueness if being updated
+        if update_data.phone and update_data.phone != user.phone:
+            existing_phone = await User.find_one(User.phone == update_data.phone)
+            if existing_phone:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Phone number already registered"
+                )
+
+        # Apply updates using MongoDB's atomic $set operation (bypass Beanie revision checking)
         update_dict = update_data.model_dump(exclude_unset=True)
-        for field, value in update_dict.items():
-            setattr(user, field, value)
-        
-        user.updated_at = datetime.utcnow()
-        await user.save()
-        
-        return UserResponse.model_validate(user.model_dump())
+        update_dict["updated_at"] = datetime.utcnow()
+
+        # Remove email and notes from update if they're None (sparse index compatibility)
+        if "email" in update_dict and update_dict["email"] is None:
+            del update_dict["email"]
+        if "notes" in update_dict and update_dict["notes"] is None:
+            del update_dict["notes"]
+
+        # Use MongoDB collection directly to bypass revision checking
+        await User.get_motor_collection().update_one(
+            {"user_id": user_id},
+            {"$set": update_dict}
+        )
+
+        # Fetch updated user to return
+        updated_user = await User.find_one(User.user_id == user_id)
+        if not updated_user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found after update"
+            )
+
+        return UserResponse.model_validate(updated_user.model_dump())
     
     @staticmethod
     async def change_pin(user_id: str, pin_data: UserPinChange) -> dict:
@@ -237,6 +294,7 @@ class UserService:
                     {"first_name": {"$regex": filters.search, "$options": "i"}},
                     {"last_name": {"$regex": filters.search, "$options": "i"}},
                     {"email": {"$regex": filters.search, "$options": "i"}},
+                    {"phone": {"$regex": filters.search, "$options": "i"}},
                     {"user_id": {"$regex": filters.search, "$options": "i"}}
                 ]
             })
@@ -280,33 +338,46 @@ class UserService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="User not found"
             )
-        
-        user.status = UserStatus.DEACTIVATED
-        user.updated_at = datetime.utcnow()
-        await user.save()
-        
+
+        # Use MongoDB collection directly to bypass revision checking
+        await User.get_motor_collection().update_one(
+            {"user_id": user_id},
+            {"$set": {
+                "status": UserStatus.DEACTIVATED.value,
+                "updated_at": datetime.utcnow()
+            }}
+        )
+
         return {"message": "User deactivated successfully"}
     
     @staticmethod
-    async def get_user_stats() -> UserStatsResponse:
-        """Get user statistics for admin dashboard"""
-        today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-        
+    async def get_user_stats(timezone_header: Optional[str] = None) -> UserStatsResponse:
+        """Get user statistics for admin dashboard using business timezone"""
+        from app.core.timezone_utils import get_user_business_date, get_user_now
+
+        # Get business date boundaries in user's timezone
+        business_today = get_user_business_date(timezone_header)
+
+        # Get first day of current month in user's timezone
+        user_now = get_user_now(timezone_header)
+        first_day_of_month = user_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
         # Aggregate statistics
         total_users = await User.find().count()
         active_users = await User.find(User.status == UserStatus.ACTIVE).count()
         suspended_users = await User.find(User.status == UserStatus.SUSPENDED).count()
         admin_users = await User.find(User.role == UserRole.ADMIN).count()
         staff_users = await User.find(User.role == UserRole.STAFF).count()
-        users_created_today = await User.find(User.created_at >= today).count()
-        recent_logins = await User.find(User.last_login >= today).count()
-        
+        users_created_today = await User.find(User.created_at >= business_today).count()
+        users_created_this_month = await User.find(User.created_at >= first_day_of_month).count()
+        recent_logins = await User.find(User.last_login >= business_today).count()
+
         # Count locked users
         current_time = datetime.utcnow()
         locked_users = await User.find({
             "locked_until": {"$exists": True, "$gte": current_time}
         }).count()
-        
+
         return UserStatsResponse(
             total_users=total_users,
             active_users=active_users,
@@ -315,6 +386,7 @@ class UserService:
             admin_users=admin_users,
             staff_users=staff_users,
             users_created_today=users_created_today,
+            users_created_this_month=users_created_this_month,
             recent_logins=recent_logins
         )
     
@@ -329,8 +401,8 @@ class UserService:
         return {"message": "Logged out successfully"}
     
     @staticmethod
-    def _create_access_token(user: User) -> str:
-        """Create JWT access token"""
+    def _create_access_token(user: User, session_id: str = None) -> str:
+        """Create JWT access token with optional session tracking"""
         payload = {
             "sub": user.user_id,
             "role": str(user.role),  # Handle both enum and string values
@@ -338,6 +410,11 @@ class UserService:
             "exp": datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRATION),
             "iat": datetime.utcnow()
         }
+
+        # Include session ID as jti (JWT ID) for session tracking
+        if session_id:
+            payload["jti"] = session_id
+
         return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.ALGORITHM)
     
     @staticmethod
@@ -375,18 +452,27 @@ class UserService:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="User not found"
             )
-        
+
         if user.status != UserStatus.ACTIVE:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Account is {user.status.value}"
             )
+
+        # Validate session is still active (if jti claim exists)
+        session_id = payload.get("jti")
+        if session_id and session_id not in user.active_sessions:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session has been revoked. Please login again",
+                headers={"WWW-Authenticate": "Bearer"}
+            )
         
         return user
     
     @staticmethod
-    def _create_refresh_token(user: User) -> str:
-        """Create JWT refresh token"""
+    def _create_refresh_token(user: User, session_id: str = None) -> str:
+        """Create JWT refresh token with optional session tracking"""
         payload = {
             "sub": user.user_id,
             "role": str(user.role),
@@ -395,6 +481,11 @@ class UserService:
             "iat": datetime.utcnow(),
             "token_type": "refresh"
         }
+
+        # Include session ID as jti (JWT ID) for session tracking
+        if session_id:
+            payload["jti"] = session_id
+
         return jwt.encode(payload, settings.JWT_REFRESH_SECRET_KEY, algorithm=settings.ALGORITHM)
     
     @staticmethod
@@ -448,9 +539,20 @@ class UserService:
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail=f"Account is {user.status.value}"
                 )
-            
-            # Generate new access token
-            new_access_token = UserService._create_access_token(user)
+
+            # Extract session ID from refresh token (if present)
+            session_id = payload.get("jti")
+
+            # Validate session is still active (if session tracking enabled)
+            if session_id and session_id not in user.active_sessions:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Session has been revoked. Please login again",
+                    headers={"WWW-Authenticate": "Bearer"}
+                )
+
+            # Generate new access token with same session ID
+            new_access_token = UserService._create_access_token(user, session_id=session_id)
             
             return {
                 "access_token": new_access_token,
@@ -476,9 +578,9 @@ class UserService:
             
             # Get the user for refresh token generation
             user = await User.find_one(User.user_id == auth_data.user_id)
-            
-            # Generate refresh token
-            refresh_token = UserService._create_refresh_token(user)
+
+            # Generate refresh token with session ID
+            refresh_token = UserService._create_refresh_token(user, session_id=login_response.session_id)
             
             # Return enhanced response with refresh token
             return {

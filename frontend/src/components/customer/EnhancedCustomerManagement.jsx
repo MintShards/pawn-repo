@@ -102,6 +102,7 @@ import transactionService from '../../services/transactionService';
 import paymentService from '../../services/paymentService';
 import extensionService from '../../services/extensionService';
 import authService from '../../services/authService';
+import UnifiedPagination from '../ui/unified-pagination';
 import CustomerDialog from './CustomerDialog';
 import AlertBellAction from './AlertBellAction';
 import ServiceAlertDialog from './ServiceAlertDialog';
@@ -1152,72 +1153,18 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
         )}
         
         {/* Pagination */}
-        {totalTransactionCount > pageSize && (
-          <div className="mt-6 flex items-center justify-between">
-            <div className="text-sm text-slate-600 dark:text-slate-400">
-              Showing {((currentPage - 1) * pageSize) + 1}-{Math.min(currentPage * pageSize, totalTransactionCount)} of {formatCount(totalTransactionCount)}
-            </div>
-            
-            <div className="flex items-center space-x-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                disabled={currentPage === 1}
-                className="h-8 px-3"
-              >
-                <ChevronLeft className="h-4 w-4" />
-                Previous
-              </Button>
-              
-              <div className="flex items-center space-x-1">
-                {/* Simple page numbers */}
-                {(() => {
-                  const totalPages = Math.ceil(totalTransactionCount / pageSize);
-                  const pages = [];
-                  
-                  // Show max 5 page buttons
-                  let startPage = Math.max(1, currentPage - 2);
-                  let endPage = Math.min(totalPages, startPage + 4);
-                  
-                  // Adjust start if we're near the end
-                  if (endPage - startPage < 4) {
-                    startPage = Math.max(1, endPage - 4);
-                  }
-                  
-                  for (let i = startPage; i <= endPage; i++) {
-                    pages.push(
-                      <Button
-                        key={i}
-                        variant={currentPage === i ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => setCurrentPage(i)}
-                        className={`h-8 w-8 p-0 ${
-                          currentPage === i
-                            ? 'bg-cyan-600 text-white hover:bg-cyan-700'
-                            : 'hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-100'
-                        }`}
-                      >
-                        {i}
-                      </Button>
-                    );
-                  }
-                  
-                  return pages;
-                })()}
-              </div>
-              
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setCurrentPage(prev => Math.min(Math.ceil(totalTransactionCount / pageSize), prev + 1))}
-                disabled={currentPage >= Math.ceil(totalTransactionCount / pageSize)}
-                className="h-8 px-3"
-              >
-                Next
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
+        {totalTransactionCount > 0 && (
+          <div className="border-t border-slate-200 dark:border-slate-700 pt-6">
+            <UnifiedPagination
+              currentPage={currentPage}
+              totalPages={Math.ceil(totalTransactionCount / pageSize)}
+              pageSize={pageSize}
+              totalItems={totalTransactionCount}
+              onPageChange={setCurrentPage}
+              theme={{ primary: 'cyan' }}
+              itemLabel="transactions"
+              showPageSizeSelector={false}
+            />
           </div>
         )}
       </CardContent>
@@ -4731,7 +4678,7 @@ const EnhancedCustomerManagement = () => {
               </>
             )}
           </div>
-        ) : (
+        ) : customerViewMode === 'list' ? (
           /* Desktop Table View */
           <Card className="shadow-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 relative overflow-hidden">
             {/* Gold accent line matching login page */}
@@ -5188,91 +5135,40 @@ const EnhancedCustomerManagement = () => {
               )}
               </TableBody>
             </Table>
-          </Card>
-        )}
 
-        {/* Results Summary and Pagination */}
-        {totalCustomers > 0 && (
-          <div className="mt-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="text-sm text-muted-foreground">
-              Showing {Math.min((currentPage - 1) * customersPerPage + 1, totalCustomers)}-{Math.min(currentPage * customersPerPage, totalCustomers)} of {totalCustomers} customers
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Show:</span>
-              <Select
-                value={customersPerPage.toString()}
-                onValueChange={handlePageSizeChange}
-              >
-                <SelectTrigger className="w-20 h-8">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="5">5</SelectItem>
-                  <SelectItem value="10">10</SelectItem>
-                  <SelectItem value="20">20</SelectItem>
-                  <SelectItem value="50">50</SelectItem>
-                  <SelectItem value="100">100</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          
-          {totalPages > 1 && (
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                disabled={currentPage === 1}
-              >
-                Previous
-              </Button>
-              
-              <div className="flex items-center gap-1">
-                {[...Array(totalPages)].map((_, index) => {
-                  const pageNumber = index + 1;
-                  // Show first page, last page, current page, and pages around current
-                  if (
-                    pageNumber === 1 ||
-                    pageNumber === totalPages ||
-                    (pageNumber >= currentPage - 1 && pageNumber <= currentPage + 1)
-                  ) {
-                    return (
-                      <Button
-                        key={pageNumber}
-                        variant={currentPage === pageNumber ? "default" : "outline"}
-                        size="sm"
-                        className={`w-8 h-8 p-0 ${
-                          currentPage === pageNumber
-                            ? ''
-                            : 'hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-100'
-                        }`}
-                        onClick={() => setCurrentPage(pageNumber)}
-                      >
-                        {pageNumber}
-                      </Button>
-                    );
-                  } else if (
-                    pageNumber === currentPage - 2 ||
-                    pageNumber === currentPage + 2
-                  ) {
-                    return <span key={pageNumber} className="px-1">...</span>;
-                  }
-                  return null;
-                })}
+            {/* Results Summary and Pagination */}
+            {totalCustomers > 0 && (
+              <div className="border-t border-slate-200 dark:border-slate-700 px-6 py-4">
+                <UnifiedPagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  pageSize={customersPerPage}
+                  totalItems={totalCustomers}
+                  onPageChange={setCurrentPage}
+                  onPageSizeChange={(value) => handlePageSizeChange(value.toString())}
+                  pageSizeOptions={[5, 10, 20, 50, 100]}
+                  theme={{ primary: 'cyan' }}
+                  itemLabel="customers"
+                />
               </div>
-              
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                disabled={currentPage === totalPages}
-              >
-                Next
-              </Button>
-            </div>
-          )}
+            )}
+          </Card>
+        ) : null}
+
+        {/* Pagination for Card View */}
+        {customerViewMode === 'card' && !customerListLoading && totalCustomers > 0 && (
+          <div className="mt-4">
+            <UnifiedPagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              pageSize={customersPerPage}
+              totalItems={totalCustomers}
+              onPageChange={setCurrentPage}
+              onPageSizeChange={(value) => handlePageSizeChange(value.toString())}
+              pageSizeOptions={[5, 10, 20, 50, 100]}
+              theme={{ primary: 'cyan' }}
+              itemLabel="customers"
+            />
           </div>
         )}
 

@@ -26,7 +26,7 @@ class ServiceAlertService {
    * Get auth headers for API requests
    */
   getAuthHeaders() {
-    const token = localStorage.getItem('pawn_repo_token');
+    const token = sessionStorage.getItem('pawn_repo_token');
     return {
       'Content-Type': 'application/json',
       ...getTimezoneHeaders(),

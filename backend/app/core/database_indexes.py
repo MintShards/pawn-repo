@@ -21,7 +21,13 @@ class DatabaseIndexes:
         return [
             # Primary lookup by user_id (unique)
             IndexModel([("user_id", ASCENDING)], unique=True, name="idx_user_id"),
-            
+
+            # Unique contact information (sparse allows multiple NULL values)
+            IndexModel([("email", ASCENDING)], unique=True, sparse=True, name="idx_user_email"),
+            # NOTE: idx_user_phone removed due to Motor/PyMongo sparse unique index bug
+            # Phone lookups will use collection scan (acceptable for small user counts)
+            # To create manually: db.users.createIndex({phone: 1}, {unique: true, sparse: true, name: 'idx_user_phone'})
+
             # Authentication queries
             IndexModel([("status", ASCENDING)], name="idx_user_status"),
             IndexModel([("role", ASCENDING)], name="idx_user_role"),
@@ -255,7 +261,7 @@ async def create_database_indexes(db_client):
             for index_def in index_definitions:
                 try:
                     index_name = index_def.document.get('name', 'unnamed_index')
-                    
+
                     # Check if index already exists
                     if index_name in existing_indexes:
                         skipped_count += 1
@@ -265,15 +271,44 @@ async def create_database_indexes(db_client):
                             index_name=index_name
                         )
                         continue
-                    
-                    # Create individual index
-                    result = await collection.create_indexes([index_def])
-                    if result:
+
+                    # WORKAROUND: Motor async driver has known issues with sparse unique indexes
+                    # Use raw MongoDB createIndexes command for reliable sparse index creation
+                    index_doc = index_def.document
+                    key_spec = index_doc.get('key')
+
+                    # Build index specification manually for raw command
+                    # Convert SON (Special Ordered Dict) to regular dict
+                    if hasattr(key_spec, 'to_dict'):
+                        key_dict = key_spec.to_dict()
+                    elif hasattr(key_spec, 'items'):
+                        key_dict = {k: v for k, v in key_spec.items()}
+                    else:
+                        key_dict = key_spec
+
+                    index_spec = {
+                        "key": key_dict,
+                        "name": index_name
+                    }
+
+                    # Add all options (unique, sparse, etc.)
+                    for opt_key in ['unique', 'sparse', 'background', 'expireAfterSeconds', 'partialFilterExpression']:
+                        if opt_key in index_doc:
+                            index_spec[opt_key] = index_doc[opt_key]
+
+                    # Use raw MongoDB createIndexes command via database client
+                    result = await db_client.command({
+                        "createIndexes": collection_name,
+                        "indexes": [index_spec]
+                    })
+
+                    if result.get('ok') == 1:
                         created_count += 1
                         index_logger.debug(
-                            "Created index",
+                            "Created index via command",
                             collection=collection_name,
-                            index_name=index_name
+                            index_name=index_name,
+                            sparse=index_spec.get('sparse', False)
                         )
                         
                 except Exception as index_error:
