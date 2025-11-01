@@ -14,10 +14,19 @@ from app.models.user_activity_log_model import (
     ActivitySeverity,
     log_user_activity
 )
+from app.models.user_model import User
 
 
 class UserActivityService:
     """Service for logging user activities"""
+
+    @staticmethod
+    async def _get_user_display_name(user_id: str) -> str:
+        """Get formatted user display name as 'First Last (user_id)'"""
+        user = await User.find_one(User.user_id == user_id)
+        if user:
+            return f"{user.first_name} {user.last_name} ({user_id})"
+        return f"user {user_id}"
 
     @staticmethod
     async def log_activity(
@@ -145,10 +154,11 @@ class UserActivityService:
         request: Optional[Request] = None
     ) -> UserActivityLog:
         """Log a user logout"""
+        user_display = await UserActivityService._get_user_display_name(user_id)
         return await UserActivityService.log_activity(
             user_id=user_id,
             activity_type=UserActivityType.LOGOUT,
-            description=f"User {user_id} logged out",
+            description=f"{user_display} logged out",
             severity=ActivitySeverity.INFO,
             request=request
         )
@@ -161,10 +171,11 @@ class UserActivityService:
         request: Optional[Request] = None
     ) -> UserActivityLog:
         """Log user creation"""
+        user_display = await UserActivityService._get_user_display_name(new_user_id)
         return await UserActivityService.log_activity(
             user_id=creator_user_id,
             activity_type=UserActivityType.USER_CREATED,
-            description=f"Created new user {new_user_id} with role {new_user_role}",
+            description=f"Created new user {user_display} with role {new_user_role}",
             severity=ActivitySeverity.INFO,
             target_user_id=new_user_id,
             metadata={"role": new_user_role},
@@ -179,10 +190,11 @@ class UserActivityService:
         request: Optional[Request] = None
     ) -> UserActivityLog:
         """Log user profile update"""
+        user_display = await UserActivityService._get_user_display_name(target_user_id)
         return await UserActivityService.log_activity(
             user_id=updater_user_id,
             activity_type=UserActivityType.USER_UPDATED,
-            description=f"Updated user {target_user_id} profile",
+            description=f"Updated {user_display} profile",
             severity=ActivitySeverity.INFO,
             target_user_id=target_user_id,
             metadata=changes,
@@ -198,10 +210,11 @@ class UserActivityService:
         request: Optional[Request] = None
     ) -> UserActivityLog:
         """Log user status change"""
+        user_display = await UserActivityService._get_user_display_name(target_user_id)
         return await UserActivityService.log_activity(
             user_id=updater_user_id,
             activity_type=UserActivityType.STATUS_CHANGED,
-            description=f"Changed user {target_user_id} status from {old_status} to {new_status}",
+            description=f"Changed {user_display} status from {old_status} to {new_status}",
             severity=ActivitySeverity.WARNING if new_status == "suspended" else ActivitySeverity.INFO,
             target_user_id=target_user_id,
             previous_value=old_status,
@@ -218,10 +231,11 @@ class UserActivityService:
         request: Optional[Request] = None
     ) -> UserActivityLog:
         """Log user role change"""
+        user_display = await UserActivityService._get_user_display_name(target_user_id)
         return await UserActivityService.log_activity(
             user_id=updater_user_id,
             activity_type=UserActivityType.ROLE_CHANGED,
-            description=f"Changed user {target_user_id} role from {old_role} to {new_role}",
+            description=f"Changed {user_display} role from {old_role} to {new_role}",
             severity=ActivitySeverity.WARNING,
             target_user_id=target_user_id,
             previous_value=old_role,
@@ -236,10 +250,11 @@ class UserActivityService:
         request: Optional[Request] = None
     ) -> UserActivityLog:
         """Log PIN reset"""
+        user_display = await UserActivityService._get_user_display_name(target_user_id)
         return await UserActivityService.log_activity(
             user_id=admin_user_id,
             activity_type=UserActivityType.PIN_RESET,
-            description=f"Reset PIN for user {target_user_id}",
+            description=f"Reset PIN for {user_display}",
             severity=ActivitySeverity.WARNING,
             target_user_id=target_user_id,
             request=request
@@ -252,10 +267,11 @@ class UserActivityService:
         request: Optional[Request] = None
     ) -> UserActivityLog:
         """Log account lockout"""
+        user_display = await UserActivityService._get_user_display_name(user_id)
         return await UserActivityService.log_activity(
             user_id=user_id,
             activity_type=UserActivityType.ACCOUNT_LOCKED,
-            description=f"Account {user_id} locked",
+            description=f"{user_display} account locked",
             severity=ActivitySeverity.ERROR,
             details=reason,
             request=request
@@ -327,11 +343,16 @@ class UserActivityService:
         activity_type: UserActivityType,
         extension_id: str,
         transaction_id: str,
-        days: int,
+        months: int,
         description: str,
+        amount: Optional[float] = None,
         request: Optional[Request] = None
     ) -> UserActivityLog:
         """Log extension-related action"""
+        metadata = {"months": months}
+        if amount is not None:
+            metadata["amount"] = amount
+
         return await UserActivityService.log_activity(
             user_id=user_id,
             activity_type=activity_type,
@@ -339,6 +360,6 @@ class UserActivityService:
             target_transaction_id=transaction_id,
             target_resource_id=extension_id,
             resource_type="extension",
-            metadata={"days": days},
+            metadata=metadata,
             request=request
         )

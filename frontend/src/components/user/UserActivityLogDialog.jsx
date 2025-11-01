@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Badge } from '../ui/badge';
 import { Card, CardContent } from '../ui/card';
@@ -16,7 +16,20 @@ import {
   Filter,
   Search,
   Activity,
-  X
+  X,
+  LogIn,
+  LogOut,
+  UserPlus,
+  UserCheck,
+  Users,
+  CreditCard,
+  Undo2,
+  Calendar,
+  FileText,
+  Settings,
+  ShieldAlert,
+  Eye,
+  ArrowUp
 } from 'lucide-react';
 import {
   formatBusinessDateTime,
@@ -42,6 +55,8 @@ const UserActivityLogDialog = ({ user, open, onOpenChange }) => {
   const [perPage, setPerPage] = useState(10);
   const [totalPages, setTotalPages] = useState(1);
   const [totalActivities, setTotalActivities] = useState(0);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const scrollContainerRef = useRef(null);
   const [filters, setFilters] = useState({
     activityType: '',
     severity: '',
@@ -136,8 +151,71 @@ const UserActivityLogDialog = ({ user, open, onOpenChange }) => {
     }
   }, [open, user, fetchActivities]);
 
-  const getActivityIcon = () => {
-    return <Activity className="h-4 w-4" />;
+  // Scroll to top when page changes
+  useEffect(() => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, [page]);
+
+  // Handle scroll event to show/hide scroll-to-top button
+  useEffect(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) return;
+
+    const handleScroll = () => {
+      setShowScrollTop(scrollContainer.scrollTop > 300);
+    };
+
+    scrollContainer.addEventListener('scroll', handleScroll);
+    return () => scrollContainer.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const scrollToTop = () => {
+    scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const getActivityIcon = (activityType) => {
+    const iconMap = {
+      // Authentication
+      'login_success': <LogIn className="h-4 w-4" />,
+      'login_failed': <XCircle className="h-4 w-4" />,
+      'logout': <LogOut className="h-4 w-4" />,
+      'session_expired': <Clock className="h-4 w-4" />,
+
+      // User management
+      'user_created': <UserPlus className="h-4 w-4" />,
+      'user_updated': <UserCheck className="h-4 w-4" />,
+      'user_deleted': <XCircle className="h-4 w-4" />,
+
+      // Customer operations
+      'customer_created': <Users className="h-4 w-4" />,
+      'customer_updated': <Users className="h-4 w-4" />,
+      'customer_viewed': <Eye className="h-4 w-4" />,
+
+      // Transaction operations
+      'transaction_created': <FileText className="h-4 w-4" />,
+      'transaction_updated': <FileText className="h-4 w-4" />,
+      'transaction_status_changed': <CheckCircle2 className="h-4 w-4" />,
+      'transaction_voided': <XCircle className="h-4 w-4" />,
+
+      // Payment operations
+      'payment_processed': <CreditCard className="h-4 w-4" />,
+      'payment_reversed': <Undo2 className="h-4 w-4" />,
+      'extension_applied': <Calendar className="h-4 w-4" />,
+      'extension_cancelled': <Undo2 className="h-4 w-4" />,
+
+      // System actions
+      'settings_changed': <Settings className="h-4 w-4" />,
+      'report_generated': <FileText className="h-4 w-4" />,
+
+      // Security events
+      'unauthorized_access': <ShieldAlert className="h-4 w-4" />,
+      'permission_denied': <ShieldAlert className="h-4 w-4" />,
+      'suspicious_activity': <AlertTriangle className="h-4 w-4" />,
+    };
+
+    return iconMap[activityType] || <Activity className="h-4 w-4" />;
   };
 
   const getSeverityBadge = (severity) => {
@@ -298,7 +376,7 @@ const UserActivityLogDialog = ({ user, open, onOpenChange }) => {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Activity className="h-5 w-5 text-blue-500" />
@@ -535,7 +613,11 @@ const UserActivityLogDialog = ({ user, open, onOpenChange }) => {
         </Card>
 
         {/* Activity List */}
-        <div className="flex-1 overflow-y-auto space-y-3">
+        <div
+          ref={scrollContainerRef}
+          className="flex-1 overflow-y-auto space-y-3 scroll-smooth"
+          style={{ scrollbarWidth: 'thin' }}
+        >
           {loading ? (
             // Loading skeletons
             [...Array(5)].map((_, i) => (
@@ -577,17 +659,17 @@ const UserActivityLogDialog = ({ user, open, onOpenChange }) => {
                 {group.activities.map((activity) => (
                   <Card key={activity.id} className="hover:shadow-md transition-shadow">
                     <CardContent className="p-4">
-                      <div className="flex items-start gap-4">
+                      <div className="flex items-center gap-4">
                         {/* Icon */}
-                        <div className="flex-shrink-0 p-2 bg-blue-50 dark:bg-blue-950/30 rounded-full">
-                          {getActivityIcon()}
+                        <div className="flex-shrink-0 w-9 h-9 flex items-center justify-center bg-blue-50 dark:bg-blue-950/30 rounded-full">
+                          {getActivityIcon(activity.activity_type)}
                         </div>
 
                         {/* Content */}
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between gap-2 mb-2">
+                          <div className="flex items-center justify-between gap-2 mb-2">
                             <div className="flex-1">
-                              <p className="font-medium text-sm mb-1">
+                              <p className="font-medium text-sm mb-1 leading-tight">
                                 {activity.description}
                               </p>
                               <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
@@ -622,11 +704,89 @@ const UserActivityLogDialog = ({ user, open, onOpenChange }) => {
                           {/* Metadata */}
                           {activity.metadata && Object.keys(activity.metadata).length > 0 && (
                             <div className="mt-2 flex flex-wrap gap-2">
-                              {Object.entries(activity.metadata).map(([key, value]) => (
-                                <Badge key={key} variant="outline" className="text-xs">
-                                  {key}: {JSON.stringify(value)}
-                                </Badge>
-                              ))}
+                              {Object.entries(activity.metadata).map(([key, value]) => {
+                                // Format metadata key to be user-friendly
+                                const formatKey = (k) => {
+                                  const keyMap = {
+                                    'loan_amount': 'Loan Amount',
+                                    'items_count': 'Items',
+                                    'amount': 'Amount',
+                                    'months': 'Duration',
+                                    'days': 'Duration',
+                                    'old_status': 'Previous Status',
+                                    'new_status': 'New Status',
+                                    'notes': 'Notes',
+                                    'status': 'Status',
+                                    'role': 'Role',
+                                    'first_name': 'First Name',
+                                    'last_name': 'Last Name',
+                                    'email': 'Email',
+                                    'phone': 'Phone'
+                                  };
+                                  return keyMap[k] || k.split('_').map(word =>
+                                    word.charAt(0).toUpperCase() + word.slice(1)
+                                  ).join(' ');
+                                };
+
+                                // Format metadata value to be user-friendly
+                                const formatValue = (k, v) => {
+                                  if (v === null || v === undefined) return 'N/A';
+
+                                  // Currency amounts with +/- signs based on activity type
+                                  if (k === 'loan_amount' || k === 'amount') {
+                                    const formattedAmount = `$${Number(v).toLocaleString()}`;
+
+                                    // Add +/- signs for money flow clarity (business perspective)
+                                    if (activity.activity_type === 'payment_reversed' || activity.activity_type === 'extension_cancelled') {
+                                      return `-${formattedAmount}`; // Money going OUT (refund)
+                                    } else if (activity.activity_type === 'payment_processed' || activity.activity_type === 'extension_applied') {
+                                      return `+${formattedAmount}`; // Money coming IN (payment/fee received)
+                                    }
+
+                                    return formattedAmount;
+                                  }
+
+                                  // Item count
+                                  if (k === 'items_count') {
+                                    return `${v} ${v === 1 ? 'item' : 'items'}`;
+                                  }
+
+                                  // Duration in months
+                                  if (k === 'months') {
+                                    return `${v} ${v === 1 ? 'month' : 'months'}`;
+                                  }
+
+                                  // Duration in days
+                                  if (k === 'days') {
+                                    return `${v} ${v === 1 ? 'day' : 'days'}`;
+                                  }
+
+                                  // Status values - capitalize
+                                  if (k === 'old_status' || k === 'new_status') {
+                                    return String(v).charAt(0).toUpperCase() + String(v).slice(1);
+                                  }
+
+                                  // Handle nested objects (like status/role changes with old/new values)
+                                  if (typeof v === 'object' && v !== null) {
+                                    if (v.old !== undefined && v.new !== undefined) {
+                                      // Format as "old → new" with capitalization
+                                      const oldVal = String(v.old).charAt(0).toUpperCase() + String(v.old).slice(1);
+                                      const newVal = String(v.new).charAt(0).toUpperCase() + String(v.new).slice(1);
+                                      return `${oldVal} → ${newVal}`;
+                                    }
+                                    // For other objects, try to stringify
+                                    return JSON.stringify(v);
+                                  }
+
+                                  return String(v);
+                                };
+
+                                return (
+                                  <Badge key={key} variant="outline" className="text-xs">
+                                    {formatKey(key)}: {formatValue(key, value)}
+                                  </Badge>
+                                );
+                              })}
                             </div>
                           )}
                         </div>
@@ -638,6 +798,18 @@ const UserActivityLogDialog = ({ user, open, onOpenChange }) => {
             ))
           )}
         </div>
+
+        {/* Scroll to Top Button */}
+        {showScrollTop && (
+          <Button
+            onClick={scrollToTop}
+            className="fixed bottom-24 right-8 rounded-full w-12 h-12 p-0 shadow-lg hover:shadow-xl transition-all z-50"
+            variant="default"
+            aria-label="Scroll to top"
+          >
+            <ArrowUp className="h-5 w-5" />
+          </Button>
+        )}
 
         {/* Pagination */}
         <div className="pt-4 border-t">

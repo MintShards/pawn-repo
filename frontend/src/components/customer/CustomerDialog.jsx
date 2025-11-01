@@ -224,14 +224,8 @@ const CustomerDialog = ({
       <DialogContent className="sm:max-w-[600px]">
         <DialogHeader>
           <DialogTitle>
-            {isEditing ? 'Edit Customer' : 'Add New Customer'}
+            {isEditing ? 'Edit Customer' : 'Add Customer'}
           </DialogTitle>
-          <DialogDescription>
-            {isEditing
-              ? 'Update customer information.'
-              : 'Create a new customer profile.'
-            }
-          </DialogDescription>
         </DialogHeader>
 
         <Form {...form}>
@@ -340,28 +334,24 @@ const CustomerDialog = ({
             </div>
 
             {/* Notes Section */}
-            <div className="space-y-4">
-              <h3 className="text-sm font-medium">Internal Notes</h3>
-
-              <FormField
-                control={form.control}
-                name="notes"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Notes</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        placeholder="Enter internal notes (optional)"
-                        className="min-h-[100px] resize-none"
-                        {...field}
-                        disabled={isLoading}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
+            <FormField
+              control={form.control}
+              name="notes"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Notes (Optional)</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      placeholder="Internal staff notes"
+                      className="min-h-[100px] resize-none"
+                      {...field}
+                      disabled={isLoading}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             {/* Error Display */}
             {form.formState.errors.root && (
@@ -384,7 +374,7 @@ const CustomerDialog = ({
                 type="submit"
                 disabled={isLoading || phoneExists}
               >
-                {isLoading ? 'Saving...' : (isEditing ? 'Update Customer' : 'Create Customer')}
+                {isLoading ? 'Saving...' : (isEditing ? 'Update' : 'Create')}
               </Button>
             </DialogFooter>
           </form>

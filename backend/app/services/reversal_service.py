@@ -12,8 +12,10 @@ from app.models.payment_model import Payment
 from app.models.extension_model import Extension
 from app.models.pawn_transaction_model import PawnTransaction, TransactionStatus
 from app.models.user_model import User
+from app.models.user_activity_log_model import UserActivityType
 from app.core.exceptions import BusinessRuleError, ValidationError, AuthenticationError
 from app.core.timezone_utils import get_user_now, utc_to_user_timezone
+from app.services.user_activity_service import UserActivityService
 
 logger = structlog.get_logger(__name__)
 
@@ -95,7 +97,8 @@ class ReversalService:
         admin_pin: str,
         current_user: User,
         staff_notes: Optional[str] = None,
-        client_timezone: Optional[str] = None
+        client_timezone: Optional[str] = None,
+        request: Optional = None
     ) -> dict:
         """
         Reverse a payment (admin only, same-day).
@@ -237,7 +240,19 @@ class ReversalService:
             reversed_by=current_user.user_id,
             duration_ms=duration_ms
         )
-        
+
+        # Log payment reversal activity
+        transaction_formatted_id = transaction.formatted_id or transaction.transaction_id
+        await UserActivityService.log_payment_action(
+            user_id=current_user.user_id,
+            activity_type=UserActivityType.PAYMENT_REVERSED,
+            payment_id=payment_id,
+            transaction_id=payment.transaction_id,
+            amount=original_amount,
+            description=f"Reversed ${int(original_amount)} payment for transaction {transaction_formatted_id} - Reason: {reversal_reason}",
+            request=request
+        )
+
         return {
             "payment_id": payment_id,
             "transaction_id": payment.transaction_id,
@@ -319,7 +334,8 @@ class ReversalService:
         admin_pin: str,
         current_user: User,
         staff_notes: Optional[str] = None,
-        client_timezone: Optional[str] = None
+        client_timezone: Optional[str] = None,
+        request: Optional = None
     ) -> dict:
         """
         Cancel an extension (admin only, same-day).
@@ -439,7 +455,21 @@ class ReversalService:
             cancelled_by=current_user.user_id,
             duration_ms=duration_ms
         )
-        
+
+        # Log extension cancellation activity
+        transaction_formatted_id = transaction.formatted_id or transaction.transaction_id
+        extension_formatted_id = extension.formatted_id or extension.extension_id
+        await UserActivityService.log_extension_action(
+            user_id=current_user.user_id,
+            activity_type=UserActivityType.EXTENSION_CANCELLED,
+            extension_id=extension_id,
+            transaction_id=extension.transaction_id,
+            months=extension.extension_months,
+            description=f"Cancelled extension {extension_formatted_id} for transaction {transaction_formatted_id} - Fee refunded: ${int(fee_to_refund)} - Reason: {cancellation_reason}",
+            amount=fee_to_refund,
+            request=request
+        )
+
         return {
             "extension_id": extension_id,
             "transaction_id": extension.transaction_id,

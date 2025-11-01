@@ -925,10 +925,10 @@ const UserManagementPage = () => {
               <div className="space-y-4">
                 <div>
                   <h2 className="text-3xl font-bold text-slate-900 dark:text-slate-100 mb-2">
-                    System Overview
+                    Staff Management
                   </h2>
                   <p className="text-slate-600 dark:text-slate-400 text-lg">
-                    Real-time statistics and user activity metrics for system administration
+                    Manage staff accounts, monitor login activity, assign roles, track user actions, and review security events
                   </p>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
@@ -1049,10 +1049,10 @@ const UserManagementPage = () => {
                     </div>
                     <div>
                       <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">
-                        User Search
+                        Staff Search
                       </h2>
                       <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                        Search and filter users by name, email, phone, ID, role, or status
+                        Find staff members by name, user ID, role (Admin/Staff), or account status
                       </p>
                     </div>
                   </div>

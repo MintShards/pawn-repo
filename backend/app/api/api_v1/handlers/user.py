@@ -271,9 +271,13 @@ async def update_user(
     if old_user.phone != updated_user.phone:
         changes['phone'] = {'old': old_user.phone, 'new': updated_user.phone}
     if old_user.role != updated_user.role:
-        changes['role'] = {'old': old_user.role, 'new': updated_user.role}
+        old_role_str = old_user.role.value if hasattr(old_user.role, 'value') else str(old_user.role)
+        new_role_str = updated_user.role.value if hasattr(updated_user.role, 'value') else str(updated_user.role)
+        changes['role'] = {'old': old_role_str, 'new': new_role_str}
     if old_user.status != updated_user.status:
-        changes['status'] = {'old': old_user.status, 'new': updated_user.status}
+        old_status_str = old_user.status.value if hasattr(old_user.status, 'value') else str(old_user.status)
+        new_status_str = updated_user.status.value if hasattr(updated_user.status, 'value') else str(updated_user.status)
+        changes['status'] = {'old': old_status_str, 'new': new_status_str}
 
     # Log update activity
     if changes:
@@ -283,25 +287,6 @@ async def update_user(
             changes=changes,
             request=request
         )
-
-        # Log specific activities for role and status changes
-        if 'role' in changes:
-            await UserActivityService.log_role_changed(
-                updater_user_id=current_user.user_id,
-                target_user_id=user_id,
-                old_role=changes['role']['old'],
-                new_role=changes['role']['new'],
-                request=request
-            )
-
-        if 'status' in changes:
-            await UserActivityService.log_status_changed(
-                updater_user_id=current_user.user_id,
-                target_user_id=user_id,
-                old_status=changes['status']['old'],
-                new_status=changes['status']['new'],
-                request=request
-            )
 
     return updated_user
 

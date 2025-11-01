@@ -48,6 +48,7 @@ class UserActivityType(str, Enum):
     TRANSACTION_VIEWED = "transaction_viewed"
     TRANSACTION_UPDATED = "transaction_updated"
     TRANSACTION_STATUS_CHANGED = "transaction_status_changed"
+    TRANSACTION_VOIDED = "transaction_voided"
 
     # Payment operations
     PAYMENT_PROCESSED = "payment_processed"

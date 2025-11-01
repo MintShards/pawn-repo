@@ -6,7 +6,7 @@ Provides same-day mistake correction functionality with admin authorization.
 """
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from datetime import datetime
 from typing import Optional
 
@@ -112,6 +112,7 @@ async def validate_payment_reversal(
 async def reverse_payment(
     payment_id: str,
     reversal_request: PaymentReversalRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     client_timezone: Optional[str] = Depends(get_client_timezone)
 ) -> PaymentReversalResponse:
@@ -132,7 +133,8 @@ async def reverse_payment(
             admin_pin=reversal_request.admin_pin,
             current_user=current_user,
             staff_notes=reversal_request.staff_notes,
-            client_timezone=client_timezone
+            client_timezone=client_timezone,
+            request=request
         )
         
         return PaymentReversalResponse(**reversal_result)
@@ -231,6 +233,7 @@ async def validate_extension_cancellation(
 async def cancel_extension(
     extension_id: str,
     cancellation_request: ExtensionCancellationRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     client_timezone: Optional[str] = Depends(get_client_timezone)
 ) -> ExtensionCancellationResponse:
@@ -252,7 +255,8 @@ async def cancel_extension(
             admin_pin=cancellation_request.admin_pin,
             current_user=current_user,
             staff_notes=cancellation_request.staff_notes,
-            client_timezone=client_timezone
+            client_timezone=client_timezone,
+            request=request
         )
         
         return ExtensionCancellationResponse(**cancellation_result)

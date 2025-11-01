@@ -9,13 +9,14 @@ discount validation and payment processing with admin-approved discounts.
 from typing import Optional
 
 # Third-party imports
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 import structlog
 
 # Local imports
 from app.api.deps.user_deps import get_staff_or_admin_user, get_admin_user
 from app.api.deps.timezone_deps import get_client_timezone
 from app.models.user_model import User
+from app.models.user_activity_log_model import UserActivityType
 from app.schemas.discount_schema import (
     DiscountValidationRequest,
     DiscountValidationResponse,
@@ -29,6 +30,7 @@ from app.services.payment_service import (
     PaymentValidationError,
     StaffValidationError
 )
+from app.services.user_activity_service import UserActivityService
 from app.core.exceptions import (
     ValidationError, BusinessRuleError, AuthenticationError,
     TransactionNotFoundError, DatabaseError
@@ -150,7 +152,8 @@ async def validate_discount(
     }
 )
 async def apply_discount(
-    request: PaymentWithDiscountRequest,
+    request: Request,
+    discount_request: PaymentWithDiscountRequest,
     current_user: User = Depends(get_staff_or_admin_user),
     client_timezone: Optional[str] = Depends(get_client_timezone)
 ) -> PaymentResponse:
@@ -172,38 +175,38 @@ async def apply_discount(
     try:
         discount_logger.info(
             "Processing payment with discount",
-            transaction_id=request.transaction_id,
-            payment_amount=request.payment_amount,
-            discount_amount=request.discount_amount,
+            transaction_id=discount_request.transaction_id,
+            payment_amount=discount_request.payment_amount,
+            discount_amount=discount_request.discount_amount,
             user_id=current_user.user_id
         )
 
         # Input validation
-        if not request.transaction_id or not request.transaction_id.strip():
+        if not discount_request.transaction_id or not discount_request.transaction_id.strip():
             raise ValidationError(
                 "Transaction ID is required",
                 error_code="MISSING_TRANSACTION_ID"
             )
 
-        if request.payment_amount <= 0:
+        if discount_request.payment_amount <= 0:
             raise ValidationError(
                 "Payment amount must be greater than zero",
                 error_code="INVALID_PAYMENT_AMOUNT"
             )
 
-        if request.discount_amount <= 0:
+        if discount_request.discount_amount <= 0:
             raise ValidationError(
                 "Discount amount must be greater than zero",
                 error_code="INVALID_DISCOUNT_AMOUNT"
             )
 
-        if not request.discount_reason or not request.discount_reason.strip():
+        if not discount_request.discount_reason or not discount_request.discount_reason.strip():
             raise ValidationError(
                 "Discount reason is required",
                 error_code="MISSING_DISCOUNT_REASON"
             )
 
-        if not request.admin_pin or len(request.admin_pin) != 4:
+        if not discount_request.admin_pin or len(discount_request.admin_pin) != 4:
             raise ValidationError(
                 "Admin PIN must be exactly 4 digits",
                 error_code="INVALID_ADMIN_PIN"
@@ -211,9 +214,9 @@ async def apply_discount(
 
         # Verify discount is valid
         validation_result = await DiscountService.validate_discount(
-            transaction_id=request.transaction_id.strip(),
-            payment_amount=request.payment_amount,
-            discount_amount=request.discount_amount,
+            transaction_id=discount_request.transaction_id.strip(),
+            payment_amount=discount_request.payment_amount,
+            discount_amount=discount_request.discount_amount,
             current_user=current_user
         )
 
@@ -230,7 +233,7 @@ async def apply_discount(
         admin_user = None
         all_admins = await UserModel.find(UserModel.role == "admin").to_list()
         for user in all_admins:
-            if user.verify_pin(request.admin_pin):
+            if user.verify_pin(discount_request.admin_pin):
                 admin_user = user
                 break
 
@@ -238,7 +241,7 @@ async def apply_discount(
             discount_logger.warning(
                 "Invalid admin PIN for discount approval",
                 user_id=current_user.user_id,
-                transaction_id=request.transaction_id
+                transaction_id=discount_request.transaction_id
             )
             raise AuthenticationError(
                 "Invalid admin PIN",
@@ -248,28 +251,49 @@ async def apply_discount(
         # Verify admin approval with DiscountService
         await DiscountService.verify_admin_approval(
             admin_user=admin_user,
-            admin_pin=request.admin_pin,
-            discount_amount=request.discount_amount,
-            discount_reason=request.discount_reason.strip()
+            admin_pin=discount_request.admin_pin,
+            discount_amount=discount_request.discount_amount,
+            discount_reason=discount_request.discount_reason.strip()
         )
 
         # Process payment with discount
         payment = await PaymentService.process_payment_with_discount(
-            transaction_id=request.transaction_id.strip(),
-            payment_amount=request.payment_amount,
+            transaction_id=discount_request.transaction_id.strip(),
+            payment_amount=discount_request.payment_amount,
             processed_by_user_id=current_user.user_id,
-            discount_amount=request.discount_amount,
-            discount_reason=request.discount_reason.strip(),
+            discount_amount=discount_request.discount_amount,
+            discount_reason=discount_request.discount_reason.strip(),
             discount_approved_by=admin_user.user_id,
             client_timezone=client_timezone
         )
 
+        # Log payment with discount activity
+        from app.services.pawn_transaction_service import PawnTransactionService
+        transaction = await PawnTransactionService.get_transaction_by_id(discount_request.transaction_id.strip())
+        transaction_formatted_id = transaction.formatted_id or transaction.transaction_id
+
+        # Build user-friendly description with discount and overdue fee info
+        description = f"Process ${int(discount_request.payment_amount)} payment on {transaction_formatted_id} - Discount: ${int(discount_request.discount_amount)}"
+        if payment.overdue_fee_portion > 0:
+            description += f", Overdue fee: ${int(payment.overdue_fee_portion)}"
+        description += f" - Reason: {discount_request.discount_reason.strip()}"
+
+        await UserActivityService.log_payment_action(
+            user_id=current_user.user_id,
+            activity_type=UserActivityType.PAYMENT_PROCESSED,
+            payment_id=payment.payment_id,
+            transaction_id=payment.transaction_id,
+            amount=discount_request.payment_amount,
+            description=description,
+            request=request
+        )
+
         discount_logger.info(
             "Payment with discount processed successfully",
-            transaction_id=request.transaction_id,
+            transaction_id=discount_request.transaction_id,
             payment_id=payment.payment_id,
-            payment_amount=request.payment_amount,
-            discount_amount=request.discount_amount,
+            payment_amount=discount_request.payment_amount,
+            discount_amount=discount_request.discount_amount,
             approved_by=admin_user.user_id
         )
 
@@ -286,7 +310,7 @@ async def apply_discount(
     except PaymentValidationError as e:
         discount_logger.error(
             "Payment validation failed",
-            transaction_id=request.transaction_id,
+            transaction_id=discount_request.transaction_id,
             error=str(e)
         )
         raise HTTPException(
@@ -296,7 +320,7 @@ async def apply_discount(
     except StaffValidationError as e:
         discount_logger.error(
             "Staff validation failed",
-            transaction_id=request.transaction_id,
+            transaction_id=discount_request.transaction_id,
             error=str(e)
         )
         raise HTTPException(
@@ -306,7 +330,7 @@ async def apply_discount(
     except Exception as e:
         discount_logger.error(
             "Failed to process payment with discount",
-            transaction_id=request.transaction_id,
+            transaction_id=discount_request.transaction_id,
             error=str(e),
             error_type=type(e).__name__
         )

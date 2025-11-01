@@ -18,11 +18,13 @@ from app.core.auth import get_admin_user
 from app.core.security_middleware import api_rate_limit, strict_rate_limit
 from app.models.customer_model import CustomerStatus
 from app.models.user_model import User
+from app.models.user_activity_log_model import UserActivityType
 from app.schemas.customer_schema import (
     CustomerCreate, CustomerUpdate, CustomerResponse, CustomerListResponse,
     CustomerStatsResponse, CustomerArchiveRequest, LoanLimitUpdateRequest, LoanLimitResponse
 )
 from app.services.customer_service import CustomerService
+from app.services.user_activity_service import UserActivityService
 from app.core.redis_cache import BusinessCache, cached_result, CacheConfig
 
 
@@ -91,7 +93,16 @@ async def create_customer(
             customer_data=customer_data,
             created_by=current_user.user_id
         )
-        
+
+        # Log customer creation activity
+        await UserActivityService.log_customer_action(
+            user_id=current_user.user_id,
+            activity_type=UserActivityType.CUSTOMER_CREATED,
+            customer_phone=customer.phone_number,
+            description=f"Created customer {customer.first_name} {customer.last_name} ({customer.phone_number})",
+            request=request
+        )
+
         # Add computed properties before response
         customer_dict = customer.model_dump()
         customer_dict["can_borrow_amount"] = customer.can_borrow_amount
@@ -276,6 +287,7 @@ async def update_loan_limit_config(
 @cached_result(prefix="customer:", ttl=CacheConfig.LONG_TTL)
 async def get_customer_by_phone(
     phone_number: str,
+    request: Request,
     current_user: User = Depends(get_current_user)
 ) -> CustomerResponse:
     """Get customer details by phone number with caching"""
@@ -286,7 +298,7 @@ async def get_customer_by_phone(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid phone number format. Must be 10 digits."
             )
-        
+
         # Try cache first
         cached_customer = await BusinessCache.get_customer(phone_number)
         if cached_customer:
@@ -300,18 +312,18 @@ async def get_customer_by_phone(
                     await BusinessCache.set_customer(phone_number, customer_dict)
                     return CustomerResponse.model_validate(customer_dict)
             return CustomerResponse.model_validate(cached_customer)
-        
+
         customer = await CustomerService.get_customer_by_phone(phone_number)
         if not customer:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Customer not found"
             )
-        
+
         # Add computed properties before response
         customer_dict = customer.model_dump()
         customer_dict["can_borrow_amount"] = customer.can_borrow_amount
-        
+
         # Cache the result
         await BusinessCache.set_customer(phone_number, customer_dict)
         
@@ -390,6 +402,7 @@ async def mark_customer_accessed(
 async def update_customer(
     phone_number: str,
     customer_data: CustomerUpdate,
+    request: Request,
     current_user: User = Depends(get_current_user)
 ) -> CustomerResponse:
     """Update customer information with comprehensive error handling"""
@@ -400,27 +413,68 @@ async def update_customer(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid phone number format. Must be 10 digits."
             )
-        
-        is_admin = (current_user.role == "admin" or 
+
+        is_admin = (current_user.role == "admin" or
                    (hasattr(current_user.role, 'value') and current_user.role.value == "admin"))
-        
+
         # Check if non-admin is trying to update status
         if not is_admin and customer_data.status is not None:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Only administrators can update customer status"
             )
-        
+
+        # Get old customer data for comparison
+        old_customer = await CustomerService.get_customer_by_phone(phone_number)
+        if not old_customer:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found")
+
         customer = await CustomerService.update_customer(
             phone_number=phone_number,
             update_data=customer_data,
             updated_by=current_user.user_id,
             is_admin=is_admin
         )
-        
+
+        # Log customer update activity with detailed changes
+        update_data_dict = customer_data.model_dump(exclude_unset=True)
+        changes = []
+        for field, new_value in update_data_dict.items():
+            if new_value is not None:
+                old_value = getattr(old_customer, field, None)
+                if old_value != new_value:
+                    # Format field name to be user-friendly
+                    field_name = field.replace('_', ' ').title()
+
+                    # Format values (handle enums)
+                    if hasattr(old_value, 'value'):
+                        old_val_str = old_value.value
+                    else:
+                        old_val_str = str(old_value) if old_value else "empty"
+
+                    if hasattr(new_value, 'value'):
+                        new_val_str = new_value.value
+                    else:
+                        new_val_str = str(new_value) if new_value else "empty"
+
+                    changes.append(f"{field_name}: {old_val_str} → {new_val_str}")
+
+        if changes:
+            description = f"Updated customer {customer.first_name} {customer.last_name} ({phone_number}) - {', '.join(changes)}"
+        else:
+            description = f"Updated customer {customer.first_name} {customer.last_name} ({phone_number}) - No changes"
+
+        await UserActivityService.log_customer_action(
+            user_id=current_user.user_id,
+            activity_type=UserActivityType.CUSTOMER_UPDATED,
+            customer_phone=phone_number,
+            description=description,
+            request=request
+        )
+
         # Invalidate cache after update
         await BusinessCache.invalidate_customer(phone_number)
-        
+
         # Add computed properties before response
         customer_dict = customer.model_dump()
         customer_dict["can_borrow_amount"] = customer.can_borrow_amount

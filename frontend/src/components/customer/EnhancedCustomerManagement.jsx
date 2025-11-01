@@ -3902,42 +3902,11 @@ const EnhancedCustomerManagement = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-100">
-            Customer Management
+            Customers
           </h1>
           <p className="text-slate-600 dark:text-slate-400 mt-1">
-            Manage customer records and track loan eligibility
+            View customer profiles, transaction history, loan capacity, and account status
           </p>
-        </div>
-        <div className="flex gap-2">
-          <Button 
-            onClick={() => {
-              setEditingCustomer(null);
-              setShowAddDialog(true);
-            }}
-            className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg shadow-blue-500/25 border-0"
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Add Customer
-          </Button>
-          <Button 
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              forceRefreshAllData();
-            }}
-            variant="outline"
-            disabled={loading}
-            className="border-slate-300 dark:border-slate-600 hover:border-blue-400 dark:hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/30 text-slate-700 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-400 shadow-sm dark:shadow-slate-800/50 transition-all duration-200"
-          >
-            {loading ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin text-blue-600 dark:text-blue-400" />
-            ) : (
-              <svg className="h-4 w-4 mr-2 text-slate-600 dark:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-            )}
-            Refresh
-          </Button>
         </div>
       </div>
 
@@ -4204,7 +4173,7 @@ const EnhancedCustomerManagement = () => {
 
         <CardContent className="p-6 pt-7 space-y-6">
           {/* Search Header */}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="p-2.5 bg-blue-500 dark:bg-blue-600 rounded-lg">
                 <Search className="h-5 w-5 text-white" />
@@ -4214,9 +4183,40 @@ const EnhancedCustomerManagement = () => {
                   Customer Search
                 </h2>
                 <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                  Search and filter customers by name, phone number, email, or use advanced filters to find specific customer segments
+                  Find customers by name, phone number, or email with advanced filtering options
                 </p>
               </div>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <Button
+                onClick={() => {
+                  setEditingCustomer(null);
+                  setShowAddDialog(true);
+                }}
+                className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg shadow-blue-500/25 border-0"
+              >
+                <Plus className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Add Customer</span>
+              </Button>
+              <Button
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  forceRefreshAllData();
+                }}
+                variant="outline"
+                disabled={loading}
+                className="border-slate-300 dark:border-slate-600 hover:border-blue-400 dark:hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/30 text-slate-700 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-400 shadow-sm dark:shadow-slate-800/50 transition-all duration-200"
+              >
+                {loading ? (
+                  <Loader2 className="h-4 w-4 sm:mr-2 animate-spin text-blue-600 dark:text-blue-400" />
+                ) : (
+                  <svg className="h-4 w-4 sm:mr-2 text-slate-600 dark:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                )}
+                <span className="hidden sm:inline">Refresh</span>
+              </Button>
             </div>
           </div>
 
