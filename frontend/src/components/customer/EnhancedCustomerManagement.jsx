@@ -103,6 +103,7 @@ import paymentService from '../../services/paymentService';
 import extensionService from '../../services/extensionService';
 import authService from '../../services/authService';
 import UnifiedPagination from '../ui/unified-pagination';
+import { getPaginationConfig } from '../../utils/paginationConfig';
 import CustomerDialog from './CustomerDialog';
 import AlertBellAction from './AlertBellAction';
 import ServiceAlertDialog from './ServiceAlertDialog';
@@ -164,7 +165,7 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 10; // 10 items per page
+  const [pageSize, setPageSize] = useState(10); // 10 items per page (now adjustable)
   
   // Sorting state
   const [sortBy, setSortBy] = useState('transaction_date'); // Default to newest first
@@ -1161,9 +1162,11 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
               pageSize={pageSize}
               totalItems={totalTransactionCount}
               onPageChange={setCurrentPage}
-              theme={{ primary: 'cyan' }}
-              itemLabel="transactions"
-              showPageSizeSelector={false}
+              onPageSizeChange={(value) => {
+                setPageSize(value);
+                setCurrentPage(1); // Reset to page 1 when page size changes
+              }}
+              {...getPaginationConfig('customers')}
             />
           </div>
         )}

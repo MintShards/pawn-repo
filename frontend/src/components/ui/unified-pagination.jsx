@@ -13,21 +13,83 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
  * Unified Pagination Component
  *
  * Reusable pagination component with configurable theming for consistent UX across
- * transactions, customers, and users modules.
+ * transactions, customers, users, and activity logs.
+ *
+ * Features:
+ * - Smart ellipsis algorithm for large page counts (e.g., 1 2 ... 1013)
+ * - Configurable page size selector with flexible options
+ * - Theme-aware styling matching module branding (blue, orange, cyan, purple, green)
+ * - Responsive layout with mobile support
+ * - Accessibility-compliant with ARIA labels
  *
  * @param {Object} props
  * @param {number} props.currentPage - Current active page (1-indexed)
  * @param {number} props.totalPages - Total number of pages
  * @param {number} props.pageSize - Current page size (items per page)
  * @param {number} props.totalItems - Total number of items
- * @param {Function} props.onPageChange - Callback when page changes
- * @param {Function} props.onPageSizeChange - Callback when page size changes
+ * @param {Function} props.onPageChange - Callback when page changes: (pageNum: number) => void
+ * @param {Function} props.onPageSizeChange - Callback when page size changes: (size: number) => void
  * @param {Array<number>} [props.pageSizeOptions=[10, 25, 50, 100]] - Available page size options
  * @param {Object} [props.theme] - Theme configuration
  * @param {string} [props.theme.primary='blue'] - Primary color (blue|orange|cyan|purple|green)
  * @param {boolean} [props.showPageSizeSelector=true] - Show/hide page size selector
- * @param {number} [props.maxVisiblePages=7] - Maximum visible page buttons
- * @param {string} [props.itemLabel='items'] - Label for items (e.g., 'transactions', 'customers')
+ * @param {number} [props.maxVisiblePages=7] - Maximum visible page buttons before ellipsis
+ * @param {string} [props.itemLabel='items'] - Label for items (e.g., 'transactions', 'customers', 'logs')
+ *
+ * @example
+ * // Basic usage with standard configuration
+ * <UnifiedPagination
+ *   currentPage={currentPage}
+ *   totalPages={totalPages}
+ *   pageSize={pageSize}
+ *   totalItems={totalItems}
+ *   onPageChange={setCurrentPage}
+ *   onPageSizeChange={setPageSize}
+ * />
+ *
+ * @example
+ * // Using getPaginationConfig utility for standardized settings
+ * import { getPaginationConfig } from '../../utils/paginationConfig';
+ *
+ * <UnifiedPagination
+ *   currentPage={currentPage}
+ *   totalPages={totalPages}
+ *   pageSize={pageSize}
+ *   totalItems={totalItems}
+ *   onPageChange={setCurrentPage}
+ *   onPageSizeChange={(value) => {
+ *     setPageSize(value);
+ *     setCurrentPage(1); // Reset to page 1 when size changes
+ *   }}
+ *   {...getPaginationConfig('customers')}
+ * />
+ *
+ * @example
+ * // Custom configuration without page size selector
+ * <UnifiedPagination
+ *   currentPage={page}
+ *   totalPages={totalPages}
+ *   pageSize={10}
+ *   totalItems={totalItems}
+ *   onPageChange={setPage}
+ *   showPageSizeSelector={false}
+ *   theme={{ primary: 'green' }}
+ *   itemLabel="records"
+ * />
+ *
+ * @example
+ * // Activity log with custom page size options
+ * <UnifiedPagination
+ *   currentPage={page}
+ *   totalPages={totalPages}
+ *   pageSize={perPage}
+ *   totalItems={totalActivities}
+ *   onPageChange={setPage}
+ *   onPageSizeChange={handlePageSizeChange}
+ *   pageSizeOptions={[5, 10, 20, 50, 100]}
+ *   theme={{ primary: 'blue' }}
+ *   itemLabel="logs"
+ * />
  */
 const UnifiedPagination = React.memo(({
   currentPage,
