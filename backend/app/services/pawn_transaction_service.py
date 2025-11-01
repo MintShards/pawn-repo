@@ -622,31 +622,36 @@ class PawnTransactionService:
         """
         Bulk update transaction statuses based on current date.
         Should be run daily to keep statuses current.
-        
+
         ONLY moves active/extended transactions to overdue.
         NO automatic forfeiture - staff must manually change overdue to forfeited.
-        
+
         Returns:
             Dictionary with count of updated transactions by status
         """
         current_date = datetime.now(UTC)
         updated_counts = {"overdue": 0}
-        
+
         # Find transactions that should be marked overdue
         # Only move ACTIVE or EXTENDED transactions past maturity date to OVERDUE
         overdue_candidates = await PawnTransaction.find(
             In(PawnTransaction.status, [TransactionStatus.ACTIVE, TransactionStatus.EXTENDED]),
             PawnTransaction.maturity_date < current_date
         ).to_list()
-        
+
         for transaction in overdue_candidates:
             transaction.status = TransactionStatus.OVERDUE
             await transaction.save()
             updated_counts["overdue"] += 1
-        
+
         # NO AUTOMATIC FORFEITURE - removed this section
         # Staff/admin must manually change overdue to forfeited via UI
-        
+
+        # CRITICAL: Invalidate all transaction caches for real-time updates
+        if updated_counts["overdue"] > 0:
+            await _invalidate_all_transaction_caches()
+            logger.info(f"✅ BULK STATUS UPDATE: {updated_counts['overdue']} transactions marked overdue with cache cleared")
+
         return updated_counts
     
 

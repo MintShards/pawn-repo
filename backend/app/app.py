@@ -144,6 +144,21 @@ async def lifespan(app: FastAPI):
         scheduler.start()
         logger.info("Background scheduler started - daily status updates at 2:00 AM")
 
+        # CRITICAL: Run status update immediately on startup to catch any overdue transactions
+        try:
+            logger.info("Running initial status update on startup...")
+            startup_result = await PawnTransactionService.bulk_update_statuses()
+            logger.info(
+                "Initial status update completed on startup",
+                updated_counts=startup_result
+            )
+        except Exception as e:
+            logger.error(
+                "Initial status update failed on startup",
+                error=str(e),
+                exc_info=True
+            )
+
     except Exception as e:
         logger.error(f"Failed to initialize background scheduler: {e}")
 
