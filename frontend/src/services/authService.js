@@ -216,13 +216,20 @@ class AuthService {
     }
 
     try {
+      // Add 5-second timeout to prevent hanging on slow/unresponsive backend
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
       const response = await fetch(`${API_BASE_URL}/api/v1/auth/jwt/verify`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${this.token}`,
           'Content-Type': 'application/json',
         },
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       if (response.ok) {
         // Cache successful validation
@@ -265,13 +272,20 @@ class AuthService {
     if (!this.token) return null;
 
     try {
+      // Add 5-second timeout to prevent hanging on slow/unresponsive backend
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
       const response = await fetch(`${API_BASE_URL}/api/v1/user/me`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${this.token}`,
           'Content-Type': 'application/json',
         },
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         throw new Error('Failed to fetch user data');

@@ -393,45 +393,82 @@ def get_collection_with_session(collection_name: str, session: Optional[AsyncIOM
 
 async def health_check() -> Dict[str, Any]:
     """
-    Perform database health check.
-    
+    Perform comprehensive database health check with enhanced metrics.
+
     Returns:
-        Dictionary with health check results
+        Dictionary with health check results including version, latency, server type, and size
     """
     try:
+        import time
+        from app.core.config import settings
+
         client = get_motor_client()
-        
-        # Test basic connection
-        await client.admin.command('ping')
-        
-        # Test database access
         db = get_database()
+
+        # Measure connection latency
+        start_time = time.time()
+        await client.admin.command('ping')
+        latency_ms = round((time.time() - start_time) * 1000, 2)
+        logger.info("Database ping successful", latency_ms=latency_ms)
+
+        # Get MongoDB version and server info
+        mongodb_version = "Unknown"
+        try:
+            build_info = await db.command('buildInfo')
+            mongodb_version = build_info.get('version', 'Unknown')
+        except Exception as e:
+            logger.warning("Failed to get MongoDB version", error=str(e))
+
+        # Detect server type (Atlas vs Local/Self-hosted)
+        connection_string = settings.MONGO_CONNECTION_STRING
+        if 'mongodb.net' in connection_string or 'mongodb+srv' in connection_string:
+            server_type = "MongoDB Atlas"
+        elif 'localhost' in connection_string or '127.0.0.1' in connection_string:
+            server_type = "Local MongoDB"
+        else:
+            server_type = "Self-hosted"
+
+        # Get database size
+        database_size_mb = 0.0
+        try:
+            db_stats = await db.command('dbStats')
+            database_size_mb = round(db_stats.get("dataSize", 0) / (1024 * 1024), 2)
+        except Exception as e:
+            logger.warning("Failed to get database size", error=str(e))
+
+        # Test database access
         collections = await db.list_collection_names()
-        
+        logger.info(f"Database access successful, found {len(collections)} collections")
+
         # Test transaction support
         try:
             async with transaction_session() as session:
-                await session.start_transaction()
-                await session.abort_transaction()
+                session.start_transaction()
+                session.abort_transaction()
             transaction_support = True
+            logger.info("Transaction support test passed")
         except Exception as e:
-            logger.warning("Transaction support test failed", error=str(e))
+            logger.warning("Transaction support test failed", error=str(e), error_type=type(e).__name__)
             transaction_support = False
-        
-        return {
+
+        result = {
             "status": "healthy",
             "timestamp": datetime.now(UTC).isoformat(),
             "connection": "active",
+            "latency_ms": latency_ms,
             "database": db.name,
+            "mongodb_version": mongodb_version,
+            "server_type": server_type,
+            "database_size_mb": database_size_mb,
             "collections_count": len(collections),
-            "transaction_support": transaction_support,
-            "client_info": {
-                "max_pool_size": client.options.max_pool_size,
-                "min_pool_size": client.options.min_pool_size
-            }
+            "transaction_support": transaction_support
         }
-        
+
+        logger.info("Health check completed successfully", result=result)
+        return result
+
     except Exception as e:
+        logger.error("Health check failed", error=str(e), error_type=type(e).__name__)
         return {
             "status": "unhealthy",
             "timestamp": datetime.now(UTC).isoformat(),
@@ -443,33 +480,126 @@ async def health_check() -> Dict[str, Any]:
 # Performance monitoring utilities
 async def get_connection_stats() -> Dict[str, Any]:
     """
-    Get database connection statistics.
-    
+    Get comprehensive database connection and operational statistics.
+
+    Works with both local MongoDB and MongoDB Atlas with graceful degradation
+    when certain commands are restricted (e.g., serverStatus on Atlas).
+
     Returns:
-        Dictionary with connection statistics
+        Dictionary with connection statistics, performance metrics, and operational data
     """
     try:
         client = get_motor_client()
-        
-        # Get server status
         db = get_database()
-        server_status = await db.command('serverStatus')
-        
-        return {
+
+        # Initialize response with client pool configuration (always available)
+        # Access pool size from the underlying PyMongo options
+        max_pool = getattr(client.options.pool_options, 'max_pool_size', 20)
+        min_pool = getattr(client.options.pool_options, 'min_pool_size', 5)
+
+        response = {
             "timestamp": datetime.now(UTC).isoformat(),
-            "connections": {
+            "client_pool": {
+                "max_pool_size": max_pool,
+                "min_pool_size": min_pool,
+                "connect_timeout": getattr(client.options, 'connect_timeout', 5000),
+                "server_selection_timeout": getattr(client.options, 'server_selection_timeout', 5000)
+            }
+        }
+
+        # Try to get server status (may fail on MongoDB Atlas with restricted permissions)
+        server_status = None
+        try:
+            server_status = await db.command('serverStatus')
+
+            # Connection metrics from serverStatus
+            response["connections"] = {
                 "current": server_status.get("connections", {}).get("current", 0),
                 "available": server_status.get("connections", {}).get("available", 0),
                 "total_created": server_status.get("connections", {}).get("totalCreated", 0)
-            },
-            "client_pool": {
-                "max_pool_size": client.options.max_pool_size,
-                "min_pool_size": client.options.min_pool_size,
-                "connect_timeout": client.options.connect_timeout,
-                "server_selection_timeout": client.options.server_selection_timeout
             }
-        }
-        
+
+            # Calculate operations per second from opcounters
+            opcounters = server_status.get("opcounters", {})
+            uptime_seconds = server_status.get("uptime", 1)
+            response["activity"] = {
+                "ops_per_second": {
+                    "insert": round(opcounters.get("insert", 0) / uptime_seconds, 2),
+                    "query": round(opcounters.get("query", 0) / uptime_seconds, 2),
+                    "update": round(opcounters.get("update", 0) / uptime_seconds, 2),
+                    "delete": round(opcounters.get("delete", 0) / uptime_seconds, 2),
+                    "total": round(sum(opcounters.values()) / uptime_seconds, 2)
+                },
+                "total_operations": sum(opcounters.values()),
+                "network_bytes_in": server_status.get("network", {}).get("bytesIn", 0),
+                "network_bytes_out": server_status.get("network", {}).get("bytesOut", 0)
+            }
+
+            # Performance indicators
+            response["performance"] = {
+                "uptime_seconds": uptime_seconds,
+                "uptime_hours": round(uptime_seconds / 3600, 2),
+                "current_connections_percent": round(
+                    (response["connections"].get("current", 0) / max_pool) * 100,
+                    2
+                ) if max_pool > 0 else 0
+            }
+
+        except Exception as e:
+            # MongoDB Atlas or restricted permissions - provide fallback connection metrics
+            logger.warning(
+                "serverStatus command failed (likely MongoDB Atlas), using fallback metrics",
+                error=str(e)
+            )
+            response["connections"] = {
+                "current": 0,
+                "available": 0,
+                "total_created": 0
+            }
+            response["atlas_restricted"] = True
+
+        # Try to get database stats (may also fail on Atlas with free tier)
+        try:
+            db_stats = await db.command('dbStats')
+            response["storage"] = {
+                "data_size_mb": round(db_stats.get("dataSize", 0) / (1024 * 1024), 2),
+                "storage_size_mb": round(db_stats.get("storageSize", 0) / (1024 * 1024), 2),
+                "index_size_mb": round(db_stats.get("indexSize", 0) / (1024 * 1024), 2),
+                "total_size_mb": round(
+                    (db_stats.get("dataSize", 0) + db_stats.get("indexSize", 0)) / (1024 * 1024),
+                    2
+                )
+            }
+        except Exception as e:
+            logger.warning("dbStats command failed, skipping storage metrics", error=str(e))
+
+        # Get collection counts (should work on Atlas)
+        try:
+            collections = await db.list_collection_names()
+            collection_stats = {}
+            total_documents = 0
+
+            # Get document counts for key collections
+            key_collections = ['customers', 'pawn_transactions', 'payments', 'extensions', 'users']
+            for coll_name in key_collections:
+                if coll_name in collections:
+                    try:
+                        count = await db[coll_name].count_documents({})
+                        collection_stats[coll_name] = count
+                        total_documents += count
+                    except Exception:
+                        collection_stats[coll_name] = 0
+
+            response["documents"] = {
+                "total": total_documents,
+                "by_collection": collection_stats,
+                "collections_count": len(collections)
+            }
+        except Exception as e:
+            logger.warning("Failed to get document counts", error=str(e))
+
+        return response
+
     except Exception as e:
         logger.error("Failed to get connection stats", error=str(e))
         return {

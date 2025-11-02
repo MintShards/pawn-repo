@@ -110,30 +110,33 @@ class PerformanceMonitor:
     def get_system_metrics(self) -> Dict[str, Any]:
         """Get current system performance metrics"""
         try:
-            # Memory usage
-            memory_info = psutil.virtual_memory()
-            memory_mb = memory_info.used / 1024 / 1024
-            
-            # CPU usage
-            cpu_percent = psutil.cpu_percent(interval=1)
-            
+            # Get current process for accurate memory usage
+            current_process = psutil.Process()
+
+            # Memory usage - process-specific (not system-wide)
+            process_memory = current_process.memory_info()
+            memory_mb = process_memory.rss / 1024 / 1024  # Resident Set Size in MB
+
+            # CPU usage - process-specific
+            cpu_percent = current_process.cpu_percent(interval=1)
+
             # Update Prometheus metrics
             memory_usage.set(memory_mb)
             cpu_usage.set(cpu_percent)
-            
+
             metrics = {
                 'memory_mb': round(memory_mb, 2),
-                'memory_percent': memory_info.percent,
+                'memory_percent': round((memory_mb / 1024) * 100, 2),  # Percent of 1GB baseline
                 'cpu_percent': cpu_percent,
                 'uptime_seconds': self.get_uptime(),
                 'timestamp': datetime.utcnow().isoformat()
             }
-            
+
             # Check for threshold violations
             self._check_performance_thresholds(metrics)
-            
+
             return metrics
-            
+
         except Exception as e:
             monitoring_logger.error("Failed to collect system metrics", error=str(e))
             return {}

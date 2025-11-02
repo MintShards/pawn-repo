@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import authService from '../services/authService';
 import useInactivityTimer from '../hooks/useInactivityTimer';
 import InactivityWarningModal from '../components/common/InactivityWarningModal';
@@ -19,6 +19,7 @@ export const AuthProvider = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [lastActivity, setLastActivity] = useState(Date.now());
   const [userLoading, setUserLoading] = useState(false);
+  const initializedRef = useRef(false);
 
   // Security: Inactivity timer for automatic logout
   const handleInactivityTimeout = () => {
@@ -95,18 +96,23 @@ export const AuthProvider = ({ children }) => {
   }, [isAuthenticated]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const initializeAuth = useCallback(async () => {
+    // Prevent re-initialization if already done
+    if (initializedRef.current) {
+      return;
+    }
+
     try {
       // Initialize authentication state
       const hasToken = !!authService.getToken();
       const hasRefreshToken = !!sessionStorage.getItem('pawn_repo_refresh_token');
-      
+
       if (!hasToken) {
         // No access token found
         setIsAuthenticated(false);
         setLoading(false);
         return;
       }
-      
+
       // EMERGENCY FIX: Skip user data fetch during initialization to prevent request storm
       // Login response already contains user data, no need to fetch during init
       if (hasToken && hasRefreshToken) {
@@ -123,6 +129,7 @@ export const AuthProvider = ({ children }) => {
         // Check if session has been revoked before setting authenticated state
         try {
           const isValid = await authService.checkSessionValid();
+
           if (!isValid) {
             // Session has been revoked - clear auth and redirect to login
             authService.logout();
@@ -152,7 +159,7 @@ export const AuthProvider = ({ children }) => {
         setLoading(false);
         return;
       }
-      
+
       // EMERGENCY FIX: Don't fetch user data during initialization
       // Sessions without refresh token are considered invalid - require re-login
       if (!hasRefreshToken) {
@@ -162,10 +169,12 @@ export const AuthProvider = ({ children }) => {
       }
     } catch (error) {
       // Auth initialization error
+      console.error('Auth initialization error:', error);
       authService.logout();
       setIsAuthenticated(false);
     } finally {
       setLoading(false);
+      initializedRef.current = true;
     }
   }, [startTimer]);
 
@@ -185,22 +194,22 @@ export const AuthProvider = ({ children }) => {
     try {
       setLoading(true);
       const response = await authService.login(credentials);
-      
+
       // Handle both response formats: login-with-refresh returns user as dict, regular login returns user object
       const userData = response.user;
       if (userData) {
         setUser(userData);
         setIsAuthenticated(true);
         setLastActivity(Date.now()); // Initialize activity tracking
-        
+
         // Login successful
-        
+
         // Start security inactivity timer
         // Use setTimeout to avoid race condition during login
         setTimeout(() => {
           startTimer();
         }, 200);
-        
+
         return { success: true, user: userData };
       } else {
         // Login response missing user data
@@ -223,15 +232,16 @@ export const AuthProvider = ({ children }) => {
     if (reason === 'inactivity_timeout') {
       // User logged out due to inactivity timeout
     }
-    
+
     // Stop inactivity monitoring
     stopTimer();
-    
+
     // Clear authentication state
     authService.logout();
     setUser(null);
     setIsAuthenticated(false);
     setLastActivity(Date.now()); // Reset activity tracking
+    initializedRef.current = false; // Reset initialization flag for next login
   };
 
   // Handle warning modal actions
@@ -249,7 +259,7 @@ export const AuthProvider = ({ children }) => {
     if (userLoading || user || !isAuthenticated) {
       return user;
     }
-    
+
     try {
       setUserLoading(true);
       const userData = await authService.getCurrentUser();

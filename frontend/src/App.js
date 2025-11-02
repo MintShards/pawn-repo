@@ -9,6 +9,7 @@ import DashboardPage from './pages/DashboardPage';
 import CustomersPage from './pages/CustomersPage';
 import TransactionHub from './pages/TransactionHub';
 import UserManagementPage from './pages/UserManagementPage';
+import AdminSettingsPage from './pages/AdminSettingsPage';
 import { Toaster } from './components/ui/sonner';
 
 function App() {
@@ -60,6 +61,15 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <UserManagementPage />
+                  </ProtectedRoute>
+                }
+              />
+
+              <Route
+                path="/admin/settings"
+                element={
+                  <ProtectedRoute>
+                    <AdminSettingsPage />
                   </ProtectedRoute>
                 }
               />
