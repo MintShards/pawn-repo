@@ -294,10 +294,37 @@ class UserStatsResponse(BaseModel):
 
 # Query parameter schemas
 class UserFilters(BaseModel):
-    """Schema for user list filtering"""
+    """Schema for user list filtering with advanced options"""
+    # Basic filters
     role: Optional[UserRole] = None
     status: Optional[UserStatus] = None
     search: Optional[str] = Field(None, max_length=100, description="Search in name, email, or user_id")
+
+    # Advanced date filters
+    created_after: Optional[datetime] = Field(None, description="Filter users created after this date")
+    created_before: Optional[datetime] = Field(None, description="Filter users created before this date")
+    last_login_after: Optional[datetime] = Field(None, description="Filter users with last login after this date")
+    last_login_before: Optional[datetime] = Field(None, description="Filter users with last login before this date")
+
+    # Security filters
+    is_locked: Optional[bool] = Field(None, description="Filter by account lock status")
+    min_failed_attempts: Optional[int] = Field(None, ge=0, le=5, description="Filter by minimum failed login attempts")
+
+    # Activity filters
+    has_active_sessions: Optional[bool] = Field(None, description="Filter by active session status")
+    never_logged_in: Optional[bool] = Field(None, description="Filter users who have never logged in")
+
+    # Contact information filters
+    has_email: Optional[bool] = Field(None, description="Filter by email presence")
+
+    # Account age filters
+    account_age_min_days: Optional[int] = Field(None, ge=0, description="Minimum account age in days")
+    account_age_max_days: Optional[int] = Field(None, ge=0, description="Maximum account age in days")
+
+    # Audit filters
+    created_by: Optional[str] = Field(None, max_length=2, description="Filter by creator user ID")
+
+    # Pagination and sorting
     page: int = Field(1, ge=1, description="Page number")
     per_page: int = Field(10, ge=1, le=100, description="Items per page")
     sort_by: Optional[str] = Field("created_at", description="Sort field")
@@ -309,6 +336,9 @@ class UserFilters(BaseModel):
                 "role": "staff",
                 "status": "active",
                 "search": "john",
+                "created_after": "2024-01-01T00:00:00Z",
+                "is_locked": False,
+                "has_active_sessions": True,
                 "page": 1,
                 "per_page": 10,
                 "sort_by": "last_login",

@@ -60,14 +60,55 @@ class UserService {
   }
 
   /**
-   * Get list of users with filtering and pagination
+   * Get list of users with advanced filtering and pagination
    */
   async getUsersList(filters = {}) {
     const queryParams = new URLSearchParams();
 
+    // Basic filters
     if (filters.role) queryParams.append('role', filters.role);
     if (filters.status) queryParams.append('status', filters.status);
     if (filters.search) queryParams.append('search', filters.search);
+
+    // Advanced date filters
+    if (filters.created_after) queryParams.append('created_after', filters.created_after);
+    if (filters.created_before) queryParams.append('created_before', filters.created_before);
+    if (filters.last_login_after) queryParams.append('last_login_after', filters.last_login_after);
+    if (filters.last_login_before) queryParams.append('last_login_before', filters.last_login_before);
+
+    // Security filters
+    if (filters.is_locked !== undefined && filters.is_locked !== '') {
+      queryParams.append('is_locked', filters.is_locked);
+    }
+    if (filters.min_failed_attempts !== undefined && filters.min_failed_attempts !== '') {
+      queryParams.append('min_failed_attempts', filters.min_failed_attempts);
+    }
+
+    // Activity filters
+    if (filters.has_active_sessions !== undefined && filters.has_active_sessions !== '') {
+      queryParams.append('has_active_sessions', filters.has_active_sessions);
+    }
+    if (filters.never_logged_in !== undefined && filters.never_logged_in !== '') {
+      queryParams.append('never_logged_in', filters.never_logged_in);
+    }
+
+    // Contact information filters
+    if (filters.has_email !== undefined && filters.has_email !== '') {
+      queryParams.append('has_email', filters.has_email);
+    }
+
+    // Account age filters
+    if (filters.account_age_min_days !== undefined && filters.account_age_min_days !== '') {
+      queryParams.append('account_age_min_days', filters.account_age_min_days);
+    }
+    if (filters.account_age_max_days !== undefined && filters.account_age_max_days !== '') {
+      queryParams.append('account_age_max_days', filters.account_age_max_days);
+    }
+
+    // Audit filters
+    if (filters.created_by) queryParams.append('created_by', filters.created_by);
+
+    // Pagination and sorting
     if (filters.page) queryParams.append('page', filters.page);
     if (filters.per_page) queryParams.append('per_page', filters.per_page);
     if (filters.sort_by) queryParams.append('sort_by', filters.sort_by);

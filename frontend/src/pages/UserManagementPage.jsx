@@ -58,6 +58,7 @@ import { Avatar, AvatarImage, AvatarFallback } from '../components/ui/avatar';
 import ViewUserDialog from '../components/user/ViewUserDialog';
 import UserCard from '../components/user/UserCard';
 import UserActivityLogDialog from '../components/user/UserActivityLogDialog';
+import AdvancedUserFilters from '../components/user/AdvancedUserFilters';
 import UnifiedPagination from '../components/ui/unified-pagination';
 import {
   Users,
@@ -69,6 +70,7 @@ import {
   Shield,
   CheckCircle2,
   XCircle,
+  X,
   AlertTriangle,
   RefreshCw,
   TrendingUp,
@@ -103,6 +105,20 @@ const UserManagementPage = () => {
     role: '',
     status: '',
     search: '',
+    // Advanced filters
+    created_after: '',
+    created_before: '',
+    last_login_after: '',
+    last_login_before: '',
+    is_locked: '',
+    min_failed_attempts: '',
+    has_active_sessions: '',
+    never_logged_in: '',
+    has_email: '',
+    account_age_min_days: '',
+    account_age_max_days: '',
+    created_by: '',
+    // Pagination and sorting
     page: 1,
     per_page: 10,
     sort_by: 'created_at',
@@ -221,6 +237,44 @@ const UserManagementPage = () => {
   const handleSearch = (e) => {
     e.preventDefault();
     fetchUsers();
+  };
+
+  // Clear advanced filters
+  const handleClearAdvancedFilters = () => {
+    setFilters(prev => ({
+      ...prev,
+      created_after: '',
+      created_before: '',
+      last_login_after: '',
+      last_login_before: '',
+      is_locked: '',
+      min_failed_attempts: '',
+      has_active_sessions: '',
+      never_logged_in: '',
+      has_email: '',
+      account_age_min_days: '',
+      account_age_max_days: '',
+      created_by: '',
+      page: 1,
+    }));
+  };
+
+  // Count active advanced filters (excluding basic filters: role, status, search)
+  const getActiveAdvancedFilterCount = () => {
+    let count = 0;
+    if (filters.created_after) count++;
+    if (filters.created_before) count++;
+    if (filters.last_login_after) count++;
+    if (filters.last_login_before) count++;
+    if (filters.is_locked !== '') count++;
+    if (filters.min_failed_attempts !== '') count++;
+    if (filters.has_active_sessions !== '') count++;
+    if (filters.never_logged_in !== '') count++;
+    if (filters.has_email !== '') count++;
+    if (filters.account_age_min_days !== '') count++;
+    if (filters.account_age_max_days !== '') count++;
+    if (filters.created_by) count++;
+    return count;
   };
 
   // Validation helper functions
@@ -1155,10 +1209,19 @@ const UserManagementPage = () => {
                   <Button
                     variant="outline"
                     onClick={() => setAdvancedFiltersOpen(true)}
-                    className="h-12 px-4 rounded-xl border-0 bg-slate-100/50 dark:bg-slate-700/50 hover:bg-slate-200/50 dark:hover:bg-slate-600/50 text-slate-700 dark:text-slate-300 font-normal"
+                    className={`h-12 px-4 rounded-xl border-0 font-normal relative ${
+                      getActiveAdvancedFilterCount() > 0
+                        ? 'bg-blue-100 dark:bg-blue-900/30 hover:bg-blue-200 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 hover:text-blue-900 dark:hover:text-blue-200'
+                        : 'bg-slate-100/50 dark:bg-slate-700/50 hover:bg-slate-200/50 dark:hover:bg-slate-600/50 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100'
+                    }`}
                   >
                     <Filter className="w-4 h-4 mr-2" />
                     Advanced
+                    {getActiveAdvancedFilterCount() > 0 && (
+                      <span className="ml-2 inline-flex items-center justify-center h-5 min-w-5 px-1.5 text-xs font-semibold rounded-full bg-blue-600 dark:bg-blue-500 text-white">
+                        {getActiveAdvancedFilterCount()}
+                      </span>
+                    )}
                   </Button>
 
                   {/* View Mode Toggle */}
@@ -1508,21 +1571,21 @@ const UserManagementPage = () => {
                                     setShowResetConfirmPin(false);
                                     setResetPinDialogOpen(true);
                                   }}
-                                  className="cursor-pointer"
+                                  className="cursor-pointer group"
                                 >
-                                  <Key className="mr-2 h-4 w-4 text-orange-600 dark:text-orange-400" />
+                                  <Key className="mr-2 h-4 w-4 text-orange-600 dark:text-orange-400 group-hover:text-orange-900 dark:group-hover:text-orange-200" />
                                   Reset PIN
                                 </DropdownMenuItem>
 
-                                {user.locked_until && (
+                                {user.locked_until && new Date(user.locked_until) > new Date() && (
                                   <DropdownMenuItem
                                     onClick={() => {
                                       setSelectedUser(user);
                                       setUnlockDialogOpen(true);
                                     }}
-                                    className="cursor-pointer"
+                                    className="cursor-pointer group"
                                   >
-                                    <Unlock className="mr-2 h-4 w-4 text-green-600 dark:text-green-400" />
+                                    <Unlock className="mr-2 h-4 w-4 text-green-600 dark:text-green-400 group-hover:text-green-900 dark:group-hover:text-green-200" />
                                     Unlock Account
                                   </DropdownMenuItem>
                                 )}
@@ -1532,9 +1595,9 @@ const UserManagementPage = () => {
                                     setSelectedUser(user);
                                     setRevokeSessionDialogOpen(true);
                                   }}
-                                  className="cursor-pointer"
+                                  className="cursor-pointer group"
                                 >
-                                  <RefreshCw className="mr-2 h-4 w-4 text-red-600 dark:text-red-400" />
+                                  <RefreshCw className="mr-2 h-4 w-4 text-red-600 dark:text-red-400 group-hover:text-red-900 dark:group-hover:text-red-200" />
                                   Revoke Sessions
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
@@ -2304,39 +2367,52 @@ const UserManagementPage = () => {
 
           {/* Advanced Filters Dialog */}
           <Dialog open={advancedFiltersOpen} onOpenChange={setAdvancedFiltersOpen}>
-            <DialogContent className="sm:max-w-md">
+            <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
                   <Filter className="h-5 w-5 text-blue-500" />
                   Advanced Filters
                 </DialogTitle>
                 <DialogDescription>
-                  Filter users by creation date, login activity, and account status
+                  Filter users by creation date, login activity, security status, and more
                 </DialogDescription>
               </DialogHeader>
 
-              <div className="space-y-6 py-4">
-                {/* Placeholder for future advanced filters */}
-                <div className="space-y-4 text-center py-8">
-                  <div className="flex justify-center">
-                    <div className="p-4 bg-blue-50 dark:bg-blue-950/20 rounded-full">
-                      <Filter className="h-8 w-8 text-blue-500" />
-                    </div>
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">
-                      Advanced Filters
-                    </h3>
-                    <p className="text-sm text-slate-600 dark:text-slate-400 max-w-sm mx-auto">
-                      Advanced filtering options for user management will be available here. Filter by creation date, last login, failed attempts, and more.
-                    </p>
-                  </div>
-                </div>
+              <div className="py-4">
+                <AdvancedUserFilters
+                  filters={filters}
+                  onFilterChange={handleFilterChange}
+                  onClearFilters={handleClearAdvancedFilters}
+                />
               </div>
 
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setAdvancedFiltersOpen(false)}>
-                  Close
+              <DialogFooter className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    handleClearAdvancedFilters();
+                  }}
+                  className="flex items-center gap-2"
+                >
+                  <X className="h-4 w-4" />
+                  Clear All Filters
+                </Button>
+                <div className="flex-1" />
+                <Button
+                  variant="outline"
+                  onClick={() => setAdvancedFiltersOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => {
+                    setAdvancedFiltersOpen(false);
+                    fetchUsers();
+                  }}
+                  className="flex items-center gap-2"
+                >
+                  <Filter className="h-4 w-4" />
+                  Apply Filters
                 </Button>
               </DialogFooter>
             </DialogContent>

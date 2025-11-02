@@ -279,10 +279,10 @@ class UserService:
     
     @staticmethod
     async def get_users_list(filters: UserFilters, requester_role: UserRole = None) -> UserListResponse:
-        """Get paginated list of users with filtering"""
+        """Get paginated list of users with advanced filtering"""
         query = User.find()
-        
-        # Apply filters
+
+        # Apply basic filters
         if filters.role:
             query = query.find(User.role == filters.role)
         if filters.status:
@@ -298,29 +298,153 @@ class UserService:
                     {"user_id": {"$regex": filters.search, "$options": "i"}}
                 ]
             })
-        
+
+        # Apply advanced date filters
+        if filters.created_after:
+            query = query.find(User.created_at >= filters.created_after)
+        if filters.created_before:
+            query = query.find(User.created_at <= filters.created_before)
+        if filters.last_login_after:
+            query = query.find(User.last_login >= filters.last_login_after)
+        if filters.last_login_before:
+            # Include users who never logged in (null) as they are also "inactive"
+            query = query.find({
+                "$or": [
+                    {"last_login": {"$lte": filters.last_login_before}},
+                    {"last_login": None},
+                    {"last_login": {"$exists": False}}
+                ]
+            })
+
+        # Apply security filters
+        if filters.is_locked is not None:
+            # Use timezone-aware datetime (MongoDB stores timezone-aware datetimes)
+            # Using UTC since account lock status is not user-timezone dependent
+            from datetime import timezone
+            current_time = datetime.now(timezone.utc)
+
+            if filters.is_locked:
+                # Find locked users (locked_until exists and is in the future)
+                query = query.find({
+                    "$and": [
+                        {"locked_until": {"$ne": None}},
+                        {"locked_until": {"$gt": current_time}}
+                    ]
+                })
+            else:
+                # Find unlocked users (locked_until is None or in the past)
+                query = query.find({
+                    "$or": [
+                        {"locked_until": None},
+                        {"locked_until": {"$exists": False}},
+                        {"locked_until": {"$lte": current_time}}
+                    ]
+                })
+
+        if filters.min_failed_attempts is not None:
+            query = query.find(User.failed_login_attempts >= filters.min_failed_attempts)
+
+        # Apply activity filters
+        if filters.has_active_sessions is not None:
+            # Use timezone-aware datetime for consistent comparison with database
+            from datetime import timezone
+            eight_hours_ago = datetime.now(timezone.utc) - timedelta(hours=8)
+
+            if filters.has_active_sessions:
+                # Users with at least one active session that's not expired
+                # Session timeout is 8 hours, so check last_activity is within that window
+                query = query.find({
+                    "$and": [
+                        {"active_sessions": {"$ne": [], "$exists": True}},
+                        {"last_activity": {"$gte": eight_hours_ago}}
+                    ]
+                })
+            else:
+                # Users with no active sessions or expired sessions
+                query = query.find({
+                    "$or": [
+                        {"active_sessions": []},
+                        {"active_sessions": {"$exists": False}},
+                        {"active_sessions": None},
+                        {"last_activity": {"$lt": eight_hours_ago}},
+                        {"last_activity": None}
+                    ]
+                })
+
+        # Never logged in filter
+        if filters.never_logged_in is not None:
+            if filters.never_logged_in:
+                query = query.find({
+                    "$or": [
+                        {"last_login": None},
+                        {"last_login": {"$exists": False}}
+                    ]
+                })
+            else:
+                query = query.find({
+                    "last_login": {"$exists": True, "$ne": None}
+                })
+
+        # Contact information filters
+        if filters.has_email is not None:
+            if filters.has_email:
+                # Fixed: Ensure email is actually a non-null, non-empty string
+                query = query.find({
+                    "$and": [
+                        {"email": {"$ne": None}},
+                        {"email": {"$ne": ""}},
+                        {"email": {"$type": "string"}}
+                    ]
+                })
+            else:
+                query = query.find({
+                    "$or": [
+                        {"email": None},
+                        {"email": ""},
+                        {"email": {"$exists": False}}
+                    ]
+                })
+
+        # Account age filters
+        if filters.account_age_min_days is not None or filters.account_age_max_days is not None:
+            current_time = datetime.utcnow()
+
+            if filters.account_age_min_days is not None:
+                # Account must be older than min days
+                max_created_at = current_time - timedelta(days=filters.account_age_min_days)
+                query = query.find({"created_at": {"$lte": max_created_at}})
+
+            if filters.account_age_max_days is not None:
+                # Account must be younger than max days
+                min_created_at = current_time - timedelta(days=filters.account_age_max_days)
+                query = query.find({"created_at": {"$gte": min_created_at}})
+
+        # Created by filter
+        if filters.created_by:
+            query = query.find({"created_by": filters.created_by})
+
         # Count total
         total = await query.count()
-        
+
         # Apply sorting
         sort_field = filters.sort_by
         sort_direction = 1 if filters.sort_order == "asc" else -1
         query = query.sort([(sort_field, sort_direction)])
-        
+
         # Apply pagination
         skip = (filters.page - 1) * filters.per_page
         users = await query.skip(skip).limit(filters.per_page).to_list()
-        
+
         # Convert to response format
         user_responses = [UserResponse.model_validate(user.model_dump()) for user in users]
-        
+
         # Hide notes from non-admin users
         if requester_role != UserRole.ADMIN:
             for user_resp in user_responses:
                 user_resp.notes = None
-        
+
         pages = (total + filters.per_page - 1) // filters.per_page
-        
+
         return UserListResponse(
             users=user_responses,
             total=total,

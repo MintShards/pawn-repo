@@ -166,23 +166,55 @@ async def delete_me_not_allowed():
 @user_router.get("/list",
                 response_model=UserListResponse,
                 summary="Get users list",
-                description="Get paginated list of users with filtering (Staff can see basic info, Admin can see all)",
+                description="Get paginated list of users with advanced filtering (Staff can see basic info, Admin can see all)",
                 dependencies=[Depends(require_staff_or_admin)])
 async def get_users_list(
+    # Basic filters
     role: Optional[UserRole] = Query(None, description="Filter by role"),
     status: Optional[UserStatus] = Query(None, description="Filter by status"),
     search: Optional[str] = Query(None, max_length=100, description="Search in name, email, or user_id"),
+    # Advanced date filters
+    created_after: Optional[datetime] = Query(None, description="Filter users created after this date"),
+    created_before: Optional[datetime] = Query(None, description="Filter users created before this date"),
+    last_login_after: Optional[datetime] = Query(None, description="Filter users with last login after this date"),
+    last_login_before: Optional[datetime] = Query(None, description="Filter users with last login before this date"),
+    # Security filters
+    is_locked: Optional[bool] = Query(None, description="Filter by account lock status"),
+    min_failed_attempts: Optional[int] = Query(None, ge=0, le=5, description="Filter by minimum failed login attempts"),
+    # Activity filters
+    has_active_sessions: Optional[bool] = Query(None, description="Filter by active session status"),
+    never_logged_in: Optional[bool] = Query(None, description="Filter users who have never logged in"),
+    # Contact information filters
+    has_email: Optional[bool] = Query(None, description="Filter by email presence"),
+    # Account age filters
+    account_age_min_days: Optional[int] = Query(None, ge=0, description="Minimum account age in days"),
+    account_age_max_days: Optional[int] = Query(None, ge=0, description="Maximum account age in days"),
+    # Audit filters
+    created_by: Optional[str] = Query(None, max_length=2, description="Filter by creator user ID"),
+    # Pagination and sorting
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(10, ge=1, le=100, description="Items per page"),
     sort_by: str = Query("created_at", description="Sort field"),
     sort_order: str = Query("desc", regex="^(asc|desc)$", description="Sort order"),
     current_user: User = Depends(require_staff_or_admin)
 ):
-    """Get paginated list of users"""
+    """Get paginated list of users with advanced filtering"""
     filters = UserFilters(
         role=role,
         status=status,
         search=search,
+        created_after=created_after,
+        created_before=created_before,
+        last_login_after=last_login_after,
+        last_login_before=last_login_before,
+        is_locked=is_locked,
+        min_failed_attempts=min_failed_attempts,
+        has_active_sessions=has_active_sessions,
+        never_logged_in=never_logged_in,
+        has_email=has_email,
+        account_age_min_days=account_age_min_days,
+        account_age_max_days=account_age_max_days,
+        created_by=created_by,
         page=page,
         per_page=per_page,
         sort_by=sort_by,
