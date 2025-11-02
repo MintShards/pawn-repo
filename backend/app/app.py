@@ -43,6 +43,12 @@ from app.models.service_alert_model import ServiceAlert
 from app.models.user_model import User
 from app.models.user_activity_log_model import UserActivityLog
 from app.models.transaction_metrics import TransactionMetrics
+from app.models.business_config_model import (
+    CompanyConfig,
+    FinancialPolicyConfig,
+    ForfeitureConfig,
+    PrinterConfig
+)
 
 # Database client, limiter, scheduler and logger
 db_client = None
@@ -65,7 +71,22 @@ async def lifespan(app: FastAPI):
     
     await init_beanie(
         database=db_client,
-        document_models=[User, UserActivityLog, Customer, PawnTransaction, PawnItem, Payment, Extension, ServiceAlert, LoanConfig, TransactionMetrics]
+        document_models=[
+            User,
+            UserActivityLog,
+            Customer,
+            PawnTransaction,
+            PawnItem,
+            Payment,
+            Extension,
+            ServiceAlert,
+            LoanConfig,
+            TransactionMetrics,
+            CompanyConfig,
+            FinancialPolicyConfig,
+            ForfeitureConfig,
+            PrinterConfig
+        ]
     )
     
     # Initialize Redis-based services

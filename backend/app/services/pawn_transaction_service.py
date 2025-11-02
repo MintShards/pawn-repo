@@ -22,6 +22,7 @@ from app.models.extension_model import Extension
 from app.models.customer_model import Customer, CustomerStatus
 from app.models.user_model import User, UserStatus
 from app.models.audit_entry_model import create_status_change_audit
+from app.models.business_config_model import FinancialPolicyConfig
 from app.core.transaction_notes import safe_append_transaction_notes, format_system_note
 from app.core.timezone_utils import utc_to_user_timezone, format_user_datetime, get_user_now, get_user_business_date, user_timezone_to_utc, add_months_user_timezone
 from app.core.redis_cache import BusinessCache, cached_result, CacheConfig
@@ -178,10 +179,83 @@ class PawnTransactionService:
         # Validate items list
         if not items or len(items) == 0:
             raise PawnTransactionError("At least one item must be provided for pawn transaction")
-        
+
         if len(items) > 20:  # Business rule: max 20 items per transaction
             raise PawnTransactionError("Maximum 20 items allowed per transaction")
-        
+
+        # Check loan amount limits from Financial Policy
+        try:
+            financial_config = await FinancialPolicyConfig.get_current_config()
+
+            if financial_config:
+                # Validate minimum loan amount
+                if loan_amount < financial_config.min_loan_amount:
+                    raise PawnTransactionError(
+                        f"Loan amount ${loan_amount:,.2f} is below the minimum "
+                        f"allowed amount of ${financial_config.min_loan_amount:,.2f}"
+                    )
+
+                # Validate maximum loan amount
+                if loan_amount > financial_config.max_loan_amount:
+                    raise PawnTransactionError(
+                        f"Loan amount ${loan_amount:,.2f} exceeds the maximum "
+                        f"allowed amount of ${financial_config.max_loan_amount:,.2f}"
+                    )
+
+                logger.info(
+                    "Loan amount validation passed",
+                    loan_amount=loan_amount,
+                    min_allowed=float(financial_config.min_loan_amount),
+                    max_allowed=float(financial_config.max_loan_amount)
+                )
+        except PawnTransactionError:
+            # Re-raise loan amount validation errors
+            raise
+        except Exception as e:
+            # Log but don't block transaction if config fetch fails
+            logger.warning(
+                "Failed to check loan amount limits, proceeding without validation",
+                error=str(e)
+            )
+
+        # Check credit limit (always enforced)
+        try:
+            # Get effective credit limit (custom or system default)
+            effective_credit_limit = await customer.get_effective_credit_limit()
+
+            # Calculate customer's potential total loan value
+            potential_total = customer.total_loan_value + loan_amount
+
+            if potential_total > effective_credit_limit:
+                limit_source = "custom" if customer.credit_limit is not None else "system default"
+                raise PawnTransactionError(
+                    f"Transaction would exceed customer credit limit. "
+                    f"Customer limit ({limit_source}): ${effective_credit_limit:,.2f}, "
+                    f"Current usage: ${customer.total_loan_value:,.2f}, "
+                    f"New loan: ${loan_amount:,.2f}, "
+                    f"Total would be: ${potential_total:,.2f}"
+                )
+
+            logger.info(
+                "Credit limit validation passed",
+                customer_phone=customer_phone,
+                credit_limit=float(effective_credit_limit),
+                credit_limit_source="custom" if customer.credit_limit is not None else "system_default",
+                current_usage=float(customer.total_loan_value),
+                new_loan=loan_amount,
+                potential_total=float(potential_total)
+            )
+        except PawnTransactionError:
+            # Re-raise credit limit validation errors
+            raise
+        except Exception as e:
+            # Log but don't block transaction if config fetch fails
+            logger.warning(
+                "Failed to check credit limit enforcement, proceeding without validation",
+                error=str(e),
+                customer_phone=customer_phone
+            )
+
         try:
             # Get current business date in user's timezone
             if client_timezone:

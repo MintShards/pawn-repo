@@ -22,6 +22,7 @@ from app.api.api_v1.handlers.overdue_fee import router as overdue_fee_router
 from app.api.api_v1.handlers.discount import discount_router
 from app.api.api_v1.handlers.consistency import consistency_router
 from app.api.api_v1.handlers.user_activity import router as user_activity_router
+from app.api.api_v1.handlers.business_config import router as business_config_router
 
 # Main API v1 router
 router = APIRouter()
@@ -134,5 +135,12 @@ router.include_router(
     prefix="/user-activity",
     tags=["User Activity Logs"],
     responses={403: {"description": "Permission denied"}}
+)
+
+router.include_router(
+    business_config_router,
+    prefix="/business-config",
+    tags=["Business Configuration"],
+    responses={403: {"description": "Admin access required"}}
 )
 

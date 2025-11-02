@@ -126,6 +126,13 @@ const SystemHealthTab = () => {
 
   return (
     <div className="space-y-6">
+      {/* Header */}
+      <div>
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">System Health</h2>
+        <p className="text-slate-600 dark:text-slate-400 mt-1">
+          Monitor system performance, database status, and operational metrics
+        </p>
+      </div>
 
       {/* Active Alerts */}
       {alertsStatus?.alerts && alertsStatus.alerts.length > 0 && (

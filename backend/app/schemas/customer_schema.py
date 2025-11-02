@@ -114,7 +114,7 @@ class CustomerUpdate(CustomerBase):
         None,
         ge=Decimal("0.00"),
         le=Decimal("50000.00"),
-        description="Maximum loan amount allowed (admin only)"
+        description="Custom credit limit (admin only). Set to None to use system default from Financial Policy"
     )
     custom_loan_limit: Optional[int] = Field(
         None,
@@ -181,7 +181,7 @@ class CustomerResponse(CustomerBase):
         None,
         description="Date of most recent transaction"
     )
-    credit_limit: Decimal = Field(..., description="Maximum loan amount allowed")
+    credit_limit: Optional[Decimal] = Field(None, description="Custom credit limit (None = using system default)")
     can_borrow_amount: Decimal = Field(..., description="Available borrowing amount")
     custom_loan_limit: Optional[int] = Field(None, description="Custom maximum active loans (overrides system default)")
     

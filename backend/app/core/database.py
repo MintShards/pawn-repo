@@ -79,7 +79,8 @@ async def initialize_database():
         serverSelectionTimeoutMS=5000,  # Server selection timeout
         waitQueueTimeoutMS=5000, # Wait queue timeout
         retryReads=True,         # Retry read operations
-        retryWrites=True         # Retry write operations
+        retryWrites=True,        # Retry write operations
+        readPreference='primary'  # CRITICAL: Always read from primary for consistency
     )
     
     # Get default database

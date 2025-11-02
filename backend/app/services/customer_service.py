@@ -21,7 +21,9 @@ from app.schemas.customer_schema import (
     CustomerStatsResponse, LoanLimitUpdateRequest, LoanLimitResponse
 )
 from app.core.config import settings
-from app.models.loan_config_model import LoanConfig
+# LoanConfig deprecated - now using FinancialPolicyConfig for all loan limits
+# from app.models.loan_config_model import LoanConfig
+from app.models.business_config_model import FinancialPolicyConfig
 from app.core.redis_cache import BusinessCache
 
 
@@ -50,15 +52,15 @@ class CustomerService:
     @staticmethod
     async def create_customer(customer_data: CustomerCreate, created_by: str) -> Customer:
         """
-        Create a new customer
-        
+        Create a new customer with default credit limit from Financial Policy configuration
+
         Args:
             customer_data: Customer creation data
             created_by: User ID who is creating the customer
-            
+
         Returns:
             Created customer document
-            
+
         Raises:
             HTTPException: If phone number already exists or validation fails
         """
@@ -71,18 +73,36 @@ class CustomerService:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Phone number already exists"
             )
-        
+
         # Create customer document
+        # Note: credit_limit defaults to None (use system default from Financial Policy)
+        # Only set if explicitly provided as a custom limit
+        customer_dict = customer_data.model_dump()
+
+        # Ensure credit_limit is None if not explicitly provided (use system default)
+        if "credit_limit" not in customer_dict or customer_dict["credit_limit"] is None:
+            customer_dict["credit_limit"] = None  # Will dynamically use Financial Policy default
+
         customer = Customer(
-            **customer_data.model_dump(),
+            **customer_dict,
             created_by=created_by
         )
-        
+
         try:
             await customer.insert()
 
             # Invalidate customer stats cache for real-time updates
             await BusinessCache.invalidate_by_pattern("stats:customer:*")
+
+            # Log credit limit source
+            credit_limit_source = "custom" if customer.credit_limit is not None else "system_default"
+            CustomerService.logger.info(
+                "Customer created",
+                phone=customer.phone_number,
+                credit_limit_source=credit_limit_source,
+                custom_limit=str(customer.credit_limit) if customer.credit_limit else None,
+                created_by=created_by
+            )
 
             return customer
         except Exception as e:
@@ -684,14 +704,8 @@ class CustomerService:
             )
         
         # Check if customer has reached the maximum loan limit
-        # Priority: Customer custom limit > System config > Settings default
-        max_loans = customer.custom_loan_limit
-        if max_loans is None:
-            # No custom limit, use system config
-            max_loans = await LoanConfig.get_max_active_loans()
-            if max_loans == 8:  # If no database config, use settings
-                max_loans = settings.MAX_ACTIVE_LOANS
-        
+        # Get effective loan limit (custom or system default)
+        max_loans = await customer.get_effective_loan_limit()
         return customer.active_loans < max_loans
 
     @staticmethod
@@ -715,15 +729,9 @@ class CustomerService:
                 detail="Customer not found"
             )
         
-        # Get effective loan limit for this customer
-        # Priority: Customer custom limit > System config > Settings default
-        max_loans = customer.custom_loan_limit
-        if max_loans is None:
-            # No custom limit, use system config
-            max_loans = await LoanConfig.get_max_active_loans()
-            if max_loans == 8:  # If no database config, use settings
-                max_loans = settings.MAX_ACTIVE_LOANS
-        
+        # Get effective loan limit (custom or system default)
+        max_loans = await customer.get_effective_loan_limit()
+
         # Define statuses that USE slots and credit
         slot_using_statuses = [
             TransactionStatus.ACTIVE,

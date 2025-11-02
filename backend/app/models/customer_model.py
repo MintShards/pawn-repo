@@ -147,11 +147,13 @@ class Customer(Document):
     )
     
     # Credit fields
-    credit_limit: Decimal = Field(
-        default=Decimal("3000.00"),
+    # None = use Financial Policy system default
+    # Decimal value = custom limit for this specific customer
+    credit_limit: Optional[Decimal] = Field(
+        default=None,
         ge=Decimal("0.00"),
         le=Decimal("50000.00"),
-        description="Maximum loan amount allowed"
+        description="Custom credit limit (None = use system default from Financial Policy)"
     )
     
     # Individual loan limit (overrides system default)
@@ -205,15 +207,77 @@ class Customer(Document):
     def can_transact(self) -> bool:
         """Check if customer can perform transactions"""
         return self.status == CustomerStatus.ACTIVE
-    
-    
+
+    async def get_effective_credit_limit(self) -> Decimal:
+        """
+        Get the effective credit limit for this customer.
+
+        Returns custom credit_limit if set, otherwise fetches system default
+        from Financial Policy configuration.
+
+        Returns:
+            Decimal: Effective credit limit amount
+        """
+        # If customer has custom limit, use it
+        if self.credit_limit is not None:
+            return self.credit_limit
+
+        # Otherwise, fetch system default from Financial Policy
+        from app.models.business_config_model import FinancialPolicyConfig
+
+        try:
+            financial_config = await FinancialPolicyConfig.get_current_config()
+            if financial_config and financial_config.customer_credit_limit:
+                return Decimal(str(financial_config.customer_credit_limit))
+        except Exception:
+            # Fallback to $3000 if config unavailable
+            pass
+
+        return Decimal("3000.00")
+
+    async def get_effective_loan_limit(self) -> int:
+        """
+        Get the effective max active loans limit for this customer.
+
+        Returns custom_loan_limit if set, otherwise fetches system default
+        from Financial Policy configuration.
+
+        Returns:
+            int: Effective maximum active loans allowed
+        """
+        # If customer has custom limit, use it
+        if self.custom_loan_limit is not None:
+            return self.custom_loan_limit
+
+        # Otherwise, fetch system default from Financial Policy
+        from app.models.business_config_model import FinancialPolicyConfig
+
+        try:
+            financial_config = await FinancialPolicyConfig.get_current_config()
+            if financial_config and financial_config.max_active_loans_per_customer:
+                return financial_config.max_active_loans_per_customer
+        except Exception:
+            # Fallback to 8 if config unavailable
+            pass
+
+        return 8
+
     @property
     def can_borrow_amount(self) -> Decimal:
-        """Get available borrowing amount based on active loans and credit limit"""
-        # Note: This is a synchronous property, so it returns the simplified calculation
-        # For accurate real-time calculations, use CustomerService.validate_loan_eligibility()
-        # which performs async database queries for precise slot/credit calculations
-        return self.credit_limit
+        """
+        Get available borrowing amount based on active loans and credit limit.
+
+        Note: This is a synchronous property that returns a simplified calculation.
+        For accurate real-time credit limit calculations with system defaults,
+        use CustomerService.validate_loan_eligibility() which performs async
+        database queries for precise slot/credit calculations including
+        Financial Policy configuration.
+        """
+        # Synchronous property - return stored value or fallback
+        # Real credit limit logic is in get_effective_credit_limit() (async)
+        if self.credit_limit is not None:
+            return self.credit_limit
+        return Decimal("3000.00")  # Fallback for synchronous access
     
     def suspend(self, reason: str, suspended_by: str):
         """Suspend customer account"""

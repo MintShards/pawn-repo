@@ -29,23 +29,25 @@ import { Badge } from '../ui/badge';
 import { Separator } from '../ui/separator';
 import { Progress } from '../ui/progress';
 import customerService from '../../services/customerService';
+import businessConfigService from '../../services/businessConfigService';
 import { toast } from 'sonner';
 import { useAuth } from '../../context/AuthContext';
 import { isAdmin as isAdminRole } from '../../utils/roleUtils';
 
-const CustomCreditLimitDialog = ({ 
-  open, 
-  onOpenChange, 
-  customer, 
+const CustomCreditLimitDialog = ({
+  open,
+  onOpenChange,
+  customer,
   eligibilityData,
   onCustomerUpdate,
-  onEligibilityUpdate 
+  onEligibilityUpdate
 }) => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [customLimit, setCustomLimit] = useState('');
   const [reason, setReason] = useState('');
-  const [systemDefault] = useState(3000); // Still used for calculations
+  const [systemDefault, setSystemDefault] = useState(3000); // Fetched from config
+  const [loadingConfig, setLoadingConfig] = useState(false);
   const [selectedUseCase, setSelectedUseCase] = useState(null);
   const [localEligibilityData, setLocalEligibilityData] = useState(eligibilityData);
 
@@ -91,18 +93,40 @@ const CustomCreditLimitDialog = ({
     }
   ];
 
+  // Fetch system default credit limit from Financial Policy config
+  useEffect(() => {
+    const fetchSystemDefault = async () => {
+      if (!open) return;
+
+      setLoadingConfig(true);
+      try {
+        const financialConfig = await businessConfigService.getFinancialPolicyConfig();
+        if (financialConfig?.customer_credit_limit) {
+          setSystemDefault(parseFloat(financialConfig.customer_credit_limit));
+        }
+      } catch (error) {
+        console.warn('Failed to fetch system default, using fallback:', error);
+        // Keep fallback default of 3000
+      } finally {
+        setLoadingConfig(false);
+      }
+    };
+
+    fetchSystemDefault();
+  }, [open]);
+
   useEffect(() => {
     if (open && customer) {
       // Start with empty field to show placeholder text
       setCustomLimit('');
       setReason('');
       setSelectedUseCase(null);
-      
+
       // Ensure we have the latest eligibility data when dialog opens
       setLocalEligibilityData(eligibilityData);
     }
   }, [open, customer, eligibilityData]); // Re-initialize when dialog opens or when customer credit limit changes
-  
+
   // Sync local eligibility data when prop changes
   useEffect(() => {
     setLocalEligibilityData(eligibilityData);
@@ -284,7 +308,8 @@ const CustomCreditLimitDialog = ({
 
   // Use eligibility data for real-time updates, fallback to customer data
   const currentEffectiveLimit = localEligibilityData?.credit_limit || parseFloat(customer.credit_limit) || systemDefault;
-  const isUsingCustomLimit = (localEligibilityData?.credit_limit || customer.credit_limit) && currentEffectiveLimit !== systemDefault;
+  // Check if customer has explicit custom limit (not null/undefined and different from system default)
+  const isUsingCustomLimit = customer.credit_limit !== null && customer.credit_limit !== undefined;
   const currentCreditUsed = localEligibilityData?.credit_used || 0;
   const creditUtilization = (currentCreditUsed / currentEffectiveLimit) * 100;
   
@@ -514,22 +539,68 @@ const CustomCreditLimitDialog = ({
               )}
             </div>
 
-          {/* System Info */}
-          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 rounded-xl p-4 border border-blue-200 dark:border-blue-800">
+          {/* Credit Limit Source Info */}
+          <div className={`bg-gradient-to-r rounded-xl p-4 border ${
+            isUsingCustomLimit
+              ? 'from-amber-50 to-orange-50 dark:from-amber-950/20 dark:to-orange-950/20 border-amber-200 dark:border-amber-800'
+              : 'from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 border-blue-200 dark:border-blue-800'
+          }`}>
             <div className="flex items-start gap-3">
-              <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/50 rounded-lg flex items-center justify-center shrink-0">
-                <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                isUsingCustomLimit
+                  ? 'bg-amber-100 dark:bg-amber-900/50'
+                  : 'bg-blue-100 dark:bg-blue-900/50'
+              }`}>
+                <Info className={`h-4 w-4 ${
+                  isUsingCustomLimit
+                    ? 'text-amber-600 dark:text-amber-400'
+                    : 'text-blue-600 dark:text-blue-400'
+                }`} />
               </div>
-              <div>
-                <p className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-1">
-                  System Default Information
+              <div className="flex-1">
+                <p className={`text-sm font-medium mb-1 ${
+                  isUsingCustomLimit
+                    ? 'text-amber-900 dark:text-amber-100'
+                    : 'text-blue-900 dark:text-blue-100'
+                }`}>
+                  {isUsingCustomLimit ? 'Using Custom Credit Limit' : 'Using System Default'}
                 </p>
-                <p className="text-xs text-blue-700 dark:text-blue-300">
-                  Current system default: <span className="font-bold text-blue-900 dark:text-blue-100">${systemDefault.toLocaleString()}</span> credit limit
-                </p>
-                <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
-                  Individual customer limits override the system default when set.
-                </p>
+                {isUsingCustomLimit ? (
+                  <>
+                    <p className={`text-xs ${
+                      isUsingCustomLimit
+                        ? 'text-amber-700 dark:text-amber-300'
+                        : 'text-blue-700 dark:text-blue-300'
+                    }`}>
+                      Custom limit: <span className="font-bold text-amber-900 dark:text-amber-100">${currentEffectiveLimit.toLocaleString()}</span>
+                    </p>
+                    <p className={`text-xs mt-1 ${
+                      isUsingCustomLimit
+                        ? 'text-amber-600 dark:text-amber-400'
+                        : 'text-blue-600 dark:text-blue-400'
+                    }`}>
+                      System default is ${systemDefault.toLocaleString()}. Custom limit will be used for this customer.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-xs text-blue-700 dark:text-blue-300">
+                      {loadingConfig ? (
+                        <span className="inline-flex items-center gap-1">
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          Loading system default...
+                        </span>
+                      ) : (
+                        <>
+                          System default: <span className="font-bold text-blue-900 dark:text-blue-100">${systemDefault.toLocaleString()}</span> credit limit
+                        </>
+                      )}
+                    </p>
+                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                      This customer is using the centralized default from Financial Policy settings.
+                    </p>
+                  </>
+                )}
               </div>
             </div>
           </div>
