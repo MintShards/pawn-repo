@@ -243,15 +243,34 @@ class PawnTransactionService:
             # Get effective credit limit (custom or system default)
             effective_credit_limit = await customer.get_effective_credit_limit()
 
+            # Calculate REAL-TIME credit usage from actual transactions
+            # (matching the loan eligibility check logic for consistency)
+            slot_using_statuses = [
+                TransactionStatus.ACTIVE,
+                TransactionStatus.EXTENDED,
+                TransactionStatus.HOLD,
+                TransactionStatus.OVERDUE,
+                TransactionStatus.DAMAGED
+            ]
+
+            # Query actual transactions to get current credit usage
+            active_transactions = await PawnTransaction.find(
+                PawnTransaction.customer_id == customer_phone,
+                In(PawnTransaction.status, slot_using_statuses)
+            ).to_list()
+
+            # Calculate real-time credit used
+            current_credit_used = sum(transaction.loan_amount for transaction in active_transactions)
+
             # Calculate customer's potential total loan value
-            potential_total = customer.total_loan_value + loan_amount
+            potential_total = current_credit_used + loan_amount
 
             if potential_total > effective_credit_limit:
                 limit_source = "custom" if customer.credit_limit is not None else "system default"
                 raise PawnTransactionError(
                     f"Transaction would exceed customer credit limit. "
                     f"Customer limit ({limit_source}): ${effective_credit_limit:,.2f}, "
-                    f"Current usage: ${customer.total_loan_value:,.2f}, "
+                    f"Current usage: ${current_credit_used:,.2f}, "
                     f"New loan: ${loan_amount:,.2f}, "
                     f"Total would be: ${potential_total:,.2f}"
                 )
@@ -261,7 +280,7 @@ class PawnTransactionService:
                 customer_phone=customer_phone,
                 credit_limit=int(effective_credit_limit),
                 credit_limit_source="custom" if customer.credit_limit is not None else "system_default",
-                current_usage=int(customer.total_loan_value),
+                current_usage=int(current_credit_used),
                 new_loan=loan_amount,
                 potential_total=int(potential_total)
             )
