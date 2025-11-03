@@ -56,11 +56,10 @@ Complete implementation of 4 business configuration modules for pawnshop operati
 
 **Purpose**: Define interest rates, extension fees, loan limits, and credit policies
 
-**Interest Rate Settings**:
-- `default_monthly_interest_rate` (required, ≥0): Default monthly interest amount
-- `min_interest_rate` (≥0): Minimum allowed interest rate
-- `max_interest_rate` (required, ≥0): Maximum allowed interest rate
-- `allow_staff_override` (boolean): Whether staff can adjust rates per transaction
+**Interest Rate Settings** (Percentage-Based):
+- `default_monthly_interest_rate` (required, 0-100%): Default monthly interest percentage
+- `min_interest_rate` (0-100%): Minimum allowed interest percentage
+- `max_interest_rate` (required, 0-100%): Maximum allowed interest percentage (configurable, currently 50%)
 
 **Extension Fee Settings**:
 - ~~`extension_fee_30_days`~~ (removed - managed manually per transaction)
@@ -79,6 +78,14 @@ Complete implementation of 4 business configuration modules for pawnshop operati
 
 **Audit Requirements**:
 - `reason` (required, 5-500 chars): Explanation for configuration change
+- `section_updated` (optional): Indicator for which section was modified ("interest_rates", "loan_limit", "credit_limit")
+
+**Section-Specific Timestamps**:
+- `interest_rates_updated_at` (optional): Last update time for interest rate settings
+- `loan_limit_updated_at` (optional): Last update time for loan limit settings
+- `credit_limit_updated_at` (optional): Last update time for credit limit settings
+
+When updating a specific section, only that section's timestamp is updated while preserving timestamps from other sections. This allows administrators to track when each configuration section was last modified independently.
 
 **API Endpoints**:
 - `GET /api/v1/business-config/financial-policy` - Get current active configuration
@@ -88,6 +95,12 @@ Complete implementation of 4 business configuration modules for pawnshop operati
 **Validation Rules**:
 - `max_interest_rate` must be ≥ `min_interest_rate`
 - `max_loan_amount` must be ≥ `min_loan_amount`
+
+**Validation Architecture**:
+- **Model Validation** (`pawn_transaction_model.py`): Technical upper bound of 100% to prevent unreasonable values
+- **Business Rules** (`FinancialPolicyConfig`): Configurable maximum (currently 50%) enforced at transaction creation
+- **Migration Handling**: Existing transactions with `monthly_interest_percentage` auto-calculated from dollar amounts
+- **Backward Compatibility**: Optional percentage field with automatic calculation for legacy transactions
 
 ### 3. Forfeiture Configuration
 
@@ -160,6 +173,13 @@ All configurations track:
 - `updated_at`: Timestamp of last update
 - `updated_by`: User ID of the admin who made the change
 - `is_active`: Whether this is the current active configuration
+
+**Financial Policy Section-Specific Timestamps** (Added Nov 2025):
+- `interest_rates_updated_at`: When interest rate settings were last modified
+- `loan_limit_updated_at`: When loan limit was last modified
+- `credit_limit_updated_at`: When credit limit was last modified
+
+Each configuration section within Financial Policy tracks its own independent update timestamp, allowing administrators to see exactly when each specific setting was last changed.
 
 ### Frontend Form Pattern
 
@@ -401,7 +421,6 @@ Content-Type: application/json
   "default_monthly_interest_rate": 50.0,
   "min_interest_rate": 10.0,
   "max_interest_rate": 200.0,
-  "allow_staff_override": true,
   "min_loan_amount": 10.0,
   "max_loan_amount": 10000.0,
   "max_active_loans_per_customer": 8,
@@ -426,7 +445,7 @@ Content-Type: application/json
 - [ ] Verify validation: max_interest_rate ≥ min_interest_rate
 - [ ] Verify validation: max_loan_amount ≥ min_loan_amount
 - [ ] Verify validation: reason field (min 5 characters)
-- [ ] Test checkbox toggles (allow_staff_override, enforce_credit_limit)
+- [ ] Test checkbox toggle (enforce_credit_limit)
 - [ ] Test optional credit_limit field
 
 #### Forfeiture Configuration

@@ -547,9 +547,12 @@ class CustomerService:
 
                 filtered_customers = []
                 for customer in all_customers:
+                    # Get effective credit limit (handles None by fetching system default)
+                    effective_limit = await customer.get_effective_credit_limit()
+
                     # Calculate utilization percentage
-                    if customer.credit_limit > 0:
-                        utilization = (float(customer.total_loan_value) / float(customer.credit_limit)) * 100
+                    if effective_limit > 0:
+                        utilization = (customer.total_loan_value / int(effective_limit)) * 100
 
                         # Match against requested tier
                         if credit_utilization == "high" and utilization > 80:
@@ -732,30 +735,33 @@ class CustomerService:
         # Get effective loan limit (custom or system default)
         max_loans = await customer.get_effective_loan_limit()
 
+        # Get effective credit limit (custom or system default)
+        effective_credit_limit = await customer.get_effective_credit_limit()
+
         # Define statuses that USE slots and credit
         slot_using_statuses = [
             TransactionStatus.ACTIVE,
-            TransactionStatus.EXTENDED, 
+            TransactionStatus.EXTENDED,
             TransactionStatus.HOLD,
             TransactionStatus.OVERDUE,
             TransactionStatus.DAMAGED
         ]
-        
+
         # Get transactions that are using slots
         from beanie.operators import In
         active_transactions = await PawnTransaction.find(
             PawnTransaction.customer_id == phone_number,
             In(PawnTransaction.status, slot_using_statuses)
         ).to_list()
-        
+
         # Calculate actual slots used and credit used
         slots_used = len(active_transactions)
         credit_used = sum(transaction.loan_amount for transaction in active_transactions)
-        
+
         # Calculate available amounts
         slots_available = max_loans - slots_used
-        credit_available = float(customer.credit_limit) - credit_used
-        
+        credit_available = int(effective_credit_limit) - credit_used
+
         # Build eligibility response
         eligibility = {
             "eligible": True,
@@ -765,12 +771,12 @@ class CustomerService:
             "max_loans": max_loans,
             "slots_used": slots_used,
             "slots_available": slots_available,
-            # Credit information  
-            "credit_limit": float(customer.credit_limit),
+            # Credit information
+            "credit_limit": int(effective_credit_limit),
             "credit_used": credit_used,
             "available_credit": credit_available,
             # Backward compatibility
-            "max_loan_amount": float(customer.credit_limit)
+            "max_loan_amount": int(effective_credit_limit)
         }
         
         # Check account status
@@ -800,23 +806,23 @@ class CustomerService:
     
     @staticmethod
     async def get_loan_limit_config() -> LoanLimitResponse:
-        """Get current loan limit configuration"""
-        config = await LoanConfig.get_current_config()
-        
+        """Get current loan limit configuration from FinancialPolicyConfig"""
+        config = await FinancialPolicyConfig.get_current_config()
+
         if not config:
             # Return default configuration
             return LoanLimitResponse(
                 current_limit=settings.MAX_ACTIVE_LOANS,
-                updated_at=datetime.utcnow().isoformat(),
+                updated_at=datetime.now().isoformat(),
                 updated_by="system",
                 reason="Default configuration"
             )
-        
+
         return LoanLimitResponse(
-            current_limit=config.max_active_loans,
+            current_limit=config.max_active_loans_per_customer,
             updated_at=config.updated_at.isoformat(),
             updated_by=config.updated_by,
-            reason=config.reason
+            reason=config.reason if config.reason else "Financial policy configuration"
         )
     
     @staticmethod
@@ -824,24 +830,35 @@ class CustomerService:
         request: LoanLimitUpdateRequest,
         admin_user_id: str
     ) -> LoanLimitResponse:
-        """Update loan limit configuration (admin only)"""
-        
-        # Create new configuration
-        new_config = LoanConfig(
-            max_active_loans=request.max_active_loans,
-            updated_by=admin_user_id,
-            reason=request.reason,
-            is_active=True
-        )
-        
-        # Set as active (deactivates others)
-        await new_config.set_as_active()
-        
+        """Update loan limit configuration in FinancialPolicyConfig (admin only)"""
+
+        # Get current config or create new one
+        config = await FinancialPolicyConfig.get_current_config()
+
+        if not config:
+            # Create new financial policy config with just loan limit
+            config = FinancialPolicyConfig(
+                max_active_loans_per_customer=request.max_active_loans,
+                updated_by=admin_user_id,
+                reason=request.reason
+            )
+            await config.set_as_active()
+        else:
+            # Update existing config
+            config.max_active_loans_per_customer = request.max_active_loans
+            config.updated_by = admin_user_id
+            config.reason = request.reason
+            config.updated_at = datetime.now()
+            await config.save()
+
+        # Clear cache
+        BusinessCache.invalidate_financial_policy()
+
         return LoanLimitResponse(
-            current_limit=new_config.max_active_loans,
-            updated_at=new_config.updated_at.isoformat(),
-            updated_by=new_config.updated_by,
-            reason=new_config.reason
+            current_limit=config.max_active_loans_per_customer,
+            updated_at=config.updated_at.isoformat(),
+            updated_by=config.updated_by,
+            reason=config.reason
         )
 
     @staticmethod

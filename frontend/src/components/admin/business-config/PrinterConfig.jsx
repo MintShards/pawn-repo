@@ -12,6 +12,8 @@ const PrinterConfig = () => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [config, setConfig] = useState(null);
+  const [initialFormData, setInitialFormData] = useState(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [formData, setFormData] = useState({
     default_receipt_printer: '',
     default_report_printer: ''
@@ -20,6 +22,29 @@ const PrinterConfig = () => {
   useEffect(() => {
     fetchConfig();
   }, []);
+
+  // Track form changes
+  useEffect(() => {
+    if (initialFormData) {
+      const changed = Object.keys(formData).some(
+        key => formData[key] !== initialFormData[key]
+      );
+      setHasUnsavedChanges(changed);
+    }
+  }, [formData, initialFormData]);
+
+  // Warn before closing/navigating with unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedChanges]);
 
   const fetchConfig = async () => {
     try {
@@ -33,6 +58,7 @@ const PrinterConfig = () => {
         default_report_printer: data.default_report_printer || ''
       };
       setFormData(newFormData);
+      setInitialFormData(newFormData);
     } catch (error) {
       if (error.status !== 404) {
         console.error('Error fetching printer config:', error);
@@ -48,6 +74,13 @@ const PrinterConfig = () => {
       ...formData,
       [e.target.name]: e.target.value
     });
+  };
+
+  const handleReset = () => {
+    if (initialFormData) {
+      setFormData(initialFormData);
+      toast.info('Form reset to saved values');
+    }
   };
 
   const handleBrowsePrinters = () => {
@@ -127,10 +160,12 @@ const PrinterConfig = () => {
 
       // Use the save response directly instead of fetching again
       setConfig(savedConfig);
-      setFormData({
+      const newFormData = {
         default_receipt_printer: savedConfig.default_receipt_printer || '',
         default_report_printer: savedConfig.default_report_printer || ''
-      });
+      };
+      setFormData(newFormData);
+      setInitialFormData(newFormData);
     } catch (error) {
       console.error('Error saving printer config:', error);
       toast.error(error.detail || 'Failed to save printer configuration');
@@ -220,16 +255,31 @@ const PrinterConfig = () => {
             </div>
           )}
 
-          <Button type="submit" disabled={saving} className="w-full md:w-auto">
-            {saving ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              'Save Printer Configuration'
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            {hasUnsavedChanges && (
+              <div className="text-sm text-amber-600 dark:text-amber-500 font-medium">
+                ⚠️ You have unsaved changes
+              </div>
             )}
-          </Button>
+            {!hasUnsavedChanges && <div></div>}
+            <div className="flex gap-2 md:ml-auto">
+              {hasUnsavedChanges && (
+                <Button type="button" variant="outline" onClick={handleReset}>
+                  Reset
+                </Button>
+              )}
+              <Button type="submit" disabled={saving || !hasUnsavedChanges}>
+                {saving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  'Save Printer Configuration'
+                )}
+              </Button>
+            </div>
+          </div>
         </form>
       </CardContent>
     </Card>

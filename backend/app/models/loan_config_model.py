@@ -30,8 +30,8 @@ class LoanConfig(Document):
     # Audit fields
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_by: str = Field(..., description="Admin user who updated the configuration")
-    reason: str = Field(..., description="Reason for this configuration")
+    updated_by: str = Field(default="system", description="Admin user who updated the configuration")
+    reason: str = Field(default="Default configuration", description="Reason for this configuration")
     is_active: bool = Field(default=True, description="Whether this configuration is active")
     
     class Settings:

@@ -130,6 +130,7 @@ class PawnTransactionService:
         customer_phone: str,
         created_by_user_id: str,
         loan_amount: int,
+        monthly_interest_percentage: float,
         monthly_interest_amount: int,
         storage_location: str,
         items: List[Dict[str, Any]],
@@ -138,19 +139,20 @@ class PawnTransactionService:
     ) -> PawnTransaction:
         """
         Create a new pawn transaction with multiple items.
-        
+
         Args:
             customer_phone: Customer's phone number (identifier)
             created_by_user_id: User ID of staff member creating transaction
             loan_amount: Loan amount in whole dollars (integer)
-            monthly_interest_amount: Monthly interest fee in whole dollars
+            monthly_interest_percentage: Monthly interest rate as percentage (0-100)
+            monthly_interest_amount: Calculated monthly interest fee in whole dollars
             storage_location: Physical storage location (e.g., 'Shelf A-5')
             items: List of item dictionaries with description and optional serial_number
             internal_notes: Optional staff notes
-            
+
         Returns:
             Created PawnTransaction with associated items
-            
+
         Raises:
             CustomerValidationError: Customer not found or cannot transact
             StaffValidationError: Staff user not found or insufficient permissions
@@ -202,19 +204,37 @@ class PawnTransactionService:
                         f"allowed amount of ${financial_config.max_loan_amount:,.2f}"
                     )
 
+                # Validate interest rate percentage
+                interest_percentage = (monthly_interest_amount / loan_amount) * 100
+
+                if interest_percentage < financial_config.min_interest_rate:
+                    raise PawnTransactionError(
+                        f"Interest rate {interest_percentage:.1f}% is below the minimum "
+                        f"allowed rate of {financial_config.min_interest_rate}%"
+                    )
+
+                if interest_percentage > financial_config.max_interest_rate:
+                    raise PawnTransactionError(
+                        f"Interest rate {interest_percentage:.1f}% exceeds the maximum "
+                        f"allowed rate of {financial_config.max_interest_rate}%"
+                    )
+
                 logger.info(
-                    "Loan amount validation passed",
+                    "Loan amount and interest rate validation passed",
                     loan_amount=loan_amount,
-                    min_allowed=float(financial_config.min_loan_amount),
-                    max_allowed=float(financial_config.max_loan_amount)
+                    min_loan=float(financial_config.min_loan_amount),
+                    max_loan=float(financial_config.max_loan_amount),
+                    interest_percentage=round(interest_percentage, 2),
+                    min_interest=float(financial_config.min_interest_rate),
+                    max_interest=float(financial_config.max_interest_rate)
                 )
         except PawnTransactionError:
-            # Re-raise loan amount validation errors
+            # Re-raise validation errors
             raise
         except Exception as e:
             # Log but don't block transaction if config fetch fails
             logger.warning(
-                "Failed to check loan amount limits, proceeding without validation",
+                "Failed to check financial policy limits, proceeding without validation",
                 error=str(e)
             )
 
@@ -239,11 +259,11 @@ class PawnTransactionService:
             logger.info(
                 "Credit limit validation passed",
                 customer_phone=customer_phone,
-                credit_limit=float(effective_credit_limit),
+                credit_limit=int(effective_credit_limit),
                 credit_limit_source="custom" if customer.credit_limit is not None else "system_default",
-                current_usage=float(customer.total_loan_value),
+                current_usage=int(customer.total_loan_value),
                 new_loan=loan_amount,
-                potential_total=float(potential_total)
+                potential_total=int(potential_total)
             )
         except PawnTransactionError:
             # Re-raise credit limit validation errors
@@ -281,6 +301,7 @@ class PawnTransactionService:
                 customer_id=customer_phone,
                 created_by_user_id=created_by_user_id,
                 loan_amount=loan_amount,
+                monthly_interest_percentage=monthly_interest_percentage,
                 monthly_interest_amount=monthly_interest_amount,
                 storage_location=final_storage_location,
                 internal_notes=internal_notes,

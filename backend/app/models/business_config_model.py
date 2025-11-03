@@ -24,6 +24,7 @@ class CompanyConfig(Document):
 
     # Company information
     company_name: str = Field(..., description="Business name")
+    logo_url: Optional[str] = Field(None, description="Company logo URL (fallback to company name if not provided)")
     address_line1: str = Field(..., description="Primary address line")
     address_line2: Optional[str] = Field(None, description="Secondary address line (suite, unit, etc.)")
     city: str = Field(..., description="City")
@@ -71,25 +72,24 @@ class FinancialPolicyConfig(Document):
     Note: Extension fees are managed manually per transaction, not via configuration.
     """
 
-    # Interest rate settings
+    # Interest rate settings (percentage-based)
     default_monthly_interest_rate: float = Field(
         ...,
         ge=0,
-        description="Default monthly interest rate (fixed amount, not percentage)"
+        le=100,
+        description="Default monthly interest rate as percentage (e.g., 10.0 for 10%)"
     )
     min_interest_rate: float = Field(
         0,
         ge=0,
-        description="Minimum allowed interest rate"
+        le=100,
+        description="Minimum allowed interest rate as percentage"
     )
     max_interest_rate: float = Field(
         ...,
         ge=0,
-        description="Maximum allowed interest rate"
-    )
-    allow_staff_override: bool = Field(
-        default=True,
-        description="Allow staff to override default interest rate"
+        le=100,
+        description="Maximum allowed interest rate as percentage"
     )
 
     # Loan limits
@@ -119,6 +119,13 @@ class FinancialPolicyConfig(Document):
     updated_by: str = Field(..., description="Admin user who updated the configuration")
     reason: str = Field(..., description="Reason for this configuration change")
     is_active: bool = Field(default=True, description="Whether this configuration is active")
+
+    # Section-specific timestamps (added Nov 2025)
+    # Allows independent tracking of when each configuration section was last modified
+    # Preserved across updates unless the specific section is being modified
+    interest_rates_updated_at: Optional[datetime] = Field(None, description="When interest rate settings were last updated")
+    loan_limit_updated_at: Optional[datetime] = Field(None, description="When loan limit was last updated")
+    credit_limit_updated_at: Optional[datetime] = Field(None, description="When credit limit was last updated")
 
     class Settings:
         name = "financial_policy_config"

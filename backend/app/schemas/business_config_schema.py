@@ -5,7 +5,7 @@ Pydantic schemas for API request/response validation for all
 business configuration settings.
 """
 
-from typing import Optional
+from typing import Optional, Literal
 from pydantic import BaseModel, Field, field_validator
 from datetime import datetime
 
@@ -15,6 +15,7 @@ from datetime import datetime
 class CompanyConfigCreate(BaseModel):
     """Schema for creating company configuration"""
     company_name: str = Field(..., min_length=1, max_length=200)
+    logo_url: Optional[str] = Field(None, max_length=500, description="Company logo URL")
     address_line1: str = Field(..., min_length=1, max_length=200)
     address_line2: Optional[str] = Field(None, max_length=200)
     city: str = Field(..., min_length=1, max_length=100)
@@ -28,6 +29,7 @@ class CompanyConfigCreate(BaseModel):
 class CompanyConfigResponse(BaseModel):
     """Schema for company configuration response"""
     company_name: str
+    logo_url: Optional[str]
     address_line1: str
     address_line2: Optional[str]
     city: str
@@ -49,11 +51,10 @@ class CompanyConfigResponse(BaseModel):
 
 class FinancialPolicyConfigCreate(BaseModel):
     """Schema for creating financial policy configuration"""
-    # Interest rate settings
-    default_monthly_interest_rate: float = Field(..., ge=0)
-    min_interest_rate: float = Field(0, ge=0)
-    max_interest_rate: float = Field(..., ge=0)
-    allow_staff_override: bool = Field(default=True)
+    # Interest rate settings (percentage-based)
+    default_monthly_interest_rate: float = Field(..., ge=0, le=100, description="Default monthly interest rate as percentage (0-100)")
+    min_interest_rate: float = Field(0, ge=0, le=100, description="Minimum interest rate as percentage (0-100)")
+    max_interest_rate: float = Field(..., ge=0, le=100, description="Maximum interest rate as percentage (0-100)")
 
     # Loan limits
     min_loan_amount: float = Field(default=10.0, ge=0)
@@ -70,6 +71,12 @@ class FinancialPolicyConfigCreate(BaseModel):
 
     # Audit
     reason: str = Field(..., min_length=5, max_length=500)
+
+    # Section indicator for timestamp tracking
+    section_updated: Optional[Literal["interest_rates", "loan_limit", "credit_limit"]] = Field(
+        None,
+        description="Which section is being updated (for section-specific timestamps)"
+    )
 
     @field_validator('max_interest_rate')
     @classmethod
@@ -90,11 +97,10 @@ class FinancialPolicyConfigCreate(BaseModel):
 
 class FinancialPolicyConfigResponse(BaseModel):
     """Schema for financial policy configuration response"""
-    # Interest rates
+    # Interest rates (percentage values: 0-100)
     default_monthly_interest_rate: float
     min_interest_rate: float
     max_interest_rate: float
-    allow_staff_override: bool
     # Loan limits
     min_loan_amount: float
     max_loan_amount: float
@@ -108,6 +114,10 @@ class FinancialPolicyConfigResponse(BaseModel):
     updated_by: str
     reason: str
     is_active: bool
+    # Section-specific timestamps
+    interest_rates_updated_at: Optional[datetime]
+    loan_limit_updated_at: Optional[datetime]
+    credit_limit_updated_at: Optional[datetime]
 
     class Config:
         from_attributes = True

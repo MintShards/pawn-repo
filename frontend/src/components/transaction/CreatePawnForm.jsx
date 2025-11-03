@@ -194,10 +194,18 @@ const CreatePawnForm = ({ onSuccess, onCancel }) => {
       setError(null);
 
       // Convert amounts to integers (dollars)
+      // Calculate monthly interest percentage from amount
+      const loanAmount = Math.round(parseFloat(formData.loan_amount));
+      const monthlyInterestAmount = Math.round(parseFloat(formData.monthly_interest_amount));
+      const monthlyInterestPercentage = loanAmount > 0
+        ? (monthlyInterestAmount / loanAmount) * 100
+        : 0;
+
       const transactionData = {
         customer_id: formData.customer_id,
-        loan_amount: Math.round(parseFloat(formData.loan_amount)),
-        monthly_interest_amount: Math.round(parseFloat(formData.monthly_interest_amount)),
+        loan_amount: loanAmount,
+        monthly_interest_amount: monthlyInterestAmount,
+        monthly_interest_percentage: parseFloat(monthlyInterestPercentage.toFixed(2)),
         storage_location: formData.storage_location?.trim() || "TBD",
         internal_notes: formData.internal_notes.trim() || null,
         items: formData.items.map(item => ({

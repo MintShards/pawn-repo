@@ -1081,10 +1081,10 @@ class MetricCalculationService:
                        duration_ms=calculation_time)
             
             await self._cache_value("todays_collection", total_collection)
-            return float(total_collection)
+            return int(total_collection)
         except Exception as e:
             logger.error("Failed to calculate today's collection", error=str(e))
-            return 0.0
+            return 0
     
     async def calculate_new_today(self, timezone_header: Optional[str] = None) -> float:
         """Calculate number of new transactions created today"""
@@ -1200,10 +1200,10 @@ class MetricCalculationService:
                        duration_ms=calculation_time)
             
             await self._cache_value("yesterdays_collection", total_collection)
-            return float(total_collection)
+            return int(total_collection)
         except Exception as e:
             logger.error("Failed to calculate yesterday's collection", error=str(e))
-            return 0.0
+            return 0
     
     async def calculate_yesterdays_new(self, timezone_header: Optional[str] = None) -> float:
         """Calculate number of new transactions created yesterday"""

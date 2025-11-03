@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../..
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
-import { Building2, Loader2 } from 'lucide-react';
+import { Building2, Loader2, X } from 'lucide-react';
 import businessConfigService from '../../../services/businessConfigService';
 import { toast } from 'sonner';
 import { formatBusinessDateTime } from '../../../utils/timezoneUtils';
@@ -11,9 +11,14 @@ import { formatBusinessDateTime } from '../../../utils/timezoneUtils';
 const CompanyInfoConfig = () => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [config, setConfig] = useState(null);
+  const [logoPreview, setLogoPreview] = useState(null);
+  const [initialFormData, setInitialFormData] = useState(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [formData, setFormData] = useState({
     company_name: '',
+    logo_url: '',
     address_line1: '',
     address_line2: '',
     city: '',
@@ -28,13 +33,37 @@ const CompanyInfoConfig = () => {
     fetchConfig();
   }, []);
 
+  // Track form changes
+  useEffect(() => {
+    if (initialFormData) {
+      const changed = Object.keys(formData).some(
+        key => formData[key] !== initialFormData[key]
+      );
+      setHasUnsavedChanges(changed);
+    }
+  }, [formData, initialFormData]);
+
+  // Warn before closing/navigating with unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedChanges]);
+
   const fetchConfig = async () => {
     try {
       setLoading(true);
       const data = await businessConfigService.getCompanyConfig();
       setConfig(data);
-      setFormData({
+      const formValues = {
         company_name: data.company_name || '',
+        logo_url: data.logo_url || '',
         address_line1: data.address_line1 || '',
         address_line2: data.address_line2 || '',
         city: data.city || '',
@@ -43,7 +72,12 @@ const CompanyInfoConfig = () => {
         phone: data.phone || '',
         email: data.email || '',
         website: data.website || ''
-      });
+      };
+      setFormData(formValues);
+      setInitialFormData(formValues); // Store initial values for change detection
+      if (data.logo_url) {
+        setLogoPreview(data.logo_url);
+      }
     } catch (error) {
       // If not found, that's okay - we'll create new config
       if (error.status !== 404) {
@@ -62,6 +96,56 @@ const CompanyInfoConfig = () => {
     });
   };
 
+  const handleLogoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      toast.error('Invalid file type. Please upload PNG, JPEG, GIF, or WEBP images');
+      return;
+    }
+
+    // Validate file size (5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('File size exceeds 5MB limit');
+      return;
+    }
+
+    try {
+      setUploading(true);
+      const response = await businessConfigService.uploadLogo(file);
+      setFormData({
+        ...formData,
+        logo_url: response.logo_url
+      });
+      setLogoPreview(response.logo_url);
+      toast.success('Logo uploaded successfully');
+    } catch (error) {
+      console.error('Error uploading logo:', error);
+      toast.error(error.detail || 'Failed to upload logo');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleRemoveLogo = () => {
+    setFormData({
+      ...formData,
+      logo_url: ''
+    });
+    setLogoPreview(null);
+  };
+
+  const handleReset = () => {
+    if (initialFormData) {
+      setFormData(initialFormData);
+      setLogoPreview(initialFormData.logo_url || null);
+      toast.info('Form reset to saved values');
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -78,8 +162,9 @@ const CompanyInfoConfig = () => {
 
       // Use the save response directly instead of fetching again
       setConfig(savedConfig);
-      setFormData({
+      const formValues = {
         company_name: savedConfig.company_name || '',
+        logo_url: savedConfig.logo_url || '',
         address_line1: savedConfig.address_line1 || '',
         address_line2: savedConfig.address_line2 || '',
         city: savedConfig.city || '',
@@ -87,9 +172,13 @@ const CompanyInfoConfig = () => {
         zip_code: savedConfig.zip_code || '',
         phone: savedConfig.phone || '',
         email: savedConfig.email || '',
-        license_number: savedConfig.license_number || '',
         website: savedConfig.website || ''
-      });
+      };
+      setFormData(formValues);
+      setInitialFormData(formValues); // Reset initial values after save
+      if (savedConfig.logo_url) {
+        setLogoPreview(savedConfig.logo_url);
+      }
     } catch (error) {
       console.error('Error saving company config:', error);
       toast.error(error.detail || 'Failed to save company information');
@@ -135,6 +224,50 @@ const CompanyInfoConfig = () => {
             </div>
 
             <div className="md:col-span-2">
+              <Label>Company Logo</Label>
+              <div className="space-y-3">
+                {logoPreview ? (
+                  <div className="flex items-center space-x-4">
+                    <img
+                      src={logoPreview}
+                      alt="Company logo"
+                      className="h-16 w-auto object-contain border border-slate-200 dark:border-slate-700 rounded p-2"
+                    />
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      onClick={handleRemoveLogo}
+                    >
+                      <X className="w-4 h-4 mr-1" />
+                      Remove Logo
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-start space-y-2">
+                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                      No logo uploaded. Company name will be displayed instead.
+                    </p>
+                  </div>
+                )}
+                <div className="flex items-center space-x-2">
+                  <Input
+                    id="logo-upload"
+                    type="file"
+                    accept="image/png,image/jpeg,image/jpg,image/gif,image/webp"
+                    onChange={handleLogoUpload}
+                    disabled={uploading}
+                    className="max-w-xs"
+                  />
+                  {uploading && <Loader2 className="w-4 h-4 animate-spin text-blue-600" />}
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Supported formats: PNG, JPEG, GIF, WEBP (max 5MB)
+                </p>
+              </div>
+            </div>
+
+            <div className="md:col-span-2">
               <Label htmlFor="address_line1">Address Line 1 *</Label>
               <Input
                 id="address_line1"
@@ -170,25 +303,25 @@ const CompanyInfoConfig = () => {
             </div>
 
             <div>
-              <Label htmlFor="state">State *</Label>
+              <Label htmlFor="state">Province *</Label>
               <Input
                 id="state"
                 name="state"
                 value={formData.state}
                 onChange={handleChange}
-                placeholder="State"
+                placeholder="Province"
                 required
               />
             </div>
 
             <div>
-              <Label htmlFor="zip_code">ZIP Code *</Label>
+              <Label htmlFor="zip_code">Postal Code *</Label>
               <Input
                 id="zip_code"
                 name="zip_code"
                 value={formData.zip_code}
                 onChange={handleChange}
-                placeholder="ZIP Code"
+                placeholder="Postal Code"
                 required
               />
             </div>
@@ -205,30 +338,6 @@ const CompanyInfoConfig = () => {
                 required
               />
             </div>
-
-            <div>
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                name="email"
-                type="email"
-                value={formData.email}
-                onChange={handleChange}
-                placeholder="info@company.com"
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="website">Website</Label>
-              <Input
-                id="website"
-                name="website"
-                type="url"
-                value={formData.website}
-                onChange={handleChange}
-                placeholder="https://www.company.com"
-              />
-            </div>
           </div>
 
           {config && (
@@ -237,16 +346,31 @@ const CompanyInfoConfig = () => {
             </div>
           )}
 
-          <Button type="submit" disabled={saving} className="w-full md:w-auto">
-            {saving ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              'Save Company Information'
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            {hasUnsavedChanges && (
+              <div className="text-sm text-amber-600 dark:text-amber-500 font-medium">
+                ⚠️ You have unsaved changes
+              </div>
             )}
-          </Button>
+            {!hasUnsavedChanges && <div></div>}
+            <div className="flex gap-2">
+              {hasUnsavedChanges && (
+                <Button type="button" variant="outline" onClick={handleReset}>
+                  Reset
+                </Button>
+              )}
+              <Button type="submit" disabled={saving || !hasUnsavedChanges}>
+                {saving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  'Save Company Information'
+                )}
+              </Button>
+            </div>
+          </div>
         </form>
       </CardContent>
     </Card>

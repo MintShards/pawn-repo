@@ -71,11 +71,17 @@ class PawnTransactionBase(BaseModel):
         le=10000,
         description="Loan amount in whole dollars (max $10,000)"
     )
+    monthly_interest_percentage: Optional[float] = Field(
+        None,
+        ge=0,
+        le=100,
+        description="Monthly interest rate as percentage (e.g., 10.0 for 10%). Auto-calculated from monthly_interest_amount if not provided. Actual maximum enforced by FinancialPolicyConfig."
+    )
     monthly_interest_amount: int = Field(
         ...,
         ge=0,
         le=1000,
-        description="Fixed monthly interest fee in whole dollars (max $1,000)"
+        description="Calculated monthly interest fee in whole dollars (loan_amount * percentage / 100, max $1,000)"
     )
     storage_location: Optional[str] = Field(
         None,

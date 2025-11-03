@@ -42,6 +42,36 @@ const businessConfigService = {
     });
   },
 
+  /**
+   * Upload company logo
+   * @param {File} file - Logo image file
+   * @returns {Promise<{logo_url: string, message: string}>}
+   */
+  async uploadLogo(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    // Use custom fetch for file upload (multipart/form-data)
+    const token = authService.getToken();
+    const response = await fetch(
+      `${process.env.REACT_APP_API_URL}/api/v1/business-config/company/upload-logo`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw errorData;
+    }
+
+    return await response.json();
+  },
+
   // ==================== Financial Policy Configuration ====================
 
   /**

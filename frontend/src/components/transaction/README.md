@@ -11,7 +11,8 @@ Complete transaction management system for pawnshop operations, integrated with 
 - **TransactionHub**: Main transaction management page (`/pages/TransactionHub.jsx`)
 - **TransactionList**: Transaction list with search and filtering
 - **TransactionCard**: Transaction display with extension indicators
-- **CreatePawnForm**: New pawn transaction creation
+- **CreatePawnDialogRedesigned**: New pawn transaction creation (dialog version)
+- **CreatePawnFormRedesigned**: New pawn transaction creation (standalone form version)
 - **Components**: Payment and extension management forms
 
 ### 📁 **Directory Structure**
@@ -20,7 +21,8 @@ Complete transaction management system for pawnshop operations, integrated with 
 transaction/
 ├── TransactionCard.jsx              # Transaction display with extension badges
 ├── TransactionList.jsx              # Transaction list with EX search support
-├── CreatePawnForm.jsx               # New pawn transaction creation
+├── CreatePawnDialogRedesigned.jsx   # New pawn transaction creation (dialog)
+├── CreatePawnFormRedesigned.jsx     # New pawn transaction creation (standalone)
 ├── components/                      # Transaction sub-components
 │   ├── PaymentForm.jsx             # Payment processing form
 │   ├── ExtensionForm.jsx           # Loan extension form (fully integrated)

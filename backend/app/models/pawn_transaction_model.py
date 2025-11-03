@@ -75,10 +75,16 @@ class PawnTransaction(Document):
         gt=0,
         description="Loan amount in whole dollars"
     )
+    monthly_interest_percentage: Optional[float] = Field(
+        default=None,
+        ge=0,
+        le=100,
+        description="Monthly interest rate as percentage (e.g., 10.0 for 10%). Auto-calculated from monthly_interest_amount if not provided. Actual maximum enforced by FinancialPolicyConfig."
+    )
     monthly_interest_amount: int = Field(
         ...,
         ge=0,
-        description="Fixed monthly interest fee in whole dollars"
+        description="Calculated monthly interest fee in whole dollars (loan_amount * percentage / 100)"
     )
     overdue_fee: int = Field(
         default=0,
@@ -138,6 +144,7 @@ class PawnTransaction(Document):
                 "customer_id": "5551234567",
                 "created_by_user_id": "01",
                 "loan_amount": 500,
+                "monthly_interest_percentage": 10.0,
                 "monthly_interest_amount": 50,
                 "storage_location": "Shelf A-5",
                 "internal_notes": "[2024-01-15 14:30 UTC by 01] Customer needs quick cash for rent",
@@ -165,6 +172,18 @@ class PawnTransaction(Document):
             raise ValueError('Loan amount cannot exceed $10,000')
         return v
     
+    @field_validator('monthly_interest_percentage')
+    @classmethod
+    def validate_interest_percentage(cls, v: float) -> float:
+        """Validate monthly interest percentage is within acceptable range (0-100%). Business rules enforced by FinancialPolicyConfig."""
+        if v is None:
+            return v
+        if v < 0:
+            raise ValueError('Interest percentage cannot be negative')
+        if v > 100:
+            raise ValueError('Interest percentage cannot exceed 100% (actual maximum set in FinancialPolicyConfig)')
+        return v
+
     @field_validator('monthly_interest_amount')
     @classmethod
     def validate_interest_amount(cls, v: int) -> int:
@@ -482,6 +501,19 @@ class PawnTransaction(Document):
             self.status = TransactionStatus.OVERDUE
         # Otherwise keep current status (active, extended, hold)
     
+    def calculate_percentage_from_amount(self) -> None:
+        """
+        Calculate monthly_interest_percentage from monthly_interest_amount for backward compatibility.
+        Used for existing transactions that don't have the percentage field.
+        """
+        if self.monthly_interest_percentage is None and self.loan_amount > 0:
+            # Calculate percentage: (amount / loan) * 100
+            # Round to 2 decimal places for display
+            self.monthly_interest_percentage = round(
+                (self.monthly_interest_amount / self.loan_amount) * 100,
+                2
+            )
+
     async def save(self, *args, **kwargs) -> None:
         """
         Override save to update timestamps and calculate fields.
@@ -489,19 +521,22 @@ class PawnTransaction(Document):
         """
         # Update timestamp
         self.updated_at = datetime.now(UTC)
-        
+
         # Calculate dates if not set
         self.calculate_dates()
-        
+
+        # Calculate percentage from amount if not provided (backward compatibility)
+        self.calculate_percentage_from_amount()
+
         # Update status
         self.update_status()
-        
+
         # Calculate total due
         self.calculate_total_due()
-        
+
         # Update legacy internal_notes field for backward compatibility
         self._update_legacy_internal_notes()
-        
+
         # Call parent save
         await super().save(*args, **kwargs)
     

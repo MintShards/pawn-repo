@@ -8,8 +8,11 @@ Handles all business settings configuration endpoints including:
 - Printer configuration
 """
 
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File
 from typing import List
+import os
+import uuid
+from pathlib import Path
 
 from app.models.business_config_model import (
     CompanyConfig,
@@ -85,6 +88,57 @@ async def get_company_config_history(
     return configs
 
 
+@router.post("/company/upload-logo")
+async def upload_company_logo(
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_admin)
+):
+    """
+    Upload company logo image.
+    Admin only.
+    Returns the URL path to use in logo_url field.
+    """
+    # Validate file type
+    allowed_types = ["image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp"]
+    if file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid file type. Allowed types: {', '.join(allowed_types)}"
+        )
+
+    # Validate file size (max 5MB)
+    max_size = 5 * 1024 * 1024  # 5MB in bytes
+    file_content = await file.read()
+    if len(file_content) > max_size:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File size exceeds 5MB limit"
+        )
+
+    # Create uploads directory if it doesn't exist
+    # Use absolute path relative to project root
+    project_root = Path(__file__).resolve().parents[5]  # Navigate to project root from handlers
+    upload_dir = project_root / "frontend" / "public" / "uploads" / "logos"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    # Generate unique filename
+    file_extension = Path(file.filename).suffix
+    unique_filename = f"logo_{uuid.uuid4().hex[:8]}{file_extension}"
+    file_path = upload_dir / unique_filename
+
+    # Save file
+    with open(file_path, "wb") as f:
+        f.write(file_content)
+
+    # Return URL path (relative to frontend public directory)
+    logo_url = f"/uploads/logos/{unique_filename}"
+
+    return {
+        "logo_url": logo_url,
+        "message": "Logo uploaded successfully"
+    }
+
+
 # ==================== Financial Policy Configuration ====================
 
 @router.get("/financial-policy", response_model=FinancialPolicyConfigResponse)
@@ -113,11 +167,43 @@ async def create_financial_policy_config(
     Create or update financial policy configuration.
     Admin only.
     """
-    # Create new configuration
+    from datetime import datetime
+
+    # Section-Specific Timestamp Implementation (Nov 2025)
+    # This implementation allows each configuration section (interest rates, loan limit, credit limit)
+    # to track its own independent update timestamp, providing administrators with granular
+    # visibility into when specific settings were last modified.
+
+    # Get previous config to preserve section timestamps
+    previous_config = await FinancialPolicyConfig.get_current_config()
+
+    # Extract section_updated indicator and prepare data
+    # Frontend sends section_updated: "interest_rates" | "loan_limit" | "credit_limit"
+    config_dict = config_data.model_dump()
+    section_updated = config_dict.pop('section_updated', None)
+
+    # Create new configuration document
     new_config = FinancialPolicyConfig(
-        **config_data.model_dump(),
+        **config_dict,
         updated_by=current_user.user_id
     )
+
+    # Preserve existing section timestamps from previous config
+    # This ensures that unmodified sections retain their original update times
+    if previous_config:
+        new_config.interest_rates_updated_at = previous_config.interest_rates_updated_at
+        new_config.loan_limit_updated_at = previous_config.loan_limit_updated_at
+        new_config.credit_limit_updated_at = previous_config.credit_limit_updated_at
+
+    # Update only the specific section timestamp that was modified
+    # This provides independent timestamp tracking per configuration section
+    current_time = datetime.utcnow()
+    if section_updated == "interest_rates":
+        new_config.interest_rates_updated_at = current_time
+    elif section_updated == "loan_limit":
+        new_config.loan_limit_updated_at = current_time
+    elif section_updated == "credit_limit":
+        new_config.credit_limit_updated_at = current_time
 
     # Set as active (deactivates others)
     await new_config.set_as_active()
