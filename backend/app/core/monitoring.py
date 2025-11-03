@@ -17,10 +17,10 @@ monitoring_logger = structlog.get_logger("monitoring")
 
 class APMConfig:
     """APM configuration constants"""
-    
+
     # Performance thresholds (milliseconds)
-    SLOW_REQUEST_THRESHOLD = 1000  # 1 second
-    CRITICAL_REQUEST_THRESHOLD = 5000  # 5 seconds
+    SLOW_REQUEST_THRESHOLD = 2000  # 2 seconds
+    CRITICAL_REQUEST_THRESHOLD = 10000  # 10 seconds
     
     # Memory thresholds (MB)
     HIGH_MEMORY_THRESHOLD = 512
@@ -210,9 +210,9 @@ class PerformanceMonitor:
                 status_code=status_code
             )
             security_events.labels(event_type="slow_request", severity="critical").inc()
-            
+
         elif duration_ms > APMConfig.SLOW_REQUEST_THRESHOLD:
-            monitoring_logger.info(
+            monitoring_logger.debug(
                 "slow_request",
                 method=method,
                 endpoint=endpoint,

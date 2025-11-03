@@ -548,7 +548,7 @@ async def get_connection_stats() -> Dict[str, Any]:
 
         except Exception as e:
             # MongoDB Atlas or restricted permissions - provide fallback connection metrics
-            logger.warning(
+            logger.debug(
                 "serverStatus command failed (likely MongoDB Atlas), using fallback metrics",
                 error=str(e)
             )
