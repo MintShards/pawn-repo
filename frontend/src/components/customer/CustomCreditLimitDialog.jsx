@@ -489,7 +489,11 @@ const CustomCreditLimitDialog = ({
                 <Textarea
                   id="reason"
                   value={reason}
-                  onChange={(e) => setReason(e.target.value)}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    // Auto-capitalize first letter
+                    setReason(value.length > 0 ? value.charAt(0).toUpperCase() + value.slice(1) : value);
+                  }}
                   placeholder="Provide a clear business justification for this limit change..."
                   rows={3}
                   className="resize-none border-2 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 transition-all duration-200"

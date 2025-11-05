@@ -1,16 +1,10 @@
 import React, { Suspense, lazy } from 'react';
-import { Loader2 } from 'lucide-react';
+import { CompanyInfoSkeleton, SettingsFormSkeleton, PrinterConfigSkeleton } from '../../ui/skeleton';
 
 // Lazy load configuration components
 const CompanyInfoConfig = lazy(() => import('../business-config/CompanyInfoConfig'));
 const FinancialPolicyConfig = lazy(() => import('../business-config/FinancialPolicyConfig'));
 const PrinterConfig = lazy(() => import('../business-config/PrinterConfig'));
-
-const LoadingFallback = () => (
-  <div className="flex items-center justify-center py-8">
-    <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
-  </div>
-);
 
 const BusinessSettingsTab = () => {
   return (
@@ -24,17 +18,17 @@ const BusinessSettingsTab = () => {
       </div>
 
       {/* Company Information */}
-      <Suspense fallback={<LoadingFallback />}>
+      <Suspense fallback={<CompanyInfoSkeleton />}>
         <CompanyInfoConfig />
       </Suspense>
 
       {/* Financial Policies */}
-      <Suspense fallback={<LoadingFallback />}>
+      <Suspense fallback={<SettingsFormSkeleton sections={3} />}>
         <FinancialPolicyConfig />
       </Suspense>
 
       {/* Printer Configuration */}
-      <Suspense fallback={<LoadingFallback />}>
+      <Suspense fallback={<PrinterConfigSkeleton />}>
         <PrinterConfig />
       </Suspense>
     </div>

@@ -7,6 +7,7 @@ import { Printer, Loader2, Search } from 'lucide-react';
 import businessConfigService from '../../../services/businessConfigService';
 import { toast } from 'sonner';
 import { formatBusinessDateTime } from '../../../utils/timezoneUtils';
+import { PrinterConfigSkeleton } from '../../ui/skeleton';
 
 const PrinterConfig = () => {
   const [loading, setLoading] = useState(false);
@@ -175,13 +176,7 @@ const PrinterConfig = () => {
   };
 
   if (loading) {
-    return (
-      <Card>
-        <CardContent className="flex items-center justify-center py-8">
-          <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
-        </CardContent>
-      </Card>
-    );
+    return <PrinterConfigSkeleton />;
   }
 
   return (

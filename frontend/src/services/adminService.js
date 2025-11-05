@@ -231,6 +231,85 @@ const adminService = {
       method: 'GET',
     });
   },
+
+  /**
+   * Get global activity statistics summary
+   * @param {Object} params - Date range parameters
+   * @returns {Promise<Object>} Activity statistics summary
+   */
+  async getActivityStatsSummary(params = {}) {
+    const queryParams = new URLSearchParams();
+    if (params.start_date) queryParams.append('start_date', params.start_date);
+    if (params.end_date) queryParams.append('end_date', params.end_date);
+
+    return await authService.apiRequest(`/api/v1/user-activity/stats/summary?${queryParams}`, {
+      method: 'GET',
+    });
+  },
+
+  /**
+   * Export activity logs to CSV
+   * @param {Object} params - Filter parameters (same as listActivityLogs)
+   * @returns {Promise<void>} Triggers CSV download
+   */
+  async exportActivityLogsCsv(params = {}) {
+    const queryParams = new URLSearchParams();
+    if (params.user_id) queryParams.append('user_id', params.user_id);
+    if (params.target_user_id) queryParams.append('target_user_id', params.target_user_id);
+    if (params.activity_types) {
+      params.activity_types.forEach(type => queryParams.append('activity_types', type));
+    }
+    if (params.severities) {
+      params.severities.forEach(severity => queryParams.append('severities', severity));
+    }
+    if (params.start_date) queryParams.append('start_date', params.start_date);
+    if (params.end_date) queryParams.append('end_date', params.end_date);
+    if (params.is_success !== undefined) queryParams.append('is_success', params.is_success);
+    if (params.search) queryParams.append('search', params.search);
+
+    // Get the token for the request
+    const token = authService.getToken();
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    // Create a temporary link to download the file
+    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+    const url = `${apiUrl}/api/v1/user-activity/export/csv?${queryParams}`;
+
+    // Fetch the CSV file
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Export failed: ${response.statusText}`);
+    }
+
+    // Get the filename from Content-Disposition header or use default
+    const contentDisposition = response.headers.get('Content-Disposition');
+    let filename = 'activity_logs.csv';
+    if (contentDisposition) {
+      const filenameMatch = contentDisposition.match(/filename="?(.+)"?/);
+      if (filenameMatch) {
+        filename = filenameMatch[1];
+      }
+    }
+
+    // Create blob and download
+    const blob = await response.blob();
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(downloadUrl);
+  },
 };
 
 export default adminService;

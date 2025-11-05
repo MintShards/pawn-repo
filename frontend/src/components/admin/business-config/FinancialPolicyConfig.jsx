@@ -8,6 +8,7 @@ import { DollarSign, Loader2 } from 'lucide-react';
 import businessConfigService from '../../../services/businessConfigService';
 import { toast } from 'sonner';
 import { formatBusinessDateTime } from '../../../utils/timezoneUtils';
+import { SettingsFormSkeleton } from '../../ui/skeleton';
 
 const FinancialPolicyConfig = () => {
   const [loading, setLoading] = useState(false);
@@ -145,9 +146,16 @@ const FinancialPolicyConfig = () => {
 
   // Interest Rate Settings Handlers
   const handleInterestRateChange = (e) => {
+    let value = e.target.value;
+
+    // Auto-capitalize first letter of reason field
+    if (e.target.name === 'reason' && value.length > 0) {
+      value = value.charAt(0).toUpperCase() + value.slice(1);
+    }
+
     setInterestRateData({
       ...interestRateData,
-      [e.target.name]: e.target.value
+      [e.target.name]: value
     });
   };
 
@@ -203,15 +211,22 @@ const FinancialPolicyConfig = () => {
 
   // Loan Limit Settings Handlers
   const handleLoanLimitChange = (e) => {
-    const value = e.target.value;
+    let value = e.target.value;
 
-    // Real-time validation
-    if (value && parseInt(value) < 8) {
-      setLoanLimitError('Loan limit cannot be below 8');
-    } else if (value && parseInt(value) > 20) {
-      setLoanLimitError('Loan limit cannot exceed 20');
-    } else {
-      setLoanLimitError('');
+    // Real-time validation for numeric fields
+    if (e.target.name === 'max_active_loans_per_customer') {
+      if (value && parseInt(value) < 8) {
+        setLoanLimitError('Loan limit cannot be below 8');
+      } else if (value && parseInt(value) > 20) {
+        setLoanLimitError('Loan limit cannot exceed 20');
+      } else {
+        setLoanLimitError('');
+      }
+    }
+
+    // Auto-capitalize first letter of reason field
+    if (e.target.name === 'reason' && value.length > 0) {
+      value = value.charAt(0).toUpperCase() + value.slice(1);
     }
 
     setLoanLimitData({
@@ -288,13 +303,20 @@ const FinancialPolicyConfig = () => {
 
   // Credit Limit Settings Handlers
   const handleCreditLimitChange = (e) => {
-    const value = e.target.value;
+    let value = e.target.value;
 
-    // Real-time validation
-    if (value && parseFloat(value) < 3000) {
-      setCreditLimitError('Credit limit cannot be below $3,000');
-    } else {
-      setCreditLimitError('');
+    // Real-time validation for numeric fields
+    if (e.target.name === 'customer_credit_limit') {
+      if (value && parseFloat(value) < 3000) {
+        setCreditLimitError('Credit limit cannot be below $3,000');
+      } else {
+        setCreditLimitError('');
+      }
+    }
+
+    // Auto-capitalize first letter of reason field
+    if (e.target.name === 'reason' && value.length > 0) {
+      value = value.charAt(0).toUpperCase() + value.slice(1);
     }
 
     setCreditLimitData({
@@ -365,13 +387,7 @@ const FinancialPolicyConfig = () => {
   };
 
   if (loading) {
-    return (
-      <Card>
-        <CardContent className="flex items-center justify-center py-8">
-          <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
-        </CardContent>
-      </Card>
-    );
+    return <SettingsFormSkeleton sections={3} />;
   }
 
   return (

@@ -286,7 +286,11 @@ const LoanLimitConfig = () => {
                         <Textarea
                           id="reason"
                           value={reason}
-                          onChange={(e) => setReason(e.target.value)}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            // Auto-capitalize first letter
+                            setReason(value.length > 0 ? value.charAt(0).toUpperCase() + value.slice(1) : value);
+                          }}
                           placeholder="Explain why this change is being made..."
                           rows={3}
                         />

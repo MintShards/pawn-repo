@@ -150,10 +150,163 @@ function CustomerDetailSkeleton() {
   );
 }
 
-export { 
-  Skeleton, 
-  CustomerTableSkeleton, 
-  StatsCardSkeleton, 
-  SearchSkeleton, 
-  CustomerDetailSkeleton 
+// Settings form skeleton loaders
+function SettingsFormSkeleton({ sections = 1 }) {
+  return (
+    <div className="space-y-6">
+      {Array.from({ length: sections }).map((_, sectionIdx) => (
+        <div key={sectionIdx} className="border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800">
+          {/* Card Header */}
+          <div className="p-6 border-b border-slate-200 dark:border-slate-700">
+            <div className="flex items-center space-x-3">
+              <Skeleton className="h-6 w-6 rounded" />
+              <div className="space-y-2">
+                <Skeleton className="h-5 w-[180px]" />
+                <Skeleton className="h-4 w-[240px]" />
+              </div>
+            </div>
+          </div>
+
+          {/* Card Content */}
+          <div className="p-6 space-y-4">
+            {/* Form fields */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {Array.from({ length: 4 }).map((_, fieldIdx) => (
+                <div key={fieldIdx} className="space-y-2">
+                  <Skeleton className="h-4 w-[100px]" />
+                  <Skeleton className="h-10 w-full rounded-md" />
+                  <Skeleton className="h-3 w-[160px]" />
+                </div>
+              ))}
+            </div>
+
+            {/* Textarea field */}
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-[120px]" />
+              <Skeleton className="h-24 w-full rounded-md" />
+              <Skeleton className="h-3 w-[180px]" />
+            </div>
+
+            {/* Last updated */}
+            <Skeleton className="h-3 w-[220px]" />
+
+            {/* Action buttons */}
+            <div className="flex justify-end gap-2 pt-2">
+              <Skeleton className="h-10 w-[100px] rounded-md" />
+              <Skeleton className="h-10 w-[160px] rounded-md" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CompanyInfoSkeleton() {
+  return (
+    <div className="border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800">
+      {/* Card Header */}
+      <div className="p-6 border-b border-slate-200 dark:border-slate-700">
+        <div className="flex items-center space-x-3">
+          <Skeleton className="h-6 w-6 rounded" />
+          <div className="space-y-2">
+            <Skeleton className="h-5 w-[160px]" />
+            <Skeleton className="h-4 w-[220px]" />
+          </div>
+        </div>
+      </div>
+
+      {/* Card Content */}
+      <div className="p-6 space-y-4">
+        {/* Company name */}
+        <div className="md:col-span-2 space-y-2">
+          <Skeleton className="h-4 w-[100px]" />
+          <Skeleton className="h-10 w-full rounded-md" />
+        </div>
+
+        {/* Logo upload */}
+        <div className="md:col-span-2 space-y-3">
+          <Skeleton className="h-4 w-[100px]" />
+          <Skeleton className="h-16 w-32 rounded" />
+          <Skeleton className="h-10 w-64 rounded-md" />
+        </div>
+
+        {/* Address fields grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {Array.from({ length: 6 }).map((_, idx) => (
+            <div key={idx} className="space-y-2">
+              <Skeleton className="h-4 w-[100px]" />
+              <Skeleton className="h-10 w-full rounded-md" />
+            </div>
+          ))}
+        </div>
+
+        {/* Last updated */}
+        <Skeleton className="h-3 w-[220px]" />
+
+        {/* Action buttons */}
+        <div className="flex justify-end gap-2 pt-2">
+          <Skeleton className="h-10 w-[200px] rounded-md" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PrinterConfigSkeleton() {
+  return (
+    <div className="border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800">
+      {/* Card Header */}
+      <div className="p-6 border-b border-slate-200 dark:border-slate-700">
+        <div className="flex items-center space-x-3">
+          <Skeleton className="h-6 w-6 rounded" />
+          <div className="space-y-2">
+            <Skeleton className="h-5 w-[160px]" />
+            <Skeleton className="h-4 w-[240px]" />
+          </div>
+        </div>
+      </div>
+
+      {/* Card Content */}
+      <div className="p-6 space-y-6">
+        {/* Info box */}
+        <div className="p-4 border border-blue-200 dark:border-blue-800 rounded-lg space-y-3">
+          <Skeleton className="h-4 w-[200px]" />
+          <Skeleton className="h-3 w-full" />
+          <Skeleton className="h-3 w-[80%]" />
+          <Skeleton className="h-8 w-[180px] rounded-md" />
+        </div>
+
+        {/* Printer fields */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {Array.from({ length: 2 }).map((_, idx) => (
+            <div key={idx} className="space-y-2">
+              <Skeleton className="h-4 w-[100px]" />
+              <Skeleton className="h-10 w-full rounded-md" />
+              <Skeleton className="h-3 w-[180px]" />
+            </div>
+          ))}
+        </div>
+
+        {/* Last updated */}
+        <Skeleton className="h-3 w-[220px]" />
+
+        {/* Action buttons */}
+        <div className="flex justify-end gap-2 pt-2">
+          <Skeleton className="h-10 w-[200px] rounded-md" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export {
+  Skeleton,
+  CustomerTableSkeleton,
+  StatsCardSkeleton,
+  SearchSkeleton,
+  CustomerDetailSkeleton,
+  SettingsFormSkeleton,
+  CompanyInfoSkeleton,
+  PrinterConfigSkeleton
 };

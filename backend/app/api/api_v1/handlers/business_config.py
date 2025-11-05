@@ -3,7 +3,7 @@ Business Configuration API Endpoints
 
 Handles all business settings configuration endpoints including:
 - Company information
-- Financial policies
+- Financial policies (with before/after value tracking)
 - Forfeiture rules
 - Printer configuration
 """
@@ -32,6 +32,7 @@ from app.schemas.business_config_schema import (
 )
 from app.models.user_model import User
 from app.api.deps import get_current_user, require_admin
+from app.models.user_activity_log_model import log_user_activity, UserActivityType, ActivitySeverity
 
 router = APIRouter()
 
@@ -64,6 +65,9 @@ async def create_company_config(
     Create or update company configuration.
     Admin only.
     """
+    # Get previous config for comparison
+    previous_config = await CompanyConfig.get_current_config()
+
     # Create new configuration
     new_config = CompanyConfig(
         **config_data.model_dump(),
@@ -72,6 +76,30 @@ async def create_company_config(
 
     # Set as active (deactivates others)
     await new_config.set_as_active()
+
+    # Log activity with before/after values
+    metadata = {
+        "config_type": "company",
+        "new_company_name": config_data.company_name,
+        "has_previous": previous_config is not None
+    }
+
+    if previous_config:
+        metadata["old_company_name"] = previous_config.company_name
+        metadata["old_address"] = f"{previous_config.address_line1}, {previous_config.city}"
+        metadata["new_address"] = f"{config_data.address_line1}, {config_data.city}"
+        if previous_config.phone != config_data.phone:
+            metadata["old_phone"] = previous_config.phone
+            metadata["new_phone"] = config_data.phone
+
+    await log_user_activity(
+        user_id=current_user.user_id,
+        activity_type=UserActivityType.SETTINGS_CHANGED,
+        description=f"Updated company configuration: {config_data.company_name}",
+        severity=ActivitySeverity.INFO,
+        details=f"Updated company settings including name, address, and contact information",
+        metadata=metadata
+    )
 
     return new_config
 
@@ -132,6 +160,22 @@ async def upload_company_logo(
 
     # Return URL path (relative to frontend public directory)
     logo_url = f"/uploads/logos/{unique_filename}"
+
+    # Log activity
+    await log_user_activity(
+        user_id=current_user.user_id,
+        activity_type=UserActivityType.SETTINGS_CHANGED,
+        description=f"Uploaded company logo: {file.filename}",
+        severity=ActivitySeverity.INFO,
+        details=f"Uploaded new company logo image ({file.content_type})",
+        metadata={
+            "config_type": "company_logo",
+            "filename": unique_filename,
+            "original_filename": file.filename,
+            "content_type": file.content_type,
+            "file_size_kb": len(file_content) / 1024
+        }
+    )
 
     return {
         "logo_url": logo_url,
@@ -208,6 +252,42 @@ async def create_financial_policy_config(
     # Set as active (deactivates others)
     await new_config.set_as_active()
 
+    # Log activity with section-specific details and before/after values
+    section_name = {
+        "interest_rates": "Interest Rates",
+        "loan_limit": "Loan Limits",
+        "credit_limit": "Credit Limits"
+    }.get(section_updated, "Financial Policy")
+
+    # Build metadata with before/after values
+    metadata = {
+        "config_type": "financial_policy",
+        "section_updated": section_updated or "all",
+        "has_previous": previous_config is not None,
+        "reason": new_config.reason
+    }
+
+    # Add section-specific before/after values
+    if previous_config and section_updated:
+        if section_updated == "interest_rates":
+            metadata["old_monthly_interest_rate"] = previous_config.default_monthly_interest_rate
+            metadata["new_monthly_interest_rate"] = new_config.default_monthly_interest_rate
+        elif section_updated == "loan_limit":
+            metadata["old_max_active_loans"] = previous_config.max_active_loans_per_customer
+            metadata["new_max_active_loans"] = new_config.max_active_loans_per_customer
+        elif section_updated == "credit_limit":
+            metadata["old_customer_credit_limit"] = previous_config.customer_credit_limit
+            metadata["new_customer_credit_limit"] = new_config.customer_credit_limit
+
+    await log_user_activity(
+        user_id=current_user.user_id,
+        activity_type=UserActivityType.SETTINGS_CHANGED,
+        description=f"Updated financial policy: {section_name}",
+        severity=ActivitySeverity.INFO,
+        details=f"Modified {section_name.lower()} configuration",
+        metadata=metadata
+    )
+
     return new_config
 
 
@@ -251,6 +331,9 @@ async def create_forfeiture_config(
     Create or update forfeiture configuration.
     Admin only.
     """
+    # Get previous config for comparison
+    previous_config = await ForfeitureConfig.get_current_config()
+
     # Create new configuration
     new_config = ForfeitureConfig(
         **config_data.model_dump(),
@@ -259,6 +342,26 @@ async def create_forfeiture_config(
 
     # Set as active (deactivates others)
     await new_config.set_as_active()
+
+    # Log activity with before/after values
+    metadata = {
+        "config_type": "forfeiture",
+        "new_forfeiture_days": config_data.forfeiture_days,
+        "has_previous": previous_config is not None,
+        "reason": new_config.reason
+    }
+
+    if previous_config:
+        metadata["old_forfeiture_days"] = previous_config.forfeiture_days
+
+    await log_user_activity(
+        user_id=current_user.user_id,
+        activity_type=UserActivityType.SETTINGS_CHANGED,
+        description=f"Updated forfeiture configuration: {config_data.forfeiture_days} days",
+        severity=ActivitySeverity.INFO,
+        details=f"Modified forfeiture policy settings",
+        metadata=metadata
+    )
 
     return new_config
 
@@ -303,6 +406,9 @@ async def create_printer_config(
     Create or update printer configuration.
     Admin only.
     """
+    # Get previous config for comparison
+    previous_config = await PrinterConfig.get_current_config()
+
     # Create new configuration
     new_config = PrinterConfig(
         **config_data.model_dump(),
@@ -311,6 +417,19 @@ async def create_printer_config(
 
     # Set as active (deactivates others)
     await new_config.set_as_active()
+
+    # Log activity
+    await log_user_activity(
+        user_id=current_user.user_id,
+        activity_type=UserActivityType.SETTINGS_CHANGED,
+        description=f"Updated printer configuration",
+        severity=ActivitySeverity.INFO,
+        details=f"Modified printer settings for receipt printing",
+        metadata={
+            "config_type": "printer",
+            "has_previous": previous_config is not None
+        }
+    )
 
     return new_config
 

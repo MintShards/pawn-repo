@@ -7,6 +7,7 @@ import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Skeleton } from '../ui/skeleton';
 import UnifiedPagination from '../ui/unified-pagination';
+import UnifiedActivityCard from '../activity/UnifiedActivityCard';
 import {
   Clock,
   CheckCircle2,
@@ -17,22 +18,9 @@ import {
   Search,
   Activity,
   X,
-  LogIn,
-  LogOut,
-  UserPlus,
-  UserCheck,
-  Users,
-  CreditCard,
-  Undo2,
-  Calendar,
-  FileText,
-  Settings,
-  ShieldAlert,
-  Eye,
   ArrowUp
 } from 'lucide-react';
 import {
-  formatBusinessDateTime,
   formatBusinessDate,
   getTimezoneHeaders,
   getBusinessToday,
@@ -175,91 +163,6 @@ const UserActivityLogDialog = ({ user, open, onOpenChange }) => {
     scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const getActivityIcon = (activityType) => {
-    const iconMap = {
-      // Authentication
-      'login_success': <LogIn className="h-4 w-4" />,
-      'login_failed': <XCircle className="h-4 w-4" />,
-      'logout': <LogOut className="h-4 w-4" />,
-      'session_expired': <Clock className="h-4 w-4" />,
-
-      // User management
-      'user_created': <UserPlus className="h-4 w-4" />,
-      'user_updated': <UserCheck className="h-4 w-4" />,
-      'user_deleted': <XCircle className="h-4 w-4" />,
-
-      // Customer operations
-      'customer_created': <Users className="h-4 w-4" />,
-      'customer_updated': <Users className="h-4 w-4" />,
-      'customer_viewed': <Eye className="h-4 w-4" />,
-
-      // Transaction operations
-      'transaction_created': <FileText className="h-4 w-4" />,
-      'transaction_updated': <FileText className="h-4 w-4" />,
-      'transaction_status_changed': <CheckCircle2 className="h-4 w-4" />,
-      'transaction_voided': <XCircle className="h-4 w-4" />,
-
-      // Payment operations
-      'payment_processed': <CreditCard className="h-4 w-4" />,
-      'payment_reversed': <Undo2 className="h-4 w-4" />,
-      'extension_applied': <Calendar className="h-4 w-4" />,
-      'extension_cancelled': <Undo2 className="h-4 w-4" />,
-
-      // System actions
-      'settings_changed': <Settings className="h-4 w-4" />,
-      'report_generated': <FileText className="h-4 w-4" />,
-
-      // Security events
-      'unauthorized_access': <ShieldAlert className="h-4 w-4" />,
-      'permission_denied': <ShieldAlert className="h-4 w-4" />,
-      'suspicious_activity': <AlertTriangle className="h-4 w-4" />,
-    };
-
-    return iconMap[activityType] || <Activity className="h-4 w-4" />;
-  };
-
-  const getSeverityBadge = (severity) => {
-    const severityConfig = {
-      info: { bg: 'bg-blue-500', icon: Info },
-      warning: { bg: 'bg-amber-500', icon: AlertTriangle },
-      error: { bg: 'bg-red-500', icon: XCircle },
-      critical: { bg: 'bg-purple-500', icon: AlertTriangle }
-    };
-
-    const config = severityConfig[severity] || severityConfig.info;
-    const IconComponent = config.icon;
-
-    return (
-      <Badge className={`${config.bg} text-white border-0 gap-1.5`}>
-        <IconComponent className="h-3 w-3" />
-        {severity.charAt(0).toUpperCase() + severity.slice(1)}
-      </Badge>
-    );
-  };
-
-  const getSuccessIcon = (isSuccess) => {
-    return isSuccess ? (
-      <CheckCircle2 className="h-4 w-4 text-green-500" />
-    ) : (
-      <XCircle className="h-4 w-4 text-red-500" />
-    );
-  };
-
-  const formatTimestamp = (timestamp) => {
-    try {
-      return formatBusinessDateTime(timestamp, {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-        second: '2-digit',
-        timeZoneName: 'short'
-      });
-    } catch {
-      return 'Invalid date';
-    }
-  };
 
   const handleFilterChange = (key, value) => {
     setFilters(prev => ({ ...prev, [key]: value }));
@@ -657,142 +560,11 @@ const UserActivityLogDialog = ({ user, open, onOpenChange }) => {
 
                 {/* Activities for this date */}
                 {group.activities.map((activity) => (
-                  <Card key={activity.id} className="hover:shadow-md transition-shadow">
-                    <CardContent className="p-4">
-                      <div className="flex items-center gap-4">
-                        {/* Icon */}
-                        <div className="flex-shrink-0 w-9 h-9 flex items-center justify-center bg-blue-50 dark:bg-blue-950/30 rounded-full">
-                          {getActivityIcon(activity.activity_type)}
-                        </div>
-
-                        {/* Content */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-2 mb-2">
-                            <div className="flex-1">
-                              <p className="font-medium text-sm mb-1 leading-tight">
-                                {activity.description}
-                              </p>
-                              <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                                <span className="flex items-center gap-1">
-                                  <Clock className="h-3 w-3" />
-                                  {formatTimestamp(activity.timestamp)}
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-2 flex-shrink-0">
-                              {getSeverityBadge(activity.severity)}
-                              {getSuccessIcon(activity.is_success)}
-                            </div>
-                          </div>
-
-                          {/* Details */}
-                          {activity.details && (
-                            <p className="text-sm text-gray-600 dark:text-gray-400 mt-2 p-2 bg-gray-50 dark:bg-gray-800 rounded">
-                              {activity.details}
-                            </p>
-                          )}
-
-                          {/* Error message */}
-                          {!activity.is_success && activity.error_message && (
-                            <p className="text-sm text-red-600 dark:text-red-400 mt-2 p-2 bg-red-50 dark:bg-red-950/30 rounded border border-red-200 dark:border-red-800">
-                              <XCircle className="h-3 w-3 inline mr-1" />
-                              {activity.error_message}
-                            </p>
-                          )}
-
-                          {/* Metadata */}
-                          {activity.metadata && Object.keys(activity.metadata).length > 0 && (
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {Object.entries(activity.metadata).map(([key, value]) => {
-                                // Format metadata key to be user-friendly
-                                const formatKey = (k) => {
-                                  const keyMap = {
-                                    'loan_amount': 'Loan Amount',
-                                    'items_count': 'Items',
-                                    'amount': 'Amount',
-                                    'months': 'Duration',
-                                    'days': 'Duration',
-                                    'old_status': 'Previous Status',
-                                    'new_status': 'New Status',
-                                    'notes': 'Notes',
-                                    'status': 'Status',
-                                    'role': 'Role',
-                                    'first_name': 'First Name',
-                                    'last_name': 'Last Name',
-                                    'email': 'Email',
-                                    'phone': 'Phone'
-                                  };
-                                  return keyMap[k] || k.split('_').map(word =>
-                                    word.charAt(0).toUpperCase() + word.slice(1)
-                                  ).join(' ');
-                                };
-
-                                // Format metadata value to be user-friendly
-                                const formatValue = (k, v) => {
-                                  if (v === null || v === undefined) return 'N/A';
-
-                                  // Currency amounts with +/- signs based on activity type
-                                  if (k === 'loan_amount' || k === 'amount') {
-                                    const formattedAmount = `$${Number(v).toLocaleString()}`;
-
-                                    // Add +/- signs for money flow clarity (business perspective)
-                                    if (activity.activity_type === 'payment_reversed' || activity.activity_type === 'extension_cancelled') {
-                                      return `-${formattedAmount}`; // Money going OUT (refund)
-                                    } else if (activity.activity_type === 'payment_processed' || activity.activity_type === 'extension_applied') {
-                                      return `+${formattedAmount}`; // Money coming IN (payment/fee received)
-                                    }
-
-                                    return formattedAmount;
-                                  }
-
-                                  // Item count
-                                  if (k === 'items_count') {
-                                    return `${v} ${v === 1 ? 'item' : 'items'}`;
-                                  }
-
-                                  // Duration in months
-                                  if (k === 'months') {
-                                    return `${v} ${v === 1 ? 'month' : 'months'}`;
-                                  }
-
-                                  // Duration in days
-                                  if (k === 'days') {
-                                    return `${v} ${v === 1 ? 'day' : 'days'}`;
-                                  }
-
-                                  // Status values - capitalize
-                                  if (k === 'old_status' || k === 'new_status') {
-                                    return String(v).charAt(0).toUpperCase() + String(v).slice(1);
-                                  }
-
-                                  // Handle nested objects (like status/role changes with old/new values)
-                                  if (typeof v === 'object' && v !== null) {
-                                    if (v.old !== undefined && v.new !== undefined) {
-                                      // Format as "old → new" with capitalization
-                                      const oldVal = String(v.old).charAt(0).toUpperCase() + String(v.old).slice(1);
-                                      const newVal = String(v.new).charAt(0).toUpperCase() + String(v.new).slice(1);
-                                      return `${oldVal} → ${newVal}`;
-                                    }
-                                    // For other objects, try to stringify
-                                    return JSON.stringify(v);
-                                  }
-
-                                  return String(v);
-                                };
-
-                                return (
-                                  <Badge key={key} variant="outline" className="text-xs">
-                                    {formatKey(key)}: {formatValue(key, value)}
-                                  </Badge>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
+                  <UnifiedActivityCard
+                    key={activity.id}
+                    activity={activity}
+                    showUserId={false}
+                  />
                 ))}
               </div>
             ))

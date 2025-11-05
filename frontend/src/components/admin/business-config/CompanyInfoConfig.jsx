@@ -7,6 +7,7 @@ import { Building2, Loader2, X } from 'lucide-react';
 import businessConfigService from '../../../services/businessConfigService';
 import { toast } from 'sonner';
 import { formatBusinessDateTime } from '../../../utils/timezoneUtils';
+import { CompanyInfoSkeleton } from '../../ui/skeleton';
 
 const CompanyInfoConfig = () => {
   const [loading, setLoading] = useState(false);
@@ -188,13 +189,7 @@ const CompanyInfoConfig = () => {
   };
 
   if (loading) {
-    return (
-      <Card>
-        <CardContent className="flex items-center justify-center py-8">
-          <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
-        </CardContent>
-      </Card>
-    );
+    return <CompanyInfoSkeleton />;
   }
 
   return (
