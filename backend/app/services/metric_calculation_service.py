@@ -13,6 +13,7 @@ import structlog
 from app.models.pawn_transaction_model import PawnTransaction
 from app.models.payment_model import Payment
 from app.models.extension_model import Extension
+from app.models.customer_model import Customer
 from app.models.transaction_metrics import TransactionMetrics, MetricType
 from app.core.redis_cache import get_cache_service
 import json
@@ -1126,7 +1127,166 @@ class MetricCalculationService:
         except Exception as e:
             logger.error("Failed to calculate new today", error=str(e))
             return 0.0
-    
+
+    async def calculate_this_month_revenue(self, timezone_header: Optional[str] = None) -> float:
+        """Calculate total revenue this month (payments + extension fees)"""
+        cached_value = await self._get_cached_value("this_month_revenue")
+        if cached_value is not None:
+            return cached_value
+
+        start_time = time.time()
+
+        try:
+            # Calculate this month's date range in user's timezone
+            business_date = get_user_business_date(timezone_header)
+            first_day_of_month = business_date.replace(day=1)
+
+            # Convert to UTC for database query
+            from app.core.timezone_utils import user_timezone_to_utc
+            start_of_month_utc = user_timezone_to_utc(first_day_of_month, timezone_header)
+
+            # Calculate end of current day (to include today's transactions)
+            end_of_today_utc = user_timezone_to_utc(business_date, timezone_header) + timedelta(days=1)
+
+            # Calculate payments from this month
+            payment_pipeline = [
+                {
+                    "$match": {
+                        "payment_date": {
+                            "$gte": start_of_month_utc,
+                            "$lt": end_of_today_utc
+                        }
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": None,
+                        "total": {"$sum": "$payment_amount"}
+                    }
+                }
+            ]
+
+            payment_result = await Payment.aggregate(payment_pipeline).to_list()
+            payment_total = payment_result[0]["total"] if payment_result else 0.0
+
+            # Calculate extension fees from this month (only paid extensions)
+            extension_pipeline = [
+                {
+                    "$match": {
+                        "created_at": {
+                            "$gte": start_of_month_utc,
+                            "$lt": end_of_today_utc
+                        },
+                        "fee_paid": True,
+                        "is_cancelled": False
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": None,
+                        "total": {"$sum": "$total_extension_fee"}
+                    }
+                }
+            ]
+
+            extension_result = await Extension.aggregate(extension_pipeline).to_list()
+            extension_total = extension_result[0]["total"] if extension_result else 0.0
+
+            # Total revenue = payments + extension fees
+            total_revenue = payment_total + extension_total
+
+            calculation_time = (time.time() - start_time) * 1000
+            logger.info("Calculated this month revenue",
+                       payment_total=payment_total,
+                       extension_total=extension_total,
+                       total_revenue=total_revenue,
+                       duration_ms=calculation_time)
+
+            await self._cache_value("this_month_revenue", total_revenue)
+            return float(total_revenue)
+        except Exception as e:
+            logger.error("Failed to calculate this month revenue", error=str(e))
+            return 0.0
+
+    async def calculate_new_customers_this_month(self, timezone_header: Optional[str] = None) -> float:
+        """Calculate number of new customers created this month"""
+        cached_value = await self._get_cached_value("new_customers_this_month")
+        if cached_value is not None:
+            return cached_value
+
+        start_time = time.time()
+
+        try:
+            # Calculate this month's date range in user's timezone
+            business_date = get_user_business_date(timezone_header)
+            first_day_of_month = business_date.replace(day=1)
+
+            # Convert to UTC for database query
+            from app.core.timezone_utils import user_timezone_to_utc
+            start_of_month_utc = user_timezone_to_utc(first_day_of_month, timezone_header)
+
+            # Calculate end of current day (to include today's customers)
+            end_of_today_utc = user_timezone_to_utc(business_date, timezone_header) + timedelta(days=1)
+
+            # Count new customers created this month
+            count = await Customer.find(
+                Customer.created_at >= start_of_month_utc,
+                Customer.created_at < end_of_today_utc
+            ).count()
+
+            calculation_time = (time.time() - start_time) * 1000
+            logger.info("Calculated new customers this month", count=count, duration_ms=calculation_time)
+
+            await self._cache_value("new_customers_this_month", float(count))
+            return float(count)
+        except Exception as e:
+            logger.error("Failed to calculate new customers this month", error=str(e))
+            return 0.0
+
+    async def calculate_went_overdue_today(self, timezone_header: Optional[str] = None) -> float:
+        """Calculate number of transactions that went overdue today"""
+        cached_value = await self._get_cached_value("went_overdue_today")
+        if cached_value is not None:
+            return cached_value
+
+        start_time = time.time()
+
+        try:
+            # Calculate today's date range in user's timezone
+            business_date = get_user_business_date(timezone_header)
+
+            # Convert to UTC for database query
+            from app.core.timezone_utils import user_timezone_to_utc
+            start_of_day_utc = user_timezone_to_utc(business_date, timezone_header)
+            end_of_day_utc = start_of_day_utc + timedelta(days=1)
+
+            # Find transactions where:
+            # 1. Current status is 'overdue'
+            # 2. Maturity date is today (meaning they went overdue today)
+            # Note: In the business logic, a transaction becomes overdue when current date > maturity_date
+            # So if maturity_date is yesterday and today is the first day overdue
+
+            # More accurate: Count transactions that have maturity_date = yesterday
+            # (meaning today is the first day they're overdue)
+            yesterday_date = business_date - timedelta(days=1)
+            start_of_yesterday_utc = user_timezone_to_utc(yesterday_date, timezone_header)
+            end_of_yesterday_utc = start_of_day_utc
+
+            count = await PawnTransaction.find(
+                PawnTransaction.status == "overdue",
+                PawnTransaction.maturity_date >= start_of_yesterday_utc,
+                PawnTransaction.maturity_date < end_of_yesterday_utc
+            ).count()
+
+            calculation_time = (time.time() - start_time) * 1000
+            logger.info("Calculated went overdue today", count=count, duration_ms=calculation_time)
+
+            await self._cache_value("went_overdue_today", float(count))
+            return float(count)
+        except Exception as e:
+            logger.error("Failed to calculate went overdue today", error=str(e))
+            return 0.0
+
     async def calculate_yesterdays_collection(self, timezone_header: Optional[str] = None) -> float:
         """Calculate total collection yesterday (redeem payments + extension fees)"""
         cached_value = await self._get_cached_value("yesterdays_collection")
@@ -1415,14 +1575,17 @@ class MetricCalculationService:
             self.calculate_yesterdays_collection(timezone_header),
             self.calculate_new_last_month(timezone_header),
             self.calculate_yesterdays_new(timezone_header),
+            self.calculate_this_month_revenue(timezone_header),
+            self.calculate_new_customers_this_month(timezone_header),
+            self.calculate_went_overdue_today(timezone_header),
             return_exceptions=True
         )
-        
+
         total_time = (time.time() - start_time) * 1000
-        
+
         # Handle any exceptions
         metrics = {}
-        metric_names = ["active_loans", "new_this_month", "new_today", "overdue_loans", "maturity_this_week", "todays_collection", "yesterdays_collection", "new_last_month", "yesterdays_new"]
+        metric_names = ["active_loans", "new_this_month", "new_today", "overdue_loans", "maturity_this_week", "todays_collection", "yesterdays_collection", "new_last_month", "yesterdays_new", "this_month_revenue", "new_customers_this_month", "went_overdue_today"]
         
         for i, result in enumerate(results):
             if isinstance(result, Exception):
@@ -1512,6 +1675,12 @@ class MetricCalculationService:
                 new_value = await self.calculate_maturity_this_week()
             elif metric_type == MetricType.TODAYS_COLLECTION:
                 new_value = await self.calculate_todays_collection()
+            elif metric_type == MetricType.THIS_MONTH_REVENUE:
+                new_value = await self.calculate_this_month_revenue()
+            elif metric_type == MetricType.NEW_CUSTOMERS_THIS_MONTH:
+                new_value = await self.calculate_new_customers_this_month()
+            elif metric_type == MetricType.WENT_OVERDUE_TODAY:
+                new_value = await self.calculate_went_overdue_today()
             else:
                 logger.error("Unknown metric type", metric_type=metric_type)
                 return None

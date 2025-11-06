@@ -19,6 +19,10 @@ class MetricType(str, Enum):
     OVERDUE_LOANS = "overdue_loans"
     MATURITY_THIS_WEEK = "maturity_this_week"
     TODAYS_COLLECTION = "todays_collection"
+    # New metrics
+    THIS_MONTH_REVENUE = "this_month_revenue"
+    NEW_CUSTOMERS_THIS_MONTH = "new_customers_this_month"
+    WENT_OVERDUE_TODAY = "went_overdue_today"
 
 
 class TrendDirection(str, Enum):

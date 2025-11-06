@@ -1,46 +1,58 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Button } from '../components/ui/button';
-import LoanLimitConfig from '../components/admin/LoanLimitConfig';
 import AppHeader from '../components/common/AppHeader';
+import QuickActions from '../components/dashboard/QuickActions';
+import SystemStatus from '../components/dashboard/SystemStatus';
+import RecentActivity from '../components/dashboard/RecentActivity';
+import { getWelcomeMessage } from '../utils/roleUtils';
+import { useDashboardStats } from '../hooks/useDashboardStats';
+import serviceAlertService from '../services/serviceAlertService';
+import { Card, CardContent } from '../components/ui/card';
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '../components/ui/card';
-import {
-  Plus,
   CreditCard,
   TrendingUp,
+  TrendingDown,
+  Minus,
   DollarSign,
-  Clock,
-  Activity,
-  Users,
-  Database,
-  Shield,
-  Zap,
-  FileText,
-  Calendar,
-  ArrowUpRight,
-  RefreshCw,
-  Bell,
-  Settings
+  AlertTriangle
 } from 'lucide-react';
-import { getWelcomeMessage } from '../utils/roleUtils';
-import serviceAlertService from '../services/serviceAlertService';
+
+// Trend indicator component
+const TrendIndicator = ({ direction, percentage }) => {
+  const numPercentage = parseFloat(percentage) || 0;
+
+  if (direction === 'stable' || Math.abs(numPercentage) < 0.1) {
+    return (
+      <div className="flex items-center space-x-1 text-slate-500 dark:text-slate-400">
+        <Minus className="w-3 h-3" />
+        <span className="text-xs">Stable</span>
+      </div>
+    );
+  }
+
+  const isUp = direction === 'up' || numPercentage > 0;
+  const IconComponent = isUp ? TrendingUp : TrendingDown;
+  const colorClass = isUp ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400';
+
+  return (
+    <div className={`flex items-center space-x-1 ${colorClass}`}>
+      <IconComponent className="w-3 h-3" />
+      <span className="text-xs font-medium">
+        {Math.abs(numPercentage).toFixed(1)}%
+      </span>
+    </div>
+  );
+};
 
 const DashboardPage = () => {
   const { user, loading, fetchUserDataIfNeeded } = useAuth();
-  const navigate = useNavigate();
-  const [alertStats, setAlertStats] = React.useState({
+  const [alertStats, setAlertStats] = useState({
     unique_customer_count: 0,
-    total_alert_count: 0
+    total_alert_count: 0,
+    trend_direction: null,
+    trend_percentage: 0
   });
-  const [alertStatsLoading, setAlertStatsLoading] = React.useState(true);
-  const [showAdminSettings, setShowAdminSettings] = useState(false);
+  const [alertStatsLoading, setAlertStatsLoading] = useState(true);
 
   // Fetch user data if needed on component mount
   React.useEffect(() => {
@@ -48,6 +60,15 @@ const DashboardPage = () => {
       fetchUserDataIfNeeded();
     }
   }, [user, loading, fetchUserDataIfNeeded]);
+
+  // Fetch dashboard stats with polling
+  const { metrics } = useDashboardStats();
+
+  // Check if any metric is still loading
+  const anyMetricLoading = metrics.this_month_revenue?.loading ||
+                           metrics.active_loans?.loading ||
+                           metrics.new_customers_this_month?.loading ||
+                           metrics.went_overdue_today?.loading;
 
   // Fetch service alert stats
   React.useEffect(() => {
@@ -57,11 +78,11 @@ const DashboardPage = () => {
         const stats = await serviceAlertService.getUniqueCustomerAlertStats();
         setAlertStats(stats);
       } catch (error) {
-        // Failed to fetch alert stats
-        // Set default values on error
         setAlertStats({
           unique_customer_count: 0,
-          total_alert_count: 0
+          total_alert_count: 0,
+          trend_direction: null,
+          trend_percentage: 0
         });
       } finally {
         setAlertStatsLoading(false);
@@ -70,7 +91,6 @@ const DashboardPage = () => {
 
     if (user) {
       fetchAlertStats();
-      // Refresh stats every 60 seconds for rate limit safety
       const interval = setInterval(fetchAlertStats, 60000);
       return () => clearInterval(interval);
     }
@@ -80,18 +100,17 @@ const DashboardPage = () => {
   React.useEffect(() => {
     const handleAlertUpdate = async () => {
       try {
-        // Clear cache to force fresh fetch
         serviceAlertService.clearCacheByPattern('unique_customer_alert_stats');
         const stats = await serviceAlertService.getUniqueCustomerAlertStats();
         setAlertStats(stats);
       } catch (error) {
-        // Failed to refresh alert stats
+        // Handle error silently
       }
     };
 
     window.addEventListener('refreshAlertCounts', handleAlertUpdate);
     window.addEventListener('refreshCustomerAlerts', handleAlertUpdate);
-    
+
     return () => {
       window.removeEventListener('refreshAlertCounts', handleAlertUpdate);
       window.removeEventListener('refreshCustomerAlerts', handleAlertUpdate);
@@ -102,313 +121,226 @@ const DashboardPage = () => {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/40 dark:from-slate-950 dark:via-slate-900 dark:to-slate-800">
       <AppHeader pageTitle="Dashboard" />
 
-      {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Welcome Section */}
         <div className="mb-8">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-3xl font-bold text-slate-900 dark:text-slate-100 mb-2">
-                {getWelcomeMessage(user, loading)}
-              </h2>
-              <p className="text-slate-600 dark:text-slate-400 text-lg">
-                Here's what's happening with your pawn shop today
-              </p>
-            </div>
-            <Button 
-              onClick={() => navigate('/transactions')}
-              className="bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white shadow-lg shadow-amber-500/25"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              New Transaction
-            </Button>
-          </div>
+          <h2 className="text-3xl font-bold text-slate-900 dark:text-slate-100 mb-2">
+            {getWelcomeMessage(user, loading)}
+          </h2>
+          <p className="text-slate-600 dark:text-slate-400 text-lg">
+            Here's what's happening with your pawn shop today
+          </p>
         </div>
 
         {/* Stats Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
-          {/* Today's Revenue */}
-          <Card className="border-0 shadow-lg bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-950/50 dark:to-teal-950/50 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-20 h-20 bg-emerald-500/10 rounded-full -mr-10 -mt-10"></div>
+          <Card className="relative overflow-hidden border-0 shadow-md bg-gradient-to-r from-purple-50 to-violet-50 dark:from-purple-950/50 dark:to-violet-950/50 hover:shadow-lg transition-all">
             <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">Today's Revenue</p>
-                  <p className="text-2xl font-bold text-emerald-900 dark:text-emerald-100">$0.00</p>
-                  <p className="text-xs text-emerald-600/70 dark:text-emerald-400/70 flex items-center mt-1">
-                    <ArrowUpRight className="w-3 h-3 mr-1" />
-                    +0% from yesterday
-                  </p>
+              {metrics.this_month_revenue?.loading ? (
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 space-y-3 animate-pulse">
+                    <div className="h-4 bg-purple-200/60 dark:bg-purple-700/40 rounded w-28" />
+                    <div className="h-8 bg-purple-200/60 dark:bg-purple-700/40 rounded w-20" />
+                  </div>
+                  <div className="w-12 h-12 bg-purple-500/10 dark:bg-purple-400/10 rounded-xl flex items-center justify-center animate-pulse">
+                    <div className="w-6 h-6 bg-purple-200/60 dark:bg-purple-700/40 rounded" />
+                  </div>
                 </div>
-                <div className="w-12 h-12 bg-emerald-500/20 rounded-xl flex items-center justify-center">
-                  <DollarSign className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
+              ) : (
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-purple-700 dark:text-purple-300">
+                      Month's Revenue
+                    </p>
+                    <div className="flex items-baseline space-x-2">
+                      <p className="text-2xl font-bold text-purple-900 dark:text-purple-100">
+                        {metrics.this_month_revenue?.display_value || '$0'}
+                      </p>
+                      {metrics.this_month_revenue?.trend_direction && (
+                        <TrendIndicator
+                          direction={metrics.this_month_revenue.trend_direction}
+                          percentage={metrics.this_month_revenue.trend_percentage}
+                        />
+                      )}
+                    </div>
+                  </div>
+                  <div className="w-12 h-12 bg-purple-500/10 dark:bg-purple-400/10 rounded-xl flex items-center justify-center">
+                    <DollarSign className="w-6 h-6 text-purple-600 dark:text-purple-400" />
+                  </div>
                 </div>
-              </div>
+              )}
+              <div className="absolute top-0 right-0 w-20 h-20 bg-purple-500/5 dark:bg-purple-400/5 rounded-full -mr-10 -mt-10"></div>
             </CardContent>
           </Card>
 
-          {/* Active Loans */}
-          <Card className="border-0 shadow-lg bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/50 dark:to-indigo-950/50 relative overflow-hidden select-none pointer-events-none">
-            <div className="absolute top-0 right-0 w-20 h-20 bg-blue-500/10 rounded-full -mr-10 -mt-10"></div>
+          <Card className="relative overflow-hidden border-0 shadow-md bg-gradient-to-br from-cyan-50 to-blue-50 dark:from-cyan-950/50 dark:to-blue-950/50 hover:shadow-lg transition-all">
+            <div className="absolute top-0 right-0 w-20 h-20 bg-cyan-500/10 rounded-full -mr-10 -mt-10"></div>
             <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-blue-600 dark:text-blue-400">Active Loans</p>
-                  <p className="text-2xl font-bold text-blue-900 dark:text-blue-100">0</p>
-                  <p className="text-xs text-blue-600/70 dark:text-blue-400/70 flex items-center mt-1">
-                    <Activity className="w-3 h-3 mr-1" />
-                    0 new this week
-                  </p>
+              {metrics.active_loans?.loading ? (
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 space-y-3 animate-pulse">
+                    <div className="h-4 bg-cyan-200/60 dark:bg-cyan-700/40 rounded w-24" />
+                    <div className="h-8 bg-cyan-200/60 dark:bg-cyan-700/40 rounded w-16" />
+                  </div>
+                  <div className="w-12 h-12 bg-cyan-500/20 rounded-xl flex items-center justify-center animate-pulse">
+                    <div className="w-6 h-6 bg-cyan-200/60 dark:bg-cyan-700/40 rounded" />
+                  </div>
                 </div>
-                <div className="w-12 h-12 bg-blue-500/20 rounded-xl flex items-center justify-center">
-                  <CreditCard className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+              ) : (
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-cyan-600 dark:text-cyan-400">
+                      Active Loans
+                    </p>
+                    <div className="flex items-baseline space-x-2">
+                      <p className="text-2xl font-bold text-cyan-900 dark:text-cyan-100">
+                        {metrics.active_loans?.display_value || '0'}
+                      </p>
+                      {metrics.active_loans?.trend_direction && (
+                        <TrendIndicator
+                          direction={metrics.active_loans.trend_direction}
+                          percentage={metrics.active_loans.trend_percentage}
+                        />
+                      )}
+                    </div>
+                  </div>
+                  <div className="w-12 h-12 bg-cyan-500/20 rounded-xl flex items-center justify-center">
+                    <CreditCard className="w-6 h-6 text-cyan-600 dark:text-cyan-400" />
+                  </div>
                 </div>
-              </div>
+              )}
             </CardContent>
           </Card>
 
-          {/* Service Alerts */}
-          <Card 
-            className="border-0 shadow-lg bg-gradient-to-br from-red-50 to-rose-50 dark:from-red-950/50 dark:to-rose-950/50 relative overflow-hidden cursor-pointer"
-            onClick={async () => {
-              setAlertStatsLoading(true);
-              try {
-                serviceAlertService.clearCacheByPattern('unique_customer_alert_stats');
-                const stats = await serviceAlertService.getUniqueCustomerAlertStats();
-                setAlertStats(stats);
-              } catch (error) {
-                // Manual refresh failed
-              }
-              setAlertStatsLoading(false);
-            }}
-          >
-            <div className="absolute top-0 right-0 w-20 h-20 bg-red-500/10 rounded-full -mr-10 -mt-10"></div>
+          <Card className="relative overflow-hidden border-0 shadow-md bg-gradient-to-r from-emerald-50 to-green-50 dark:from-emerald-950/50 dark:to-green-950/50 hover:shadow-lg transition-all">
             <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-red-600 dark:text-red-400">Service Alerts</p>
-                  <p className="text-2xl font-bold text-red-900 dark:text-red-100">
-                    {alertStatsLoading ? '-' : alertStats.unique_customer_count}
-                  </p>
-                  <p className="text-xs text-red-600/70 dark:text-red-400/70 flex items-center mt-1">
-                    <Bell className="w-3 h-3 mr-1" />
-                    {alertStatsLoading ? 'Loading...' : (
-                      alertStats.unique_customer_count === 0 ? 'No active alerts' :
-                      `${alertStats.unique_customer_count} customer${alertStats.unique_customer_count !== 1 ? 's' : ''} with alerts`
-                    )}
-                  </p>
+              {metrics.new_customers_this_month?.loading ? (
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 space-y-3 animate-pulse">
+                    <div className="h-4 bg-emerald-200/60 dark:bg-emerald-700/40 rounded w-28" />
+                    <div className="h-8 bg-emerald-200/60 dark:bg-emerald-700/40 rounded w-12" />
+                  </div>
+                  <div className="w-12 h-12 bg-emerald-500/10 dark:bg-emerald-400/10 rounded-xl flex items-center justify-center animate-pulse">
+                    <div className="w-6 h-6 bg-emerald-200/60 dark:bg-emerald-700/40 rounded" />
+                  </div>
                 </div>
-                <div className="w-12 h-12 bg-red-500/20 rounded-xl flex items-center justify-center">
-                  <Bell className="w-6 h-6 text-red-600 dark:text-red-400" />
+              ) : (
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
+                      New Customers
+                    </p>
+                    <div className="flex items-baseline space-x-2">
+                      <p className="text-2xl font-bold text-emerald-900 dark:text-emerald-100">
+                        {metrics.new_customers_this_month?.display_value || '0'}
+                      </p>
+                      {metrics.new_customers_this_month?.trend_direction && (
+                        <TrendIndicator
+                          direction={metrics.new_customers_this_month.trend_direction}
+                          percentage={metrics.new_customers_this_month.trend_percentage}
+                        />
+                      )}
+                    </div>
+                  </div>
+                  <div className="w-12 h-12 bg-emerald-500/10 dark:bg-emerald-400/10 rounded-xl flex items-center justify-center">
+                    <TrendingUp className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
+                  </div>
                 </div>
-              </div>
+              )}
+              <div className="absolute top-0 right-0 w-20 h-20 bg-emerald-500/5 dark:bg-emerald-400/5 rounded-full -mr-10 -mt-10"></div>
             </CardContent>
           </Card>
 
-          {/* Due This Week */}
-          <Card className="border-0 shadow-lg bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/50 dark:to-orange-950/50 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-20 h-20 bg-amber-500/10 rounded-full -mr-10 -mt-10"></div>
+          <Card className="relative overflow-hidden border-0 shadow-md bg-gradient-to-br from-pink-50 to-rose-50 dark:from-pink-950/50 dark:to-rose-950/50 hover:shadow-lg transition-all">
+            <div className="absolute top-0 right-0 w-20 h-20 bg-pink-500/10 rounded-full -mr-10 -mt-10"></div>
             <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-amber-600 dark:text-amber-400">Due This Week</p>
-                  <p className="text-2xl font-bold text-amber-900 dark:text-amber-100">0</p>
-                  <p className="text-xs text-amber-600/70 dark:text-amber-400/70 flex items-center mt-1">
-                    <Clock className="w-3 h-3 mr-1" />
-                    No overdue items
-                  </p>
+              {metrics.went_overdue_today?.loading ? (
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 space-y-3 animate-pulse">
+                    <div className="h-4 bg-pink-200/60 dark:bg-pink-700/40 rounded w-28" />
+                    <div className="h-8 bg-pink-200/60 dark:bg-pink-700/40 rounded w-12" />
+                  </div>
+                  <div className="w-12 h-12 bg-pink-500/20 rounded-xl flex items-center justify-center animate-pulse">
+                    <div className="w-6 h-6 bg-pink-200/60 dark:bg-pink-700/40 rounded" />
+                  </div>
                 </div>
-                <div className="w-12 h-12 bg-amber-500/20 rounded-xl flex items-center justify-center">
-                  <Calendar className="w-6 h-6 text-amber-600 dark:text-amber-400" />
+              ) : (
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-pink-600 dark:text-pink-400">
+                      Overdue Today
+                    </p>
+                    <div className="flex items-baseline space-x-2">
+                      <p className="text-2xl font-bold text-pink-900 dark:text-pink-100">
+                        {metrics.went_overdue_today?.display_value || '0'}
+                      </p>
+                      {metrics.went_overdue_today?.trend_direction && (
+                        <TrendIndicator
+                          direction={metrics.went_overdue_today.trend_direction}
+                          percentage={metrics.went_overdue_today.trend_percentage}
+                        />
+                      )}
+                    </div>
+                  </div>
+                  <div className="w-12 h-12 bg-pink-500/20 rounded-xl flex items-center justify-center">
+                    <AlertTriangle className="w-6 h-6 text-pink-600 dark:text-pink-400" />
+                  </div>
                 </div>
-              </div>
+              )}
             </CardContent>
           </Card>
 
-          {/* Customer Count */}
-          <Card className="border-0 shadow-lg bg-gradient-to-br from-violet-50 to-purple-50 dark:from-violet-950/50 dark:to-purple-950/50 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-20 h-20 bg-violet-500/10 rounded-full -mr-10 -mt-10"></div>
+          <Card className="relative overflow-hidden border-0 shadow-md bg-gradient-to-r from-orange-50 to-red-50 dark:from-orange-950/50 dark:to-red-950/50 hover:shadow-lg transition-all">
             <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-violet-600 dark:text-violet-400">Total Customers</p>
-                  <p className="text-2xl font-bold text-violet-900 dark:text-violet-100">0</p>
-                  <p className="text-xs text-violet-600/70 dark:text-violet-400/70 flex items-center mt-1">
-                    <TrendingUp className="w-3 h-3 mr-1" />
-                    All active accounts
-                  </p>
+              {(alertStatsLoading || anyMetricLoading) ? (
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 space-y-3 animate-pulse">
+                    <div className="h-4 bg-orange-200/60 dark:bg-orange-700/40 rounded w-28" />
+                    <div className="h-8 bg-orange-200/60 dark:bg-orange-700/40 rounded w-12" />
+                  </div>
+                  <div className="w-12 h-12 bg-orange-500/10 dark:bg-orange-400/10 rounded-xl flex items-center justify-center animate-pulse">
+                    <div className="w-6 h-6 bg-orange-200/60 dark:bg-orange-700/40 rounded" />
+                  </div>
                 </div>
-                <div className="w-12 h-12 bg-violet-500/20 rounded-xl flex items-center justify-center">
-                  <Users className="w-6 h-6 text-violet-600 dark:text-violet-400" />
+              ) : (
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-orange-700 dark:text-orange-300">
+                      Service Alerts
+                    </p>
+                    <div className="flex items-baseline space-x-2">
+                      <p className="text-2xl font-bold text-orange-900 dark:text-orange-100">
+                        {alertStats.unique_customer_count}
+                      </p>
+                      {alertStats.trend_direction && (
+                        <TrendIndicator
+                          direction={alertStats.trend_direction}
+                          percentage={alertStats.trend_percentage}
+                        />
+                      )}
+                    </div>
+                  </div>
+                  <div className="w-12 h-12 bg-orange-500/10 dark:bg-orange-400/10 rounded-xl flex items-center justify-center">
+                    <AlertTriangle className="w-6 h-6 text-orange-600 dark:text-orange-400" />
+                  </div>
                 </div>
-              </div>
+              )}
+              <div className="absolute top-0 right-0 w-20 h-20 bg-orange-500/5 dark:bg-orange-400/5 rounded-full -mr-10 -mt-10"></div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Admin Settings Section */}
-        {user?.role === 'admin' && (
-          <div className="mb-8">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                  <Settings className="h-5 w-5" />
-                  Admin Settings
-                </h2>
-                <p className="text-sm text-slate-600 dark:text-slate-400">
-                  System configuration and management tools
-                </p>
-              </div>
-              <Button
-                variant="outline"
-                onClick={() => setShowAdminSettings(!showAdminSettings)}
-              >
-                {showAdminSettings ? 'Hide Settings' : 'Show Settings'}
-              </Button>
-            </div>
-            
-            {showAdminSettings && (
-              <div className="mt-6">
-                <LoanLimitConfig />
-              </div>
-            )}
-          </div>
-        )}
-
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Left Column - Quick Actions & Today's Summary */}
+          {/* Left Column - Quick Actions & System Status */}
           <div className="lg:col-span-1 space-y-6">
-            {/* Quick Actions */}
-            <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
-              <CardHeader className="pb-4">
-                <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl flex items-center justify-center shadow-lg shadow-amber-500/25">
-                    <Zap className="w-5 h-5 text-white" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-slate-900 dark:text-slate-100">Quick Actions</CardTitle>
-                    <CardDescription>Common daily tasks</CardDescription>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <Button 
-                  onClick={() => navigate('/transactions')}
-                  className="w-full justify-start bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/50 dark:to-teal-950/50 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800 hover:from-emerald-100 hover:to-teal-100 dark:hover:from-emerald-900/50 dark:hover:to-teal-900/50" 
-                  variant="outline"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  New Pawn Transaction
-                </Button>
-                <Button 
-                  className="w-full justify-start bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/50 dark:to-indigo-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 hover:from-blue-100 hover:to-indigo-100 dark:hover:from-blue-900/50 dark:hover:to-indigo-900/50" 
-                  variant="outline"
-                  onClick={() => navigate('/customers')}
-                >
-                  <Users className="w-4 h-4 mr-2" />
-                  Manage Customers
-                </Button>
-                <Button className="w-full justify-start bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/50 dark:to-orange-950/50 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800 hover:from-amber-100 hover:to-orange-100 dark:hover:from-amber-900/50 dark:hover:to-orange-900/50" variant="outline">
-                  <CreditCard className="w-4 h-4 mr-2" />
-                  Process Payment
-                </Button>
-                <Button className="w-full justify-start bg-gradient-to-r from-slate-50 to-slate-100 dark:from-slate-800/50 dark:to-slate-700/50 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:from-slate-100 hover:to-slate-200 dark:hover:from-slate-700/50 dark:hover:to-slate-600/50" variant="outline">
-                  <FileText className="w-4 h-4 mr-2" />
-                  Generate Report
-                </Button>
-              </CardContent>
-            </Card>
-
-            {/* System Status */}
-            <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
-              <CardHeader className="pb-4">
-                <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/25">
-                    <Shield className="w-5 h-5 text-white" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-slate-900 dark:text-slate-100">System Status</CardTitle>
-                    <CardDescription>All systems operational</CardDescription>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <Database className="w-4 h-4 text-slate-500 dark:text-slate-400" />
-                    <span className="text-sm text-slate-600 dark:text-slate-400">Database</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
-                    <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Connected</span>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <Zap className="w-4 h-4 text-slate-500 dark:text-slate-400" />
-                    <span className="text-sm text-slate-600 dark:text-slate-400">API Service</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
-                    <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Online</span>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <Shield className="w-4 h-4 text-slate-500 dark:text-slate-400" />
-                    <span className="text-sm text-slate-600 dark:text-slate-400">Authentication</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
-                    <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Secure</span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            <QuickActions userRole={user?.role} />
+            <SystemStatus />
           </div>
 
           {/* Right Column - Recent Activity */}
           <div className="lg:col-span-2">
-            <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm h-full">
-              <CardHeader className="pb-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 bg-gradient-to-br from-violet-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-violet-500/25">
-                      <Activity className="w-5 h-5 text-white" />
-                    </div>
-                    <div>
-                      <CardTitle className="text-slate-900 dark:text-slate-100">Recent Activity</CardTitle>
-                      <CardDescription>Latest transactions and updates</CardDescription>
-                    </div>
-                  </div>
-                  <Button variant="ghost" size="sm" className="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">
-                    <RefreshCw className="w-4 h-4 mr-2" />
-                    Refresh
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-center py-12">
-                  <div className="w-20 h-20 bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-700 dark:to-slate-600 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-inner">
-                    <FileText className="w-10 h-10 text-slate-400 dark:text-slate-500" />
-                  </div>
-                  <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">
-                    No Recent Activity
-                  </h3>
-                  <p className="text-slate-500 dark:text-slate-400 mb-6 max-w-sm mx-auto">
-                    When you create transactions, payments, or other activities, they'll appear here for quick access.
-                  </p>
-                  <Button 
-                    onClick={() => navigate('/transactions')}
-                    className="bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white shadow-lg shadow-amber-500/25"
-                  >
-                    <Plus className="w-4 h-4 mr-2" />
-                    Create First Transaction
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+            <RecentActivity />
           </div>
         </div>
       </main>

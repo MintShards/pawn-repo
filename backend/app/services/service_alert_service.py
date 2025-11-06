@@ -418,23 +418,72 @@ class ServiceAlertService:
     @staticmethod
     async def get_unique_customer_alert_count() -> dict:
         """
-        Get count of unique customers with active service alerts.
-        
+        Get count of unique customers with active service alerts with trend data.
+
         Returns:
-            Dictionary with unique customer count and total alert count
+            Dictionary with unique customer count, total alert count, and trend data
         """
+        from datetime import datetime, timedelta, timezone
+
         # Get all active alerts
         active_alerts = await ServiceAlert.find(
             ServiceAlert.status == AlertStatus.ACTIVE
         ).to_list()
-        
-        # Count unique customers
+
+        # Count unique customers (current)
         unique_customers = set()
         for alert in active_alerts:
             unique_customers.add(alert.customer_phone)
-        
+
+        current_count = len(unique_customers)
+
+        # Simple approach: Get active alert count from 24 hours ago
+        # by counting alerts that were created more than 24h ago and are still active
+        # PLUS alerts that were resolved in the last 24h (they existed yesterday)
+        yesterday = datetime.now(timezone.utc) - timedelta(days=1)
+
+        # Get currently active alerts that existed yesterday
+        old_active_alerts = await ServiceAlert.find(
+            ServiceAlert.status == AlertStatus.ACTIVE,
+            ServiceAlert.created_at <= yesterday
+        ).to_list()
+
+        # Get recently resolved alerts (resolved in last 24h, meaning they existed yesterday)
+        recently_resolved = await ServiceAlert.find(
+            ServiceAlert.status == AlertStatus.RESOLVED,
+            ServiceAlert.resolved_at != None,
+            ServiceAlert.resolved_at > yesterday
+        ).to_list()
+
+        # Combine both sets to get total unique customers from yesterday
+        unique_customers_yesterday = set()
+        for alert in old_active_alerts + recently_resolved:
+            unique_customers_yesterday.add(alert.customer_phone)
+
+        previous_count = len(unique_customers_yesterday)
+
+        # Calculate trend
+        if previous_count > 0:
+            trend_percentage = ((current_count - previous_count) / previous_count) * 100
+            # Cap extreme percentages
+            if abs(trend_percentage) > 200:
+                trend_percentage = 200 if trend_percentage > 0 else -200
+        else:
+            # If no previous data, show as stable or up depending on current count
+            trend_percentage = 100.0 if current_count > 0 else 0.0
+
+        # Determine trend direction (threshold: 0.1%)
+        if trend_percentage > 0.1:
+            trend_direction = "up"
+        elif trend_percentage < -0.1:
+            trend_direction = "down"
+        else:
+            trend_direction = "stable"
+
         return {
-            "unique_customer_count": len(unique_customers),
+            "unique_customer_count": current_count,
             "total_alert_count": len(active_alerts),
-            "customers_with_alerts": list(unique_customers)
+            "customers_with_alerts": list(unique_customers),
+            "trend_direction": trend_direction,
+            "trend_percentage": round(trend_percentage, 1)
         }

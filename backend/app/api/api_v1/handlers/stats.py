@@ -5,14 +5,13 @@ REST API handlers for transaction statistics
 import time
 import json
 from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Optional, Any
+from typing import Dict, Optional, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 import structlog
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import Limiter
 from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
 
 from app.core.auth import get_current_user
 from app.models.user_model import User
@@ -214,7 +213,10 @@ async def get_all_metrics(
                         "new_today": MetricType.NEW_TODAY,
                         "overdue_loans": MetricType.OVERDUE_LOANS,
                         "maturity_this_week": MetricType.MATURITY_THIS_WEEK,
-                        "todays_collection": MetricType.TODAYS_COLLECTION
+                        "todays_collection": MetricType.TODAYS_COLLECTION,
+                        "this_month_revenue": MetricType.THIS_MONTH_REVENUE,
+                        "new_customers_this_month": MetricType.NEW_CUSTOMERS_THIS_MONTH,
+                        "went_overdue_today": MetricType.WENT_OVERDUE_TODAY
                     }
                     
                     if metric_name in metric_type_map:
