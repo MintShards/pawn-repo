@@ -179,12 +179,16 @@ const ExtensionDiscountDialog = ({
               <Input
                 id="discountAmount"
                 type="number"
-                step="0.01"
+                step="1"
                 min="0"
                 max={extensionFee}
                 value={discountAmount}
                 onChange={(e) => setDiscountAmount(e.target.value)}
-                placeholder="0.00"
+                onInput={(e) => {
+                  // Prevent decimal point entry
+                  e.target.value = e.target.value.replace(/[.,]/g, '');
+                }}
+                placeholder="Whole dollars only"
                 className={`pl-8 pr-4 h-11 text-base font-semibold ${errors.discountAmount ? 'border-red-500 focus:ring-red-500' : 'border-amber-300 dark:border-amber-700 focus:ring-amber-500'} [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`}
               />
             </div>

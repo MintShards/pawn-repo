@@ -50,17 +50,17 @@ const CreatePawnForm = ({ onSuccess, onCancel }) => {
 
   const checkLoanEligibility = async (customerId, loanAmount) => {
     if (!customerId || !loanAmount) return;
-    
+
     try {
       setCheckingEligibility(true);
       setError(null);
-      
-      const eligibility = await customerService.checkLoanEligibility(customerId, parseFloat(loanAmount));
-      
+
+      const eligibility = await customerService.checkLoanEligibility(customerId, parseInt(loanAmount, 10));
+
       // Loan eligibility validated
-      
+
       setEligibilityData(eligibility);
-      
+
       if (!eligibility.eligible) {
         setError(`Loan not approved: ${eligibility.reasons?.join(', ') || 'Credit limit exceeded'}`);
       }
@@ -327,20 +327,24 @@ const CreatePawnForm = ({ onSuccess, onCancel }) => {
               <Input
                 id="loan_amount"
                 type="number"
-                step="0.01"
-                min="0"
+                step="1"
+                min="1"
                 value={formData.loan_amount}
                 onChange={(e) => handleInputChange('loan_amount', e.target.value)}
-                placeholder="0.00"
+                onInput={(e) => {
+                  // Prevent decimal point entry
+                  e.target.value = e.target.value.replace(/[.,]/g, '');
+                }}
+                placeholder="Whole dollars only (no cents)"
                 className={
-                  formData.loan_amount && eligibilityData && !eligibilityData.eligible 
-                    ? 'border-red-500 focus:border-red-500' 
+                  formData.loan_amount && eligibilityData && !eligibilityData.eligible
+                    ? 'border-red-500 focus:border-red-500'
                     : ''
                 }
               />
               {formData.loan_amount && eligibilityData && !checkingEligibility && (
                 <div className="flex items-center text-xs mt-1">
-                  {eligibilityData.eligible && parseFloat(formData.loan_amount) <= eligibilityData.available_credit ? (
+                  {eligibilityData.eligible && parseInt(formData.loan_amount, 10) <= eligibilityData.available_credit ? (
                     <span className="text-green-600">✓ Within credit limit</span>
                   ) : (
                     <span className="text-red-600">✗ Exceeds available credit</span>
@@ -348,17 +352,21 @@ const CreatePawnForm = ({ onSuccess, onCancel }) => {
                 </div>
               )}
             </div>
-            
+
             <div className="space-y-2">
               <Label htmlFor="monthly_interest">Monthly Interest ($) *</Label>
               <Input
                 id="monthly_interest"
                 type="number"
-                step="0.01"
+                step="1"
                 min="0"
                 value={formData.monthly_interest_amount}
                 onChange={(e) => handleInputChange('monthly_interest_amount', e.target.value)}
-                placeholder="0.00"
+                onInput={(e) => {
+                  // Prevent decimal point entry
+                  e.target.value = e.target.value.replace(/[.,]/g, '');
+                }}
+                placeholder="Whole dollars only (no cents)"
               />
             </div>
           </div>

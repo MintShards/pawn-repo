@@ -342,13 +342,17 @@ const ExtensionForm = ({ transaction, onSuccess, onCancel }) => {
               <Input
                 id="extension_fee"
                 type="number"
-                step="0.01"
+                step="1"
                 min="0"
                 max="500"
                 value={formData.extension_fee_per_month}
                 onChange={(e) => handleInputChange('extension_fee_per_month', e.target.value)}
+                onInput={(e) => {
+                  // Prevent decimal point entry
+                  e.target.value = e.target.value.replace(/[.,]/g, '');
+                }}
                 onBlur={() => touchField('extension_fee_per_month')}
-                placeholder="0.00"
+                placeholder="Whole dollars only (no cents)"
                 disabled={submitting}
                 className={getFieldError('extension_fee_per_month') ? 'border-red-500 focus:border-red-500 focus:ring-0 focus:ring-offset-0 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0' : 'border-slate-300 focus:border-extension-accent focus:ring-0 focus:ring-offset-0 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0'}
                 aria-invalid={!!getFieldError('extension_fee_per_month')}

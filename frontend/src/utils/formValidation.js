@@ -16,32 +16,37 @@ export const validateRequired = (value, fieldName) => {
   return createValidationResult(true)
 }
 
-// Financial amount validation
+// Financial amount validation (integers only)
 export const validateAmount = (value, fieldName, options = {}) => {
-  const { min = 0.01, max = 999999, allowZero = false } = options
-  
+  const { min = 1, max = 999999, allowZero = false } = options
+
   if (!value && value !== 0) {
     return createValidationResult(false, `${fieldName} is required`)
   }
-  
-  const numValue = parseFloat(value)
-  
+
+  const numValue = parseInt(value, 10)
+
   if (isNaN(numValue)) {
-    return createValidationResult(false, `${fieldName} must be a valid number`)
+    return createValidationResult(false, `${fieldName} must be a valid whole number`)
   }
-  
+
+  // Check if value contains decimals
+  if (value.toString().includes('.')) {
+    return createValidationResult(false, `${fieldName} must be a whole dollar amount (no cents)`)
+  }
+
   if (!allowZero && numValue <= 0) {
     return createValidationResult(false, `${fieldName} must be greater than $0`)
   }
-  
+
   if (numValue < min) {
-    return createValidationResult(false, `${fieldName} must be at least $${min.toFixed(2)}`)
+    return createValidationResult(false, `${fieldName} must be at least $${min}`)
   }
-  
+
   if (numValue > max) {
-    return createValidationResult(false, `${fieldName} cannot exceed $${max.toFixed(2)}`)
+    return createValidationResult(false, `${fieldName} cannot exceed $${max}`)
   }
-  
+
   return createValidationResult(true)
 }
 
@@ -104,47 +109,47 @@ export const validateItemDescription = (value) => {
   return createValidationResult(true)
 }
 
-// Loan limit validation
+// Loan limit validation (integers only)
 export const validateLoanLimit = (amount, customer, eligibilityData) => {
   if (!eligibilityData) {
     return createValidationResult(false, 'Unable to verify loan eligibility')
   }
-  
+
   if (!eligibilityData.can_borrow) {
     return createValidationResult(false, eligibilityData.reason || 'Customer is not eligible for loans')
   }
-  
-  const requestedAmount = parseFloat(amount)
-  const maxAmount = eligibilityData.max_loan_amount || 0
-  
+
+  const requestedAmount = parseInt(amount, 10)
+  const maxAmount = parseInt(eligibilityData.max_loan_amount || 0, 10)
+
   if (requestedAmount > maxAmount) {
     return createValidationResult(
-      false, 
-      `Loan amount cannot exceed $${maxAmount.toFixed(2)}`,
+      false,
+      `Loan amount cannot exceed $${maxAmount}`,
       [`Customer has ${eligibilityData.active_loan_count || 0} active loans`]
     )
   }
-  
+
   return createValidationResult(true)
 }
 
-// Payment validation
+// Payment validation (integers only)
 export const validatePayment = (amount, balance) => {
   if (!balance) {
     return createValidationResult(false, 'Unable to verify balance')
   }
-  
-  const paymentAmount = parseFloat(amount)
-  const currentBalance = parseFloat(balance.current_balance || 0)
-  
+
+  const paymentAmount = parseInt(amount, 10)
+  const currentBalance = parseInt(balance.current_balance || 0, 10)
+
   if (paymentAmount > currentBalance) {
     return createValidationResult(
       false,
-      `Payment cannot exceed current balance of $${currentBalance.toFixed(2)}`,
+      `Payment cannot exceed current balance of $${currentBalance}`,
       ['Consider processing a redemption instead']
     )
   }
-  
+
   return createValidationResult(true)
 }
 
