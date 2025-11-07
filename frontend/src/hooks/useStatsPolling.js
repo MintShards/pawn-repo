@@ -7,6 +7,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import authService from '../services/authService';
+import { getTimezoneHeaders } from '../utils/timezoneUtils';
 
 // API endpoints
 const STATS_API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000';
@@ -168,7 +169,7 @@ class StatsPollingManager {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
-          'X-Client-Timezone': Intl.DateTimeFormat().resolvedOptions().timeZone
+          ...getTimezoneHeaders()
         }
       });
 

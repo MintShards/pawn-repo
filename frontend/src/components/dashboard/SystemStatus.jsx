@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../ui/card';
 import { Shield, Database, Zap } from 'lucide-react';
+import { getTimezoneHeaders } from '../../utils/timezoneUtils';
 
 const SystemStatus = () => {
   const [status, setStatus] = useState({
@@ -15,7 +16,10 @@ const SystemStatus = () => {
       try {
         const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000';
         const response = await fetch(`${API_BASE}/api/v1/stats/health`, {
-          method: 'GET'
+          method: 'GET',
+          headers: {
+            ...getTimezoneHeaders()
+          }
         });
 
         if (response.ok) {

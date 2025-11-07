@@ -209,10 +209,12 @@ async def get_customers_list(
     }
 )
 async def get_customer_statistics(
+    request: Request,
     current_user: User = Depends(get_current_user)
 ) -> CustomerStatsResponse:
     """Get customer statistics for dashboard - real-time (no cache for accurate follow-up counts)"""
-    return await CustomerService.get_customer_statistics()
+    timezone_header = request.headers.get("X-Client-Timezone")
+    return await CustomerService.get_customer_statistics(timezone_header)
 
 
 @customer_router.get(

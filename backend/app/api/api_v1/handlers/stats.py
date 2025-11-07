@@ -134,7 +134,19 @@ async def get_all_metrics(
         
         # Get timezone header for proper date calculations
         timezone_header = request.headers.get("X-Client-Timezone")
-        
+
+        # Validate timezone header and log if invalid
+        if timezone_header:
+            from zoneinfo import ZoneInfo
+            try:
+                ZoneInfo(timezone_header)
+            except Exception as e:
+                logger.warning("Invalid timezone header provided, falling back to UTC",
+                             timezone_header=timezone_header,
+                             user_id=current_user.user_id,
+                             error=str(e))
+                timezone_header = None  # Force UTC fallback
+
         # Parse requested metrics
         requested_metric_types = parse_metrics_list(metrics)
         
@@ -216,7 +228,8 @@ async def get_all_metrics(
                         "todays_collection": MetricType.TODAYS_COLLECTION,
                         "this_month_revenue": MetricType.THIS_MONTH_REVENUE,
                         "new_customers_this_month": MetricType.NEW_CUSTOMERS_THIS_MONTH,
-                        "went_overdue_today": MetricType.WENT_OVERDUE_TODAY
+                        "went_overdue_today": MetricType.WENT_OVERDUE_TODAY,
+                        "went_overdue_this_week": MetricType.WENT_OVERDUE_THIS_WEEK
                     }
                     
                     if metric_name in metric_type_map:
@@ -262,7 +275,13 @@ async def get_all_metrics(
                                 metric = await _update_or_create_metric(
                                     metric_type, calculated_value, trend_data, existing_metric, timezone_header
                                 )
-                                
+                        elif metric_name == "went_overdue_this_week":
+                                # Calculate weekly trend for went overdue this week
+                                trend_data = await metric_service.calculate_went_overdue_this_week_trend(timezone_header)
+                                metric = await _update_or_create_metric(
+                                    metric_type, calculated_value, trend_data, existing_metric, timezone_header
+                                )
+
                         else:
                                 # Handle other metrics normally
                                 if existing_metric:

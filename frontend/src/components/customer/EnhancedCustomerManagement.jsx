@@ -41,8 +41,6 @@ import {
   Lock,
   Info,
   UserCheck,
-  ChevronLeft,
-  ChevronRight,
   LayoutGrid,
   TableIcon,
   Award,
@@ -3264,7 +3262,7 @@ const EnhancedCustomerManagement = () => {
     } finally {
       setLoading(false);
     }
-  }, [loadCustomerStats, loadCustomerList, currentPage, getCurrentSearchTerm, statusFilter, alertFilter, vipFilter, toast]);
+  }, [loadCustomerStats, loadCustomerList, currentPage, getCurrentSearchTerm, statusFilter, alertFilter, vipFilter, followUpFilter, toast]);
 
   // Load full page data (initial load with stats)
   const loadCustomers = useCallback(async (page = 1, search = '', status = null, forceRefresh = false, filterByAlerts = null, filterByVip = null, filterByFollowUp = null, filterByNewThisMonth = null) => {
@@ -3609,7 +3607,7 @@ const EnhancedCustomerManagement = () => {
       window.removeEventListener('transaction-created', handleTransactionUpdate);
       clearTimeout(window.customerListRefreshTimeout);
     };
-  }, [selectedCustomer?.phone_number, activeTab, refreshOverviewTransactions, currentPage, statusFilter, alertFilter, vipFilter, loadCustomerList, getCurrentSearchTerm, currentCustomers, loadCustomerActivities]);
+  }, [selectedCustomer?.phone_number, activeTab, refreshOverviewTransactions, currentPage, statusFilter, alertFilter, vipFilter, followUpFilter, loadCustomerList, getCurrentSearchTerm, currentCustomers, loadCustomerActivities]);
 
   const handleSelectAll = (checked) => {
     if (checked) {

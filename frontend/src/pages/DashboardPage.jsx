@@ -52,7 +52,7 @@ const DashboardPage = () => {
     trend_direction: null,
     trend_percentage: 0
   });
-  const [alertStatsLoading, setAlertStatsLoading] = useState(true);
+  const [alertStatsInitialLoad, setAlertStatsInitialLoad] = useState(true);
 
   // Fetch user data if needed on component mount
   React.useEffect(() => {
@@ -61,22 +61,16 @@ const DashboardPage = () => {
     }
   }, [user, loading, fetchUserDataIfNeeded]);
 
-  // Fetch dashboard stats with polling
-  const { metrics } = useDashboardStats();
+  // Fetch dashboard stats with polling (silent background updates after initial load)
+  const { metrics, isInitialLoad: metricsInitialLoad } = useDashboardStats();
 
-  // Check if any metric is still loading
-  const anyMetricLoading = metrics.this_month_revenue?.loading ||
-                           metrics.active_loans?.loading ||
-                           metrics.new_customers_this_month?.loading ||
-                           metrics.went_overdue_today?.loading;
-
-  // Fetch service alert stats
+  // Fetch service alert stats (silent background updates after initial load)
   React.useEffect(() => {
     const fetchAlertStats = async () => {
       try {
-        setAlertStatsLoading(true);
         const stats = await serviceAlertService.getUniqueCustomerAlertStats();
         setAlertStats(stats);
+        setAlertStatsInitialLoad(false); // Clear initial load flag after first success
       } catch (error) {
         setAlertStats({
           unique_customer_count: 0,
@@ -84,17 +78,19 @@ const DashboardPage = () => {
           trend_direction: null,
           trend_percentage: 0
         });
-      } finally {
-        setAlertStatsLoading(false);
+        setAlertStatsInitialLoad(false);
       }
     };
 
     if (user) {
       fetchAlertStats();
-      const interval = setInterval(fetchAlertStats, 60000);
+      const interval = setInterval(fetchAlertStats, 60000); // Silent updates every 60s
       return () => clearInterval(interval);
     }
   }, [user]);
+
+  // Unified loading state for ALL 5 cards (only on initial page load)
+  const allCardsLoading = metricsInitialLoad || alertStatsInitialLoad;
 
   // Listen for service alert updates
   React.useEffect(() => {
@@ -136,7 +132,7 @@ const DashboardPage = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
           <Card className="relative overflow-hidden border-0 shadow-md bg-gradient-to-r from-purple-50 to-violet-50 dark:from-purple-950/50 dark:to-violet-950/50 hover:shadow-lg transition-all">
             <CardContent className="p-6">
-              {metrics.this_month_revenue?.loading ? (
+              {allCardsLoading ? (
                 <div className="flex items-center justify-between">
                   <div className="flex-1 space-y-3 animate-pulse">
                     <div className="h-4 bg-purple-200/60 dark:bg-purple-700/40 rounded w-28" />
@@ -176,7 +172,7 @@ const DashboardPage = () => {
           <Card className="relative overflow-hidden border-0 shadow-md bg-gradient-to-br from-cyan-50 to-blue-50 dark:from-cyan-950/50 dark:to-blue-950/50 hover:shadow-lg transition-all">
             <div className="absolute top-0 right-0 w-20 h-20 bg-cyan-500/10 rounded-full -mr-10 -mt-10"></div>
             <CardContent className="p-6">
-              {metrics.active_loans?.loading ? (
+              {allCardsLoading ? (
                 <div className="flex items-center justify-between">
                   <div className="flex-1 space-y-3 animate-pulse">
                     <div className="h-4 bg-cyan-200/60 dark:bg-cyan-700/40 rounded w-24" />
@@ -214,7 +210,7 @@ const DashboardPage = () => {
 
           <Card className="relative overflow-hidden border-0 shadow-md bg-gradient-to-r from-emerald-50 to-green-50 dark:from-emerald-950/50 dark:to-green-950/50 hover:shadow-lg transition-all">
             <CardContent className="p-6">
-              {metrics.new_customers_this_month?.loading ? (
+              {allCardsLoading ? (
                 <div className="flex items-center justify-between">
                   <div className="flex-1 space-y-3 animate-pulse">
                     <div className="h-4 bg-emerald-200/60 dark:bg-emerald-700/40 rounded w-28" />
@@ -254,7 +250,7 @@ const DashboardPage = () => {
           <Card className="relative overflow-hidden border-0 shadow-md bg-gradient-to-br from-pink-50 to-rose-50 dark:from-pink-950/50 dark:to-rose-950/50 hover:shadow-lg transition-all">
             <div className="absolute top-0 right-0 w-20 h-20 bg-pink-500/10 rounded-full -mr-10 -mt-10"></div>
             <CardContent className="p-6">
-              {metrics.went_overdue_today?.loading ? (
+              {allCardsLoading ? (
                 <div className="flex items-center justify-between">
                   <div className="flex-1 space-y-3 animate-pulse">
                     <div className="h-4 bg-pink-200/60 dark:bg-pink-700/40 rounded w-28" />
@@ -268,16 +264,16 @@ const DashboardPage = () => {
                 <div className="flex items-center justify-between">
                   <div className="flex-1">
                     <p className="text-sm font-medium text-pink-600 dark:text-pink-400">
-                      Overdue Today
+                      Overdue This Week
                     </p>
                     <div className="flex items-baseline space-x-2">
                       <p className="text-2xl font-bold text-pink-900 dark:text-pink-100">
-                        {metrics.went_overdue_today?.display_value || '0'}
+                        {metrics.went_overdue_this_week?.display_value || '0'}
                       </p>
-                      {metrics.went_overdue_today?.trend_direction && (
+                      {metrics.went_overdue_this_week?.trend_direction && (
                         <TrendIndicator
-                          direction={metrics.went_overdue_today.trend_direction}
-                          percentage={metrics.went_overdue_today.trend_percentage}
+                          direction={metrics.went_overdue_this_week.trend_direction}
+                          percentage={metrics.went_overdue_this_week.trend_percentage}
                         />
                       )}
                     </div>
@@ -292,7 +288,7 @@ const DashboardPage = () => {
 
           <Card className="relative overflow-hidden border-0 shadow-md bg-gradient-to-r from-orange-50 to-red-50 dark:from-orange-950/50 dark:to-red-950/50 hover:shadow-lg transition-all">
             <CardContent className="p-6">
-              {(alertStatsLoading || anyMetricLoading) ? (
+              {allCardsLoading ? (
                 <div className="flex items-center justify-between">
                   <div className="flex-1 space-y-3 animate-pulse">
                     <div className="h-4 bg-orange-200/60 dark:bg-orange-700/40 rounded w-28" />

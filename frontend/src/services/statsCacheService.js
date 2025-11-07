@@ -4,6 +4,7 @@
  */
 
 import authService from './authService';
+import { getTimezoneHeaders } from '../utils/timezoneUtils';
 
 const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
@@ -21,7 +22,8 @@ class StatsCacheService {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          ...getTimezoneHeaders()
         }
       });
 

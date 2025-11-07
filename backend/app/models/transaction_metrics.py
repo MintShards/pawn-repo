@@ -23,6 +23,7 @@ class MetricType(str, Enum):
     THIS_MONTH_REVENUE = "this_month_revenue"
     NEW_CUSTOMERS_THIS_MONTH = "new_customers_this_month"
     WENT_OVERDUE_TODAY = "went_overdue_today"
+    WENT_OVERDUE_THIS_WEEK = "went_overdue_this_week"
 
 
 class TrendDirection(str, Enum):

@@ -292,15 +292,17 @@ class MetricCalculationService:
                            new_current=current_count)
             
             if existing_metric:
-                # Check if the stored metric is recent (within last 5 minutes) to avoid stale comparisons
+                # Check if the stored metric is recent (within last 2 hours) to avoid stale comparisons
                 # Ensure both datetimes are timezone-aware for comparison
                 now_utc = datetime.now(timezone.utc)
                 last_updated = existing_metric.last_updated
                 if last_updated.tzinfo is None:
                     last_updated = last_updated.replace(tzinfo=timezone.utc)
-                
+
                 time_diff = now_utc - last_updated
-                if time_diff.total_seconds() > 300:  # 5 minutes
+                # Extended staleness threshold to 2 hours to prevent false trends during low activity
+                # If stale AND value hasn't changed, keep using stored previous (more stable)
+                if time_diff.total_seconds() > 7200:  # 2 hours
                     logger.warning("Stored metric is stale, using yesterday baseline instead",
                                  stored_age_seconds=time_diff.total_seconds(),
                                  stored_value=existing_metric.current_value)
@@ -1287,6 +1289,130 @@ class MetricCalculationService:
             logger.error("Failed to calculate went overdue today", error=str(e))
             return 0.0
 
+    async def calculate_went_overdue_this_week(self, timezone_header: Optional[str] = None) -> float:
+        """Calculate number of transactions that went overdue this week"""
+        cached_value = await self._get_cached_value("went_overdue_this_week")
+        if cached_value is not None:
+            return cached_value
+
+        start_time = time.time()
+
+        try:
+            # Calculate this week's date range in user's timezone
+            business_date = get_user_business_date(timezone_header)
+
+            # Get start of week (Monday)
+            from app.core.timezone_utils import user_timezone_to_utc
+            days_since_monday = business_date.weekday()
+            start_of_week = business_date - timedelta(days=days_since_monday)
+            end_of_week = start_of_week + timedelta(days=7)
+
+            # Convert to UTC for database query
+            start_of_week_utc = user_timezone_to_utc(start_of_week, timezone_header)
+            end_of_week_utc = user_timezone_to_utc(end_of_week, timezone_header)
+
+            # Find transactions where:
+            # 1. Current status is 'overdue'
+            # 2. Maturity date was in the past week (meaning they went overdue this week)
+            # More accurate: Count transactions that have maturity_date within past week
+            # (meaning this week is when they became overdue)
+            one_week_ago = start_of_week - timedelta(days=7)
+            start_of_last_week_utc = user_timezone_to_utc(one_week_ago, timezone_header)
+
+            count = await PawnTransaction.find(
+                PawnTransaction.status == "overdue",
+                PawnTransaction.maturity_date >= start_of_last_week_utc,
+                PawnTransaction.maturity_date < start_of_week_utc
+            ).count()
+
+            calculation_time = (time.time() - start_time) * 1000
+            logger.info("Calculated went overdue this week", count=count, duration_ms=calculation_time)
+
+            await self._cache_value("went_overdue_this_week", float(count))
+            return float(count)
+        except Exception as e:
+            logger.error("Failed to calculate went overdue this week", error=str(e))
+            return 0.0
+
+    async def calculate_went_overdue_this_week_trend(self, timezone_header: Optional[str] = None) -> Dict[str, Any]:
+        """Calculate trend for transactions that went overdue this week"""
+        try:
+            # Get current count
+            current_count = await self.calculate_went_overdue_this_week(timezone_header)
+
+            # Calculate last week's count for comparison
+            business_date = get_user_business_date(timezone_header)
+            from app.core.timezone_utils import user_timezone_to_utc
+
+            # Get last week's date range
+            days_since_monday = business_date.weekday()
+            start_of_this_week = business_date - timedelta(days=days_since_monday)
+            start_of_last_week = start_of_this_week - timedelta(days=7)
+            start_of_two_weeks_ago = start_of_last_week - timedelta(days=7)
+
+            # Convert to UTC
+            start_of_last_week_utc = user_timezone_to_utc(start_of_last_week, timezone_header)
+            start_of_two_weeks_ago_utc = user_timezone_to_utc(start_of_two_weeks_ago, timezone_header)
+
+            # Count transactions that went overdue last week
+            previous_count = float(await PawnTransaction.find(
+                PawnTransaction.status == "overdue",
+                PawnTransaction.maturity_date >= start_of_two_weeks_ago_utc,
+                PawnTransaction.maturity_date < start_of_last_week_utc
+            ).count())
+
+            # Calculate trend
+            if previous_count == 0.0:
+                if current_count > 0.0:
+                    trend_direction = "up"
+                    trend_percentage = 100.0
+                    context_message = f"First week tracking (was 0 last week)"
+                else:
+                    trend_direction = "stable"
+                    trend_percentage = 0.0
+                    context_message = "No overdues this week"
+            else:
+                percentage_change = ((current_count - previous_count) / previous_count) * 100
+                count_difference = int(current_count - previous_count)
+
+                trend_direction = self._calculate_trend_direction(percentage_change)
+                trend_percentage = self._cap_trend_percentage(abs(round(percentage_change, 1)), current_count, previous_count, "went_overdue_this_week")
+
+                if count_difference == 0:
+                    context_message = f"Same as last week ({int(current_count)} overdues)"
+                elif count_difference > 0:
+                    context_message = f"{count_difference} more than last week"
+                else:
+                    context_message = f"{abs(count_difference)} fewer than last week"
+
+            is_typical = abs(trend_percentage) < 20  # Weekly changes >20% are unusual
+
+            return {
+                "current_value": current_count,
+                "previous_value": previous_count,
+                "trend_direction": trend_direction,
+                "trend_percentage": trend_percentage,
+                "context_message": context_message,
+                "period": "weekly",
+                "period_label": "last week",
+                "is_typical": is_typical,
+                "count_difference": int(current_count - previous_count)
+            }
+
+        except Exception as e:
+            logger.error("Failed to calculate went overdue this week trend", error=str(e))
+            return {
+                "current_value": current_count if 'current_count' in locals() else 0.0,
+                "previous_value": 0.0,
+                "trend_direction": "stable",
+                "trend_percentage": 0.0,
+                "context_message": "Trend calculation unavailable",
+                "period": "weekly",
+                "period_label": "last week",
+                "is_typical": True,
+                "count_difference": 0
+            }
+
     async def calculate_yesterdays_collection(self, timezone_header: Optional[str] = None) -> float:
         """Calculate total collection yesterday (redeem payments + extension fees)"""
         cached_value = await self._get_cached_value("yesterdays_collection")
@@ -1578,6 +1704,7 @@ class MetricCalculationService:
             self.calculate_this_month_revenue(timezone_header),
             self.calculate_new_customers_this_month(timezone_header),
             self.calculate_went_overdue_today(timezone_header),
+            self.calculate_went_overdue_this_week(timezone_header),
             return_exceptions=True
         )
 
@@ -1585,7 +1712,7 @@ class MetricCalculationService:
 
         # Handle any exceptions
         metrics = {}
-        metric_names = ["active_loans", "new_this_month", "new_today", "overdue_loans", "maturity_this_week", "todays_collection", "yesterdays_collection", "new_last_month", "yesterdays_new", "this_month_revenue", "new_customers_this_month", "went_overdue_today"]
+        metric_names = ["active_loans", "new_this_month", "new_today", "overdue_loans", "maturity_this_week", "todays_collection", "yesterdays_collection", "new_last_month", "yesterdays_new", "this_month_revenue", "new_customers_this_month", "went_overdue_today", "went_overdue_this_week"]
         
         for i, result in enumerate(results):
             if isinstance(result, Exception):
@@ -1681,6 +1808,8 @@ class MetricCalculationService:
                 new_value = await self.calculate_new_customers_this_month()
             elif metric_type == MetricType.WENT_OVERDUE_TODAY:
                 new_value = await self.calculate_went_overdue_today()
+            elif metric_type == MetricType.WENT_OVERDUE_THIS_WEEK:
+                new_value = await self.calculate_went_overdue_this_week()
             else:
                 logger.error("Unknown metric type", metric_type=metric_type)
                 return None

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import authService from '../services/authService';
+import { getTimezoneHeaders } from '../utils/timezoneUtils';
 
 const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
@@ -8,9 +9,10 @@ export const useDashboardStats = () => {
     active_loans: { value: 0, loading: true },
     this_month_revenue: { value: 0, loading: true },
     new_customers_this_month: { value: 0, loading: true },
-    went_overdue_today: { value: 0, loading: true },
+    went_overdue_this_week: { value: 0, loading: true },
     overdue_loans: { value: 0, loading: true }
   });
+  const [isInitialLoad, setIsInitialLoad] = useState(true); // Track initial load only
   const [error, setError] = useState(null);
 
   const fetchMetrics = useCallback(async () => {
@@ -18,13 +20,15 @@ export const useDashboardStats = () => {
       const token = authService.getToken();
       if (!token) {
         setError('Not authenticated');
+        setIsInitialLoad(false);
         return;
       }
 
       const response = await fetch(`${API_BASE}/api/v1/stats/metrics`, {
         headers: {
           'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          ...getTimezoneHeaders()
         }
       });
 
@@ -45,7 +49,9 @@ export const useDashboardStats = () => {
           };
         });
 
+        // Update metrics silently (no loading state on refresh)
         setMetrics(updatedMetrics);
+        setIsInitialLoad(false); // Clear initial load flag after first success
         setError(null);
       } else {
         throw new Error('Failed to fetch metrics');
@@ -65,16 +71,17 @@ export const useDashboardStats = () => {
         };
       });
       setMetrics(defaultMetrics);
+      setIsInitialLoad(false);
     }
   }, []);
 
   useEffect(() => {
     fetchMetrics();
 
-    // Poll for updates every 30 seconds
+    // Poll for updates every 30 seconds (silent background updates)
     const interval = setInterval(fetchMetrics, 30000);
     return () => clearInterval(interval);
   }, [fetchMetrics]);
 
-  return { metrics, error, refetch: fetchMetrics };
+  return { metrics, isInitialLoad, error, refetch: fetchMetrics };
 };

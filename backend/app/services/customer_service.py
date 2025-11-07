@@ -862,13 +862,22 @@ class CustomerService:
         )
 
     @staticmethod
-    async def get_customer_statistics() -> CustomerStatsResponse:
+    async def get_customer_statistics(timezone_header: Optional[str] = None) -> CustomerStatsResponse:
         """Get comprehensive customer statistics for admin dashboard - using simple queries for reliability"""
         try:
-            # Calculate date boundaries
-            now = datetime.utcnow()
-            today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            # Import timezone utilities
+            from app.core.timezone_utils import get_user_business_date, user_timezone_to_utc
+            from datetime import timedelta
+
+            # Calculate date boundaries in user's timezone
+            business_date = get_user_business_date(timezone_header)
+            today_start = business_date  # Start of today in user's timezone
+            month_start = business_date.replace(day=1)  # First day of month in user's timezone
+
+            # Convert to UTC for database queries
+            today_start_utc = user_timezone_to_utc(today_start, timezone_header)
+            month_start_utc = user_timezone_to_utc(month_start, timezone_header)
+            end_of_today_utc = today_start_utc + timedelta(days=1)
 
             # Use simple count queries instead of complex aggregation
             # Total customers
@@ -879,11 +888,16 @@ class CustomerService:
             suspended_customers = await Customer.find(Customer.status == CustomerStatus.SUSPENDED).count()
             archived_customers = await Customer.find(Customer.status == CustomerStatus.ARCHIVED).count()
 
-            # Customers created today
-            customers_created_today = await Customer.find(Customer.created_at >= today_start).count()
+            # Customers created today (using timezone-aware UTC boundaries)
+            customers_created_today = await Customer.find(
+                Customer.created_at >= today_start_utc,
+                Customer.created_at < end_of_today_utc
+            ).count()
 
-            # Customers created this month
-            new_this_month = await Customer.find(Customer.created_at >= month_start).count()
+            # Customers created this month (using timezone-aware UTC boundaries)
+            new_this_month = await Customer.find(
+                Customer.created_at >= month_start_utc
+            ).count()
 
             # VIP customers (total_loan_value >= $5,000)
             vip_customers = await Customer.find(Customer.total_loan_value >= 5000.0).count()
