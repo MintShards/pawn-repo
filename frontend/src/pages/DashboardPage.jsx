@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import AppHeader from '../components/common/AppHeader';
+import PageHeader from '../components/common/PageHeader';
 import QuickActions from '../components/dashboard/QuickActions';
 import SystemStatus from '../components/dashboard/SystemStatus';
 import RecentActivity from '../components/dashboard/RecentActivity';
@@ -118,15 +119,11 @@ const DashboardPage = () => {
       <AppHeader pageTitle="Dashboard" />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Welcome Section */}
-        <div className="mb-8">
-          <h2 className="text-3xl font-bold text-slate-900 dark:text-slate-100 mb-2">
-            {getWelcomeMessage(user, loading)}
-          </h2>
-          <p className="text-slate-600 dark:text-slate-400 text-lg">
-            Here's what's happening with your pawn shop today
-          </p>
-        </div>
+        {/* Page Header */}
+        <PageHeader
+          title={getWelcomeMessage(user, loading)}
+          subtitle="Your daily overview and key metrics at a glance"
+        />
 
         {/* Stats Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">

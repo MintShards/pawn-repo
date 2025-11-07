@@ -4,6 +4,7 @@ import EnhancedCustomerManagement from '../components/customer/EnhancedCustomerM
 import ErrorBoundary from '../components/common/ErrorBoundary';
 import { ToastProvider, ToastViewport } from '../components/ui/toast';
 import AppHeader from '../components/common/AppHeader';
+import PageHeader from '../components/common/PageHeader';
 
 const CustomersPage = () => {
   const { user, loading, fetchUserDataIfNeeded } = useAuth();
@@ -19,10 +20,16 @@ const CustomersPage = () => {
     <ToastProvider>
       <ErrorBoundary fallbackMessage="An error occurred in the customer management system. Please try refreshing the page.">
         <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/40 dark:from-slate-950 dark:via-slate-900 dark:to-slate-800">
-          <AppHeader pageTitle="Customer Hub" />
+          <AppHeader pageTitle="Customer Management" />
 
           {/* Main Content with improved spacing */}
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            {/* Page Header */}
+            <PageHeader
+              title="Customer Management"
+              subtitle="View profiles, track transaction history, and manage accounts"
+            />
+
             <EnhancedCustomerManagement />
           </main>
         </div>

@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { AuthProvider } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { AlertCountProvider } from './context/AlertCountContext';
+import { WeatherProvider } from './context/WeatherContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
@@ -16,8 +17,9 @@ function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <AlertCountProvider>
-          <Router
+        <WeatherProvider>
+          <AlertCountProvider>
+            <Router
             future={{
               v7_startTransition: true,
               v7_relativeSplatPath: true
@@ -84,7 +86,8 @@ function App() {
             </div>
           </Router>
           <Toaster />
-        </AlertCountProvider>
+          </AlertCountProvider>
+        </WeatherProvider>
       </AuthProvider>
     </ThemeProvider>
   );

@@ -47,7 +47,8 @@ from app.models.business_config_model import (
     CompanyConfig,
     FinancialPolicyConfig,
     ForfeitureConfig,
-    PrinterConfig
+    PrinterConfig,
+    LocationConfig
 )
 
 # Database client, limiter, scheduler and logger
@@ -85,7 +86,8 @@ async def lifespan(app: FastAPI):
             CompanyConfig,
             FinancialPolicyConfig,
             ForfeitureConfig,
-            PrinterConfig
+            PrinterConfig,
+            LocationConfig
         ]
     )
     

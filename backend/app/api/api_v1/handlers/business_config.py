@@ -18,7 +18,8 @@ from app.models.business_config_model import (
     CompanyConfig,
     FinancialPolicyConfig,
     ForfeitureConfig,
-    PrinterConfig
+    PrinterConfig,
+    LocationConfig
 )
 from app.schemas.business_config_schema import (
     CompanyConfigCreate,
@@ -28,6 +29,8 @@ from app.schemas.business_config_schema import (
     ForfeitureConfigCreate,
     ForfeitureConfigResponse,
     PrinterConfigCreate,
+    LocationConfigCreate,
+    LocationConfigResponse,
     PrinterConfigResponse
 )
 from app.models.user_model import User
@@ -443,4 +446,73 @@ async def get_printer_config_history(
     Admin only.
     """
     configs = await PrinterConfig.find().sort("-updated_at").to_list()
+    return configs
+
+
+# ==================== Location Configuration ====================
+
+@router.get("/location", response_model=LocationConfigResponse)
+async def get_location_config():
+    """
+    Get current location configuration.
+    Public endpoint - no authentication required (used for weather display).
+    """
+    config = await LocationConfig.get_current_config()
+    if not config:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Location configuration not found. Please create initial configuration."
+        )
+    return config
+
+
+@router.post("/location", response_model=LocationConfigResponse, status_code=status.HTTP_201_CREATED)
+async def create_location_config(
+    config_data: LocationConfigCreate,
+    current_user: User = Depends(require_admin)
+):
+    """
+    Create or update location configuration.
+    Admin only.
+    """
+    # Get previous config for comparison
+    previous_config = await LocationConfig.get_current_config()
+
+    # Create new configuration
+    new_config = LocationConfig(
+        **config_data.model_dump(),
+        updated_by=current_user.user_id
+    )
+
+    # Set as active (deactivates others)
+    await new_config.set_as_active()
+
+    # Log activity
+    await log_user_activity(
+        user_id=current_user.user_id,
+        activity_type=UserActivityType.SETTINGS_CHANGED,
+        description=f"Updated location configuration: {config_data.location_name}",
+        severity=ActivitySeverity.INFO,
+        details=f"Modified business location settings for weather display",
+        metadata={
+            "config_type": "location",
+            "location_name": config_data.location_name,
+            "city": config_data.city,
+            "coordinates": f"{config_data.latitude}, {config_data.longitude}",
+            "has_previous": previous_config is not None
+        }
+    )
+
+    return new_config
+
+
+@router.get("/location/history", response_model=List[LocationConfigResponse])
+async def get_location_config_history(
+    current_user: User = Depends(require_admin)
+):
+    """
+    Get location configuration history.
+    Admin only.
+    """
+    configs = await LocationConfig.find().sort("-updated_at").to_list()
     return configs

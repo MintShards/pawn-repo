@@ -276,3 +276,50 @@ class PrinterConfig(Document):
         self.is_active = True
         self.updated_at = datetime.utcnow()
         await self.save()
+
+
+class LocationConfig(Document):
+    """
+    Business Location configuration
+
+    Stores business physical location for weather display and timezone.
+    Separate from company information for easier management.
+    """
+
+    # Location details
+    location_name: str = Field(..., description="Location name (e.g., 'Main Store', 'Downtown Branch')")
+    city: str = Field(..., description="City name")
+    state: Optional[str] = Field(None, description="State/Province")
+    country: str = Field(default="Canada", description="Country")
+
+    # Coordinates for weather
+    latitude: float = Field(..., ge=-90, le=90, description="Location latitude")
+    longitude: float = Field(..., ge=-180, le=180, description="Location longitude")
+    timezone: str = Field(..., description="IANA timezone (e.g., 'America/Vancouver')")
+
+    # Audit fields
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_by: str = Field(..., description="Admin user who updated the configuration")
+    is_active: bool = Field(default=True, description="Whether this configuration is active")
+
+    class Settings:
+        name = "location_config"
+        indexes = [
+            "is_active",
+            "updated_at"
+        ]
+
+    @classmethod
+    async def get_current_config(cls) -> Optional["LocationConfig"]:
+        """Get the current active location configuration (newest one if multiple exist)"""
+        return await cls.find(cls.is_active == True).sort("-updated_at").first_or_none()  # pylint: disable=singleton-comparison
+
+    async def set_as_active(self):
+        """Set this configuration as active and deactivate others"""
+        # Deactivate all other configs first
+        await LocationConfig.find(LocationConfig.is_active == True).update_many({"$set": {"is_active": False}})  # pylint: disable=singleton-comparison
+        # Now activate this one
+        self.is_active = True
+        self.updated_at = datetime.utcnow()
+        await self.save()

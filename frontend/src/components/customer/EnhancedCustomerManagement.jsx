@@ -3898,19 +3898,6 @@ const EnhancedCustomerManagement = () => {
 
   return (
     <div className="space-y-8">
-      
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-100">
-            Customers
-          </h1>
-          <p className="text-slate-600 dark:text-slate-400 mt-1">
-            View customer profiles, transaction history, loan capacity, and account status
-          </p>
-        </div>
-      </div>
-
       {/* Modern Stats Grid */}
       <div className={`grid gap-6 ${isAdmin ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-5' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'}`}>
         {/* Active/Eligible Customers */}

@@ -169,3 +169,34 @@ class PrinterConfigResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ==================== Location Configuration ====================
+
+class LocationConfigCreate(BaseModel):
+    """Schema for creating location configuration"""
+    location_name: str = Field(..., min_length=1, max_length=100, description="Location name")
+    city: str = Field(..., min_length=1, max_length=100, description="City name")
+    state: Optional[str] = Field(None, max_length=50, description="State/Province")
+    country: str = Field(default="Canada", max_length=100, description="Country")
+    latitude: float = Field(..., ge=-90, le=90, description="Location latitude")
+    longitude: float = Field(..., ge=-180, le=180, description="Location longitude")
+    timezone: str = Field(..., min_length=1, max_length=50, description="IANA timezone")
+
+
+class LocationConfigResponse(BaseModel):
+    """Schema for location configuration response"""
+    location_name: str
+    city: str
+    state: Optional[str]
+    country: str
+    latitude: float
+    longitude: float
+    timezone: str
+    created_at: datetime
+    updated_at: datetime
+    updated_by: str
+    is_active: bool
+
+    class Config:
+        from_attributes = True

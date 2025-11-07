@@ -164,6 +164,37 @@ const businessConfigService = {
       method: 'GET',
     });
   },
+
+  // ==================== Location Configuration ====================
+
+  /**
+   * Get current location configuration
+   */
+  async getLocationConfig() {
+    return await authService.apiRequest('/api/v1/business-config/location', {
+      method: 'GET',
+    });
+  },
+
+  /**
+   * Create or update location configuration
+   * @param {Object} config - Location configuration data
+   */
+  async updateLocationConfig(config) {
+    return await authService.apiRequest('/api/v1/business-config/location', {
+      method: 'POST',
+      body: JSON.stringify(config),
+    });
+  },
+
+  /**
+   * Get location configuration history
+   */
+  async getLocationConfigHistory() {
+    return await authService.apiRequest('/api/v1/business-config/location/history', {
+      method: 'GET',
+    });
+  },
 };
 
 export default businessConfigService;

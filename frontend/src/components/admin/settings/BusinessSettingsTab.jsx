@@ -4,6 +4,7 @@ import { CompanyInfoSkeleton, SettingsFormSkeleton, PrinterConfigSkeleton } from
 // Lazy load configuration components
 const CompanyInfoConfig = lazy(() => import('../business-config/CompanyInfoConfig'));
 const FinancialPolicyConfig = lazy(() => import('../business-config/FinancialPolicyConfig'));
+const LocationConfig = lazy(() => import('../business-config/LocationConfig'));
 const PrinterConfig = lazy(() => import('../business-config/PrinterConfig'));
 
 const BusinessSettingsTab = () => {
@@ -25,6 +26,11 @@ const BusinessSettingsTab = () => {
       {/* Financial Policies */}
       <Suspense fallback={<SettingsFormSkeleton sections={3} />}>
         <FinancialPolicyConfig />
+      </Suspense>
+
+      {/* Business Location */}
+      <Suspense fallback={<CompanyInfoSkeleton />}>
+        <LocationConfig />
       </Suspense>
 
       {/* Printer Configuration */}

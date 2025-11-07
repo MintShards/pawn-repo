@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import AppHeader from '../components/common/AppHeader';
+import PageHeader from '../components/common/PageHeader';
 import ErrorBoundary from '../components/common/ErrorBoundary';
 import { ToastProvider, ToastViewport, useToast } from '../components/ui/toast';
 import userService from '../services/userService';
@@ -971,20 +972,18 @@ const UserManagementPage = () => {
     <ToastProvider>
       <ErrorBoundary fallbackMessage="An error occurred in user management. Please try refreshing the page.">
         <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/40 dark:from-slate-950 dark:via-slate-900 dark:to-slate-800">
-          <AppHeader pageTitle="User Management" />
+          <AppHeader pageTitle="Team Management" />
 
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+            {/* Page Header */}
+            <PageHeader
+              title="Team Management"
+              subtitle="Manage user accounts, assign roles, and monitor staff activity"
+            />
+
             {/* Statistics Overview */}
             {!statsLoading && stats && (
               <div className="space-y-4">
-                <div>
-                  <h2 className="text-3xl font-bold text-slate-900 dark:text-slate-100 mb-2">
-                    Staff Management
-                  </h2>
-                  <p className="text-slate-600 dark:text-slate-400 text-lg">
-                    Manage staff accounts, monitor login activity, assign roles, track user actions, and review security events
-                  </p>
-                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
                 {/* Active Users - Blue */}
                 <Card className="border-0 shadow-lg bg-gradient-to-br from-blue-50 to-sky-50 dark:from-blue-950/50 dark:to-sky-950/50 relative overflow-hidden transition-all duration-300 hover:shadow-xl">
