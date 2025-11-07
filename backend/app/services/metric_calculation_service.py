@@ -1210,6 +1210,148 @@ class MetricCalculationService:
             logger.error("Failed to calculate this month revenue", error=str(e))
             return 0.0
 
+    async def calculate_this_month_revenue_trend(self, timezone_header: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Calculate month-over-month revenue trend
+        Compares current month's revenue (payments + extension fees) to last month
+        """
+        start_time = time.time()
+
+        try:
+            # Get current month's revenue
+            current_month_revenue = await self.calculate_this_month_revenue(timezone_header)
+
+            # Calculate last month's date range
+            business_date = get_user_business_date(timezone_header)
+            first_day_current_month = business_date.replace(day=1)
+            last_day_previous_month = first_day_current_month - timedelta(days=1)
+            first_day_previous_month = last_day_previous_month.replace(day=1)
+
+            # Convert to UTC for database query
+            from app.core.timezone_utils import user_timezone_to_utc
+            start_of_last_month_utc = user_timezone_to_utc(first_day_previous_month, timezone_header)
+            end_of_last_month_utc = user_timezone_to_utc(first_day_current_month, timezone_header)
+
+            # Calculate payments from last month
+            payment_pipeline = [
+                {
+                    "$match": {
+                        "payment_date": {
+                            "$gte": start_of_last_month_utc,
+                            "$lt": end_of_last_month_utc
+                        }
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": None,
+                        "total": {"$sum": "$payment_amount"}
+                    }
+                }
+            ]
+
+            payment_result = await Payment.aggregate(payment_pipeline).to_list()
+            last_month_payment_total = payment_result[0]["total"] if payment_result else 0.0
+
+            # Calculate extension fees from last month
+            extension_pipeline = [
+                {
+                    "$match": {
+                        "created_at": {
+                            "$gte": start_of_last_month_utc,
+                            "$lt": end_of_last_month_utc
+                        },
+                        "fee_paid": True,
+                        "is_cancelled": False
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": None,
+                        "total": {"$sum": "$total_extension_fee"}
+                    }
+                }
+            ]
+
+            extension_result = await Extension.aggregate(extension_pipeline).to_list()
+            last_month_extension_total = extension_result[0]["total"] if extension_result else 0.0
+
+            # Calculate last month's total revenue
+            last_month_revenue = last_month_payment_total + last_month_extension_total
+
+            # Calculate trend metrics
+            revenue_difference = current_month_revenue - last_month_revenue
+
+            # Calculate percentage change
+            if last_month_revenue == 0:
+                if current_month_revenue > 0:
+                    trend_percentage = 100.0
+                    trend_direction = "up"
+                else:
+                    trend_percentage = 0.0
+                    trend_direction = "stable"
+            else:
+                trend_percentage = (revenue_difference / last_month_revenue) * 100
+                trend_percentage = self._cap_trend_percentage(
+                    trend_percentage,
+                    current_month_revenue,
+                    last_month_revenue,
+                    "this_month_revenue"
+                )
+                trend_direction = self._calculate_trend_direction(trend_percentage)
+
+            # Generate context message
+            if abs(revenue_difference) >= 1000:
+                formatted_difference = f"${abs(revenue_difference):,.0f}"
+            else:
+                formatted_difference = f"${abs(revenue_difference):.2f}"
+
+            if trend_direction == "up":
+                context_message = f"{formatted_difference} more than last month"
+            elif trend_direction == "down":
+                context_message = f"{formatted_difference} less than last month"
+            else:
+                context_message = "Similar to last month"
+
+            # Determine if change is typical (within 30% is considered normal)
+            is_typical = abs(trend_percentage) <= 30.0
+
+            calculation_time = (time.time() - start_time) * 1000
+            logger.info("Calculated this month revenue trend",
+                       current_month=current_month_revenue,
+                       last_month=last_month_revenue,
+                       difference=revenue_difference,
+                       trend_percentage=trend_percentage,
+                       trend_direction=trend_direction,
+                       duration_ms=calculation_time)
+
+            return {
+                "current_value": current_month_revenue,
+                "previous_value": last_month_revenue,
+                "trend_direction": trend_direction,
+                "trend_percentage": round(trend_percentage, 1),
+                "context_message": context_message,
+                "period": "monthly",
+                "is_typical": is_typical,
+                "count_difference": int(revenue_difference),
+                "period_label": f"{first_day_previous_month.strftime('%B %Y')} vs {first_day_current_month.strftime('%B %Y')}"
+            }
+
+        except Exception as e:
+            logger.error("Failed to calculate this month revenue trend", error=str(e))
+            # Return safe default values
+            return {
+                "current_value": current_month_revenue if 'current_month_revenue' in locals() else 0.0,
+                "previous_value": 0.0,
+                "trend_direction": "stable",
+                "trend_percentage": 0.0,
+                "context_message": "Unable to calculate trend",
+                "period": "monthly",
+                "is_typical": True,
+                "count_difference": 0,
+                "period_label": "Month-over-month comparison"
+            }
+
     async def calculate_new_customers_this_month(self, timezone_header: Optional[str] = None) -> float:
         """Calculate number of new customers created this month"""
         cached_value = await self._get_cached_value("new_customers_this_month")
@@ -1313,16 +1455,12 @@ class MetricCalculationService:
 
             # Find transactions where:
             # 1. Current status is 'overdue'
-            # 2. Maturity date was in the past week (meaning they went overdue this week)
-            # More accurate: Count transactions that have maturity_date within past week
-            # (meaning this week is when they became overdue)
-            one_week_ago = start_of_week - timedelta(days=7)
-            start_of_last_week_utc = user_timezone_to_utc(one_week_ago, timezone_header)
-
+            # 2. Maturity date is within the current week (Monday to today)
+            # This shows transactions that are overdue this week
             count = await PawnTransaction.find(
                 PawnTransaction.status == "overdue",
-                PawnTransaction.maturity_date >= start_of_last_week_utc,
-                PawnTransaction.maturity_date < start_of_week_utc
+                PawnTransaction.maturity_date >= start_of_week_utc,
+                PawnTransaction.maturity_date < end_of_week_utc
             ).count()
 
             calculation_time = (time.time() - start_time) * 1000
@@ -1347,18 +1485,19 @@ class MetricCalculationService:
             # Get last week's date range
             days_since_monday = business_date.weekday()
             start_of_this_week = business_date - timedelta(days=days_since_monday)
+            end_of_this_week = start_of_this_week + timedelta(days=7)
             start_of_last_week = start_of_this_week - timedelta(days=7)
-            start_of_two_weeks_ago = start_of_last_week - timedelta(days=7)
 
             # Convert to UTC
+            start_of_this_week_utc = user_timezone_to_utc(start_of_this_week, timezone_header)
+            end_of_this_week_utc = user_timezone_to_utc(end_of_this_week, timezone_header)
             start_of_last_week_utc = user_timezone_to_utc(start_of_last_week, timezone_header)
-            start_of_two_weeks_ago_utc = user_timezone_to_utc(start_of_two_weeks_ago, timezone_header)
 
-            # Count transactions that went overdue last week
+            # Count transactions that were overdue last week (using same logic as current week)
             previous_count = float(await PawnTransaction.find(
                 PawnTransaction.status == "overdue",
-                PawnTransaction.maturity_date >= start_of_two_weeks_ago_utc,
-                PawnTransaction.maturity_date < start_of_last_week_utc
+                PawnTransaction.maturity_date >= start_of_last_week_utc,
+                PawnTransaction.maturity_date < start_of_this_week_utc
             ).count())
 
             # Calculate trend

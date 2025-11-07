@@ -281,6 +281,12 @@ async def get_all_metrics(
                                 metric = await _update_or_create_metric(
                                     metric_type, calculated_value, trend_data, existing_metric, timezone_header
                                 )
+                        elif metric_name == "this_month_revenue":
+                                # Calculate monthly trend for this month revenue
+                                trend_data = await metric_service.calculate_this_month_revenue_trend(timezone_header)
+                                metric = await _update_or_create_metric(
+                                    metric_type, calculated_value, trend_data, existing_metric, timezone_header
+                                )
 
                         else:
                                 # Handle other metrics normally

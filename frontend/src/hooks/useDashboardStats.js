@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import authService from '../services/authService';
 import { getTimezoneHeaders } from '../utils/timezoneUtils';
+import { API_CONFIG, POLLING_INTERVALS } from '../config/api';
 
-const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const API_BASE = API_CONFIG.BASE_URL;
 
 export const useDashboardStats = () => {
   const [metrics, setMetrics] = useState({
@@ -78,8 +79,8 @@ export const useDashboardStats = () => {
   useEffect(() => {
     fetchMetrics();
 
-    // Poll for updates every 30 seconds (silent background updates)
-    const interval = setInterval(fetchMetrics, 30000);
+    // Poll for updates (silent background updates)
+    const interval = setInterval(fetchMetrics, POLLING_INTERVALS.STATS);
     return () => clearInterval(interval);
   }, [fetchMetrics]);
 
