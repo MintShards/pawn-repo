@@ -952,7 +952,7 @@ const UserManagementPage = () => {
   if (!isAdmin && !authLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/40 dark:from-slate-950 dark:via-slate-900 dark:to-slate-800">
-        <AppHeader pageTitle="User Management" />
+        <AppHeader pageTitle="Team Hub" />
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <Card>
             <CardContent className="flex flex-col items-center justify-center py-12">
@@ -972,7 +972,7 @@ const UserManagementPage = () => {
     <ToastProvider>
       <ErrorBoundary fallbackMessage="An error occurred in user management. Please try refreshing the page.">
         <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/40 dark:from-slate-950 dark:via-slate-900 dark:to-slate-800">
-          <AppHeader pageTitle="Team Management" />
+          <AppHeader pageTitle="Team Hub" />
 
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
             {/* Page Header */}

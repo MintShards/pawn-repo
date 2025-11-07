@@ -123,7 +123,7 @@ const AppHeader = ({ pageTitle = 'Dashboard' }) => {
                     <div className="flex items-center space-x-2 px-3 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/50 dark:to-indigo-950/50 rounded-lg border border-blue-100 dark:border-blue-900/50">
                       <Shield className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                       <span className="text-sm font-medium text-blue-900 dark:text-blue-100">
-                        Users
+                        Team
                       </span>
                     </div>
                   ) : (
@@ -134,7 +134,7 @@ const AppHeader = ({ pageTitle = 'Dashboard' }) => {
                       className="h-9 px-3 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100"
                     >
                       <Shield className="w-4 h-4 mr-2" />
-                      Users
+                      Team
                     </Button>
                   )}
 

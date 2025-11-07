@@ -105,15 +105,34 @@ const UnifiedActivityCard = ({ activity, showUserId = true, formatRelativeTime }
    * Render severity badge with icon
    */
   const renderSeverityBadge = () => {
-    const config = getSeverityConfig(activity.severity);
+    const severity = activity.severity || 'info';
+
+    // Severity-specific badge styling with proper colors for light and dark mode
+    const severityClasses = {
+      info: 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200 border-0',
+      warning: 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200 border-0',
+      error: 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-200 border-0',
+      critical: 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-200 border-0'
+    };
+
+    const severityIcons = {
+      warning: <AlertTriangle className="h-3 w-3" />,
+      error: <XCircle className="h-3 w-3" />,
+      critical: <AlertTriangle className="h-3 w-3" />,
+      info: <Info className="h-3 w-3" />
+    };
+
+    const severityLabels = {
+      info: 'Info',
+      warning: 'Warning',
+      error: 'Error',
+      critical: 'Critical'
+    };
 
     return (
-      <Badge className={`${config.lightBg} ${config.textColor} dark:${config.darkBg} dark:${config.darkText} border-0 gap-1.5`}>
-        {activity.severity === 'warning' && <AlertTriangle className="h-3 w-3" />}
-        {activity.severity === 'error' && <XCircle className="h-3 w-3" />}
-        {activity.severity === 'critical' && <AlertTriangle className="h-3 w-3" />}
-        {activity.severity === 'info' && <Info className="h-3 w-3" />}
-        {config.label}
+      <Badge className={`${severityClasses[severity]} gap-1.5`}>
+        {severityIcons[severity]}
+        {severityLabels[severity]}
       </Badge>
     );
   };
