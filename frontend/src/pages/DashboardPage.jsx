@@ -3,6 +3,7 @@ import { useAuth } from "../context/AuthContext";
 import AppHeader from "../components/common/AppHeader";
 import PageHeader from "../components/common/PageHeader";
 import ErrorBoundary from "../components/common/ErrorBoundary";
+import { QuickActionsSection } from "../components/dashboard";
 import { getWelcomeMessage } from "../utils/roleUtils";
 import { useDashboardStats } from "../hooks/useDashboardStats";
 import serviceAlertService from "../services/serviceAlertService";
@@ -239,7 +240,7 @@ const DashboardPage = () => {
           title="Stats Loading Error"
           message="Unable to load dashboard statistics. Please refresh the page."
         >
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 mb-4">
             {/* Render first 4 cards from config */}
             {STATS_CONFIG.map((config) => (
               <DashboardStatCard
@@ -293,6 +294,11 @@ const DashboardPage = () => {
             </Card>
           </div>
         </ErrorBoundary>
+
+        {/* Quick Actions Section */}
+        <div className="mb-8">
+          <QuickActionsSection />
+        </div>
       </main>
     </div>
   );
