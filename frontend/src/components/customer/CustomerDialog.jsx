@@ -221,19 +221,25 @@ const CustomerDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px]">
+      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>
+          <DialogTitle className="text-xl font-bold">
             {isEditing ? 'Edit Customer' : 'Add Customer'}
           </DialogTitle>
+          <DialogDescription>
+            {isEditing ? 'Update customer information' : 'Enter customer details to create a new account'}
+          </DialogDescription>
         </DialogHeader>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-            
+
             {/* Personal Information Section */}
-            <div className="space-y-4">
-              <h3 className="text-sm font-medium">Personal Information</h3>
+            <div className="space-y-4 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
+              <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide flex items-center gap-2">
+                <div className="w-1 h-4 bg-blue-600 dark:bg-blue-400 rounded-full"></div>
+                Personal Information
+              </h3>
 
               <div className="grid grid-cols-2 gap-4">
                 <FormField
@@ -277,8 +283,11 @@ const CustomerDialog = ({
             </div>
 
             {/* Contact Information Section */}
-            <div className="space-y-4">
-              <h3 className="text-sm font-medium">Contact Information</h3>
+            <div className="space-y-4 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
+              <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide flex items-center gap-2">
+                <div className="w-1 h-4 bg-emerald-600 dark:bg-emerald-400 rounded-full"></div>
+                Contact Information
+              </h3>
 
               <div className="space-y-4">
                 <FormField
@@ -334,47 +343,57 @@ const CustomerDialog = ({
             </div>
 
             {/* Notes Section */}
-            <FormField
-              control={form.control}
-              name="notes"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Notes (Optional)</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      placeholder="Internal staff notes"
-                      className="min-h-[100px] resize-none"
-                      {...field}
-                      disabled={isLoading}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
+              <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide flex items-center gap-2 mb-4">
+                <div className="w-1 h-4 bg-purple-600 dark:bg-purple-400 rounded-full"></div>
+                Additional Notes
+              </h3>
+              <FormField
+                control={form.control}
+                name="notes"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Notes (Optional)</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        placeholder="Internal staff notes"
+                        className="min-h-[100px] resize-none"
+                        {...field}
+                        disabled={isLoading}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
 
             {/* Error Display */}
             {form.formState.errors.root && (
-              <p className="text-sm text-destructive flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4" />
-                {form.formState.errors.root.message}
-              </p>
+              <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                <p className="text-sm text-red-700 dark:text-red-400 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4" />
+                  {form.formState.errors.root.message}
+                </p>
+              </div>
             )}
 
-            <DialogFooter>
+            <DialogFooter className="gap-2 sm:gap-0">
               <Button
                 type="button"
                 variant="outline"
                 onClick={handleCancel}
                 disabled={isLoading}
+                className="flex-1 sm:flex-none"
               >
                 Cancel
               </Button>
               <Button
                 type="submit"
                 disabled={isLoading || phoneExists}
+                className="flex-1 sm:flex-none bg-blue-600 hover:bg-blue-700 text-white"
               >
-                {isLoading ? 'Saving...' : (isEditing ? 'Update' : 'Create')}
+                {isLoading ? 'Saving...' : (isEditing ? 'Update Customer' : 'Create Customer')}
               </Button>
             </DialogFooter>
           </form>

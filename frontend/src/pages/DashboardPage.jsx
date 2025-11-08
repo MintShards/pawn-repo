@@ -240,7 +240,7 @@ const DashboardPage = () => {
           title="Stats Loading Error"
           message="Unable to load dashboard statistics. Please refresh the page."
         >
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 mb-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
             {/* Render first 4 cards from config */}
             {STATS_CONFIG.map((config) => (
               <DashboardStatCard

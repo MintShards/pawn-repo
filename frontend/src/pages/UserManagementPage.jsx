@@ -1657,255 +1657,290 @@ const UserManagementPage = () => {
               setCheckingUserId(false);
             }
           }}>
-            <DialogContent className="sm:max-w-[500px]">
+            <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
               <form onSubmit={handleCreateUser}>
                 <DialogHeader>
-                  <DialogTitle>Create New User</DialogTitle>
+                  <DialogTitle className="text-xl font-bold">Create New User</DialogTitle>
                   <DialogDescription>
                     Add a new user to the system. They will be able to log in with their User ID and PIN.
                   </DialogDescription>
                 </DialogHeader>
 
-                <div className="grid gap-4 py-4">
-                  <div className="space-y-2">
-                    <label htmlFor="user_id" className="text-sm font-medium">
-                      User ID <span className="text-destructive">*</span>
-                    </label>
-                    <div className="relative">
-                      <Input
-                        id="user_id"
-                        placeholder="Enter 2-digit user ID"
-                        maxLength={2}
-                        required
-                        value={formData.user_id}
-                        onChange={(e) => handleUserIdChange(e.target.value)}
-                        className={validationErrors.user_id ? 'border-red-500 focus-visible:ring-red-500' : ''}
-                      />
-                      {checkingUserId && (
-                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                          <RefreshCw className="h-4 w-4 animate-spin text-slate-400" />
+                <div className="space-y-4 py-3">
+                  {/* Authentication Section */}
+                  <div className="space-y-3 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
+                    <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide flex items-center gap-2">
+                      <div className="w-1 h-4 bg-blue-600 dark:bg-blue-400 rounded-full"></div>
+                      Authentication
+                    </h3>
+
+                    <div className="space-y-3">
+                      <div className="space-y-2">
+                        <label htmlFor="user_id" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                          User ID <span className="text-destructive">*</span>
+                        </label>
+                        <div className="relative">
+                          <Input
+                            id="user_id"
+                            placeholder="Enter 2-digit user ID"
+                            maxLength={2}
+                            required
+                            value={formData.user_id}
+                            onChange={(e) => handleUserIdChange(e.target.value)}
+                            className={validationErrors.user_id ? 'border-red-500 focus-visible:ring-red-500' : ''}
+                          />
+                          {checkingUserId && (
+                            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                              <RefreshCw className="h-4 w-4 animate-spin text-slate-400" />
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                    {validationErrors.user_id && (
-                      <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
-                        <XCircle className="h-3 w-3" />
-                        {validationErrors.user_id}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <label htmlFor="pin" className="text-sm font-medium">
-                      PIN <span className="text-destructive">*</span>
-                    </label>
-                    <div className="relative">
-                      <Input
-                        id="pin"
-                        type={showPin ? "text" : "password"}
-                        placeholder="Enter 4-digit PIN"
-                        maxLength={4}
-                        required
-                        value={formData.pin}
-                        onChange={(e) => handlePinChange(e.target.value)}
-                        className={validationErrors.pin ? 'border-red-500 focus-visible:ring-red-500 pr-10' : 'pr-10'}
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
-                        onClick={() => setShowPin(!showPin)}
-                      >
-                        {showPin ? (
-                          <EyeOff className="h-4 w-4 text-slate-500" />
-                        ) : (
-                          <Eye className="h-4 w-4 text-slate-500" />
+                        {validationErrors.user_id && (
+                          <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
+                            <XCircle className="h-3 w-3" />
+                            {validationErrors.user_id}
+                          </p>
                         )}
-                      </Button>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label htmlFor="pin" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                          PIN <span className="text-destructive">*</span>
+                        </label>
+                        <div className="relative">
+                          <Input
+                            id="pin"
+                            type={showPin ? "text" : "password"}
+                            placeholder="Enter 4-digit PIN"
+                            maxLength={4}
+                            required
+                            value={formData.pin}
+                            onChange={(e) => handlePinChange(e.target.value)}
+                            className={validationErrors.pin ? 'border-red-500 focus-visible:ring-red-500 pr-10' : 'pr-10'}
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                            onClick={() => setShowPin(!showPin)}
+                          >
+                            {showPin ? (
+                              <EyeOff className="h-4 w-4 text-slate-500" />
+                            ) : (
+                              <Eye className="h-4 w-4 text-slate-500" />
+                            )}
+                          </Button>
+                        </div>
+                        {validationErrors.pin ? (
+                          <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
+                            <XCircle className="h-3 w-3" />
+                            {validationErrors.pin}
+                          </p>
+                        ) : formData.pin && formData.pin.length === 4 && !validationErrors.pin ? (
+                          <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+                            <CheckCircle2 className="h-3 w-3" />
+                            Strong PIN
+                          </p>
+                        ) : null}
+                      </div>
+
+                      <div className="space-y-2">
+                        <label htmlFor="confirm_pin" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                          Confirm PIN <span className="text-destructive">*</span>
+                        </label>
+                        <div className="relative">
+                          <Input
+                            id="confirm_pin"
+                            type={showConfirmPin ? "text" : "password"}
+                            placeholder="Re-enter 4-digit PIN"
+                            maxLength={4}
+                            required
+                            value={formData.confirm_pin}
+                            onChange={(e) => handleConfirmPinChange(e.target.value)}
+                            className={validationErrors.confirm_pin ? 'border-red-500 focus-visible:ring-red-500 pr-10' : 'pr-10'}
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                            onClick={() => setShowConfirmPin(!showConfirmPin)}
+                          >
+                            {showConfirmPin ? (
+                              <EyeOff className="h-4 w-4 text-slate-500" />
+                            ) : (
+                              <Eye className="h-4 w-4 text-slate-500" />
+                            )}
+                          </Button>
+                        </div>
+                        {validationErrors.confirm_pin ? (
+                          <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
+                            <XCircle className="h-3 w-3" />
+                            {validationErrors.confirm_pin}
+                          </p>
+                        ) : formData.confirm_pin && formData.pin === formData.confirm_pin && formData.confirm_pin.length === 4 ? (
+                          <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+                            <CheckCircle2 className="h-3 w-3" />
+                            PINs match
+                          </p>
+                        ) : null}
+                      </div>
                     </div>
-                    {validationErrors.pin ? (
-                      <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
-                        <XCircle className="h-3 w-3" />
-                        {validationErrors.pin}
-                      </p>
-                    ) : formData.pin && formData.pin.length === 4 && !validationErrors.pin ? (
-                      <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
-                        <CheckCircle2 className="h-3 w-3" />
-                        Strong PIN
-                      </p>
-                    ) : null}
                   </div>
 
-                  <div className="space-y-2">
-                    <label htmlFor="confirm_pin" className="text-sm font-medium">
-                      Confirm PIN <span className="text-destructive">*</span>
-                    </label>
-                    <div className="relative">
-                      <Input
-                        id="confirm_pin"
-                        type={showConfirmPin ? "text" : "password"}
-                        placeholder="Re-enter 4-digit PIN"
-                        maxLength={4}
-                        required
-                        value={formData.confirm_pin}
-                        onChange={(e) => handleConfirmPinChange(e.target.value)}
-                        className={validationErrors.confirm_pin ? 'border-red-500 focus-visible:ring-red-500 pr-10' : 'pr-10'}
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
-                        onClick={() => setShowConfirmPin(!showConfirmPin)}
-                      >
-                        {showConfirmPin ? (
-                          <EyeOff className="h-4 w-4 text-slate-500" />
-                        ) : (
-                          <Eye className="h-4 w-4 text-slate-500" />
+                  {/* Personal Information Section */}
+                  <div className="space-y-3 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
+                    <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide flex items-center gap-2">
+                      <div className="w-1 h-4 bg-emerald-600 dark:bg-emerald-400 rounded-full"></div>
+                      Personal Information
+                    </h3>
+
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <label htmlFor="first_name" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                            First Name <span className="text-destructive">*</span>
+                          </label>
+                          <Input
+                            id="first_name"
+                            placeholder="Enter first name"
+                            required
+                            value={formData.first_name}
+                            onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label htmlFor="last_name" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                            Last Name <span className="text-destructive">*</span>
+                          </label>
+                          <Input
+                            id="last_name"
+                            placeholder="Enter last name"
+                            required
+                            value={formData.last_name}
+                            onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label htmlFor="email" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                          Email
+                        </label>
+                        <Input
+                          id="email"
+                          type="email"
+                          placeholder="Enter email address"
+                          value={formData.email}
+                          onChange={(e) => handleEmailChange(e.target.value)}
+                          className={validationErrors.email ? 'border-red-500 focus-visible:ring-red-500' : ''}
+                        />
+                        {validationErrors.email && (
+                          <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
+                            <XCircle className="h-3 w-3" />
+                            {validationErrors.email}
+                          </p>
                         )}
-                      </Button>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label htmlFor="phone" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                          Phone Number <span className="text-destructive">*</span>
+                        </label>
+                        <Input
+                          id="phone"
+                          type="tel"
+                          placeholder="Enter phone number"
+                          maxLength={10}
+                          value={formData.phone}
+                          onChange={(e) => handlePhoneChange(e.target.value)}
+                          className={validationErrors.phone ? 'border-red-500 focus-visible:ring-red-500' : ''}
+                          required
+                        />
+                        {validationErrors.phone ? (
+                          <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
+                            <XCircle className="h-3 w-3" />
+                            {validationErrors.phone}
+                          </p>
+                        ) : formData.phone && formData.phone.length === 10 && !validationErrors.phone ? (
+                          <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+                            <CheckCircle2 className="h-3 w-3" />
+                            {formatPhoneNumber(formData.phone)}
+                          </p>
+                        ) : null}
+                      </div>
                     </div>
-                    {validationErrors.confirm_pin ? (
-                      <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
-                        <XCircle className="h-3 w-3" />
-                        {validationErrors.confirm_pin}
-                      </p>
-                    ) : formData.confirm_pin && formData.pin === formData.confirm_pin && formData.confirm_pin.length === 4 ? (
-                      <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
-                        <CheckCircle2 className="h-3 w-3" />
-                        PINs match
-                      </p>
-                    ) : null}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  {/* Account Settings Section */}
+                  <div className="space-y-3 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
+                    <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide flex items-center gap-2">
+                      <div className="w-1 h-4 bg-purple-600 dark:bg-purple-400 rounded-full"></div>
+                      Account Settings
+                    </h3>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label htmlFor="role" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                          Role <span className="text-destructive">*</span>
+                        </label>
+                        <Select
+                          value={formData.role}
+                          onValueChange={(value) => setFormData({ ...formData, role: value })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="staff">Staff</SelectItem>
+                            <SelectItem value="admin">Admin</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label htmlFor="status" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                          Status <span className="text-destructive">*</span>
+                        </label>
+                        <Select
+                          value={formData.status}
+                          onValueChange={(value) => setFormData({ ...formData, status: value })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="active">Active</SelectItem>
+                            <SelectItem value="suspended">Suspended</SelectItem>
+                            <SelectItem value="deactivated">Deactivated</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Additional Notes Section */}
+                  <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
+                    <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide flex items-center gap-2 mb-3">
+                      <div className="w-1 h-4 bg-amber-600 dark:bg-amber-400 rounded-full"></div>
+                      Additional Notes
+                    </h3>
                     <div className="space-y-2">
-                      <label htmlFor="first_name" className="text-sm font-medium">
-                        First Name <span className="text-destructive">*</span>
+                      <label htmlFor="notes" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        Notes (Optional)
                       </label>
                       <Input
-                        id="first_name"
-                        placeholder="Enter first name"
-                        required
-                        value={formData.first_name}
-                        onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
+                        id="notes"
+                        value={formData.notes}
+                        onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                        placeholder="Enter any additional notes"
                       />
                     </div>
-                    <div className="space-y-2">
-                      <label htmlFor="last_name" className="text-sm font-medium">
-                        Last Name <span className="text-destructive">*</span>
-                      </label>
-                      <Input
-                        id="last_name"
-                        placeholder="Enter last name"
-                        required
-                        value={formData.last_name}
-                        onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label htmlFor="email" className="text-sm font-medium">
-                      Email
-                    </label>
-                    <Input
-                      id="email"
-                      type="email"
-                      placeholder="Enter email address"
-                      value={formData.email}
-                      onChange={(e) => handleEmailChange(e.target.value)}
-                      className={validationErrors.email ? 'border-red-500 focus-visible:ring-red-500' : ''}
-                    />
-                    {validationErrors.email && (
-                      <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
-                        <XCircle className="h-3 w-3" />
-                        {validationErrors.email}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <label htmlFor="phone" className="text-sm font-medium">
-                      Phone Number <span className="text-destructive">*</span>
-                    </label>
-                    <Input
-                      id="phone"
-                      type="tel"
-                      placeholder="Enter phone number"
-                      maxLength={10}
-                      value={formData.phone}
-                      onChange={(e) => handlePhoneChange(e.target.value)}
-                      className={validationErrors.phone ? 'border-red-500 focus-visible:ring-red-500' : ''}
-                      required
-                    />
-                    {validationErrors.phone ? (
-                      <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
-                        <XCircle className="h-3 w-3" />
-                        {validationErrors.phone}
-                      </p>
-                    ) : formData.phone && formData.phone.length === 10 && !validationErrors.phone ? (
-                      <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
-                        <CheckCircle2 className="h-3 w-3" />
-                        {formatPhoneNumber(formData.phone)}
-                      </p>
-                    ) : null}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label htmlFor="role" className="text-sm font-medium">
-                        Role <span className="text-destructive">*</span>
-                      </label>
-                      <Select
-                        value={formData.role}
-                        onValueChange={(value) => setFormData({ ...formData, role: value })}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="staff">Staff</SelectItem>
-                          <SelectItem value="admin">Admin</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <label htmlFor="status" className="text-sm font-medium">
-                        Status <span className="text-destructive">*</span>
-                      </label>
-                      <Select
-                        value={formData.status}
-                        onValueChange={(value) => setFormData({ ...formData, status: value })}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="active">Active</SelectItem>
-                          <SelectItem value="suspended">Suspended</SelectItem>
-                          <SelectItem value="deactivated">Deactivated</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label htmlFor="notes" className="text-sm font-medium">
-                      Notes
-                    </label>
-                    <Input
-                      id="notes"
-                      value={formData.notes}
-                      onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                      placeholder="Enter any additional notes"
-                    />
                   </div>
                 </div>
 
-                <DialogFooter>
+                <DialogFooter className="gap-2 sm:gap-0">
                   <Button
                     type="button"
                     variant="outline"
@@ -1915,12 +1950,14 @@ const UserManagementPage = () => {
                       setShowPin(false);
                       setShowConfirmPin(false);
                     }}
+                    className="flex-1 sm:flex-none"
                   >
                     Cancel
                   </Button>
                   <Button
                     type="submit"
                     disabled={Object.keys(validationErrors).length > 0 || checkingUserId}
+                    className="flex-1 sm:flex-none bg-blue-600 hover:bg-blue-700 text-white"
                   >
                     {checkingUserId ? (
                       <>
@@ -1945,159 +1982,194 @@ const UserManagementPage = () => {
               setSelectedUser(null);
             }
           }}>
-            <DialogContent className="sm:max-w-[500px]">
+            <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
               <form onSubmit={handleEditUser}>
                 <DialogHeader>
-                  <DialogTitle>Edit User</DialogTitle>
+                  <DialogTitle className="text-xl font-bold">Edit User</DialogTitle>
                   <DialogDescription>
                     Update user information and permissions.
                   </DialogDescription>
                 </DialogHeader>
 
-                <div className="grid gap-4 py-4">
-                  <div className="space-y-2">
-                    <label htmlFor="edit_user_id" className="text-sm font-medium">
-                      User ID
-                    </label>
-                    <Input
-                      id="edit_user_id"
-                      value={formData.user_id}
-                      disabled
-                      className="bg-slate-100 dark:bg-slate-800 cursor-not-allowed"
-                    />
-                  </div>
+                <div className="space-y-4 py-3">
+                  {/* User Identification Section */}
+                  <div className="space-y-3 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
+                    <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide flex items-center gap-2">
+                      <div className="w-1 h-4 bg-blue-600 dark:bg-blue-400 rounded-full"></div>
+                      User Identification
+                    </h3>
 
-                  <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <label htmlFor="edit_first_name" className="text-sm font-medium">
-                        First Name <span className="text-destructive">*</span>
+                      <label htmlFor="edit_user_id" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        User ID
                       </label>
                       <Input
-                        id="edit_first_name"
-                        placeholder="Enter first name"
-                        required
-                        value={formData.first_name}
-                        onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label htmlFor="edit_last_name" className="text-sm font-medium">
-                        Last Name <span className="text-destructive">*</span>
-                      </label>
-                      <Input
-                        id="edit_last_name"
-                        placeholder="Enter last name"
-                        required
-                        value={formData.last_name}
-                        onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
+                        id="edit_user_id"
+                        value={formData.user_id}
+                        disabled
+                        className="bg-slate-100 dark:bg-slate-800 cursor-not-allowed"
                       />
                     </div>
                   </div>
 
-                  <div className="space-y-2">
-                    <label htmlFor="edit_email" className="text-sm font-medium">
-                      Email
-                    </label>
-                    <Input
-                      id="edit_email"
-                      type="email"
-                      placeholder="Enter email address"
-                      value={formData.email}
-                      onChange={(e) => handleEmailChange(e.target.value)}
-                      className={validationErrors.email ? 'border-red-500 focus-visible:ring-red-500' : ''}
-                    />
-                    {validationErrors.email && (
-                      <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
-                        <XCircle className="h-3 w-3" />
-                        {validationErrors.email}
-                      </p>
-                    )}
-                  </div>
+                  {/* Personal Information Section */}
+                  <div className="space-y-3 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
+                    <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide flex items-center gap-2">
+                      <div className="w-1 h-4 bg-emerald-600 dark:bg-emerald-400 rounded-full"></div>
+                      Personal Information
+                    </h3>
 
-                  <div className="space-y-2">
-                    <label htmlFor="edit_phone" className="text-sm font-medium">
-                      Phone Number <span className="text-destructive">*</span>
-                    </label>
-                    <Input
-                      id="edit_phone"
-                      type="tel"
-                      placeholder="Enter phone number"
-                      maxLength={10}
-                      value={formData.phone}
-                      onChange={(e) => handlePhoneChange(e.target.value)}
-                      className={validationErrors.phone ? 'border-red-500 focus-visible:ring-red-500' : ''}
-                      required
-                    />
-                    {validationErrors.phone && (
-                      <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
-                        <XCircle className="h-3 w-3" />
-                        {validationErrors.phone}
-                      </p>
-                    )}
-                  </div>
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <label htmlFor="edit_first_name" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                            First Name <span className="text-destructive">*</span>
+                          </label>
+                          <Input
+                            id="edit_first_name"
+                            placeholder="Enter first name"
+                            required
+                            value={formData.first_name}
+                            onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label htmlFor="edit_last_name" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                            Last Name <span className="text-destructive">*</span>
+                          </label>
+                          <Input
+                            id="edit_last_name"
+                            placeholder="Enter last name"
+                            required
+                            value={formData.last_name}
+                            onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
+                          />
+                        </div>
+                      </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label htmlFor="edit_role" className="text-sm font-medium">
-                        Role <span className="text-destructive">*</span>
-                      </label>
-                      <Select
-                        value={formData.role}
-                        onValueChange={(value) => setFormData({ ...formData, role: value })}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="staff">Staff</SelectItem>
-                          <SelectItem value="admin">Admin</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <div className="space-y-2">
+                        <label htmlFor="edit_email" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                          Email
+                        </label>
+                        <Input
+                          id="edit_email"
+                          type="email"
+                          placeholder="Enter email address"
+                          value={formData.email}
+                          onChange={(e) => handleEmailChange(e.target.value)}
+                          className={validationErrors.email ? 'border-red-500 focus-visible:ring-red-500' : ''}
+                        />
+                        {validationErrors.email && (
+                          <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
+                            <XCircle className="h-3 w-3" />
+                            {validationErrors.email}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="space-y-2">
+                        <label htmlFor="edit_phone" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                          Phone Number <span className="text-destructive">*</span>
+                        </label>
+                        <Input
+                          id="edit_phone"
+                          type="tel"
+                          placeholder="Enter phone number"
+                          maxLength={10}
+                          value={formData.phone}
+                          onChange={(e) => handlePhoneChange(e.target.value)}
+                          className={validationErrors.phone ? 'border-red-500 focus-visible:ring-red-500' : ''}
+                          required
+                        />
+                        {validationErrors.phone && (
+                          <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
+                            <XCircle className="h-3 w-3" />
+                            {validationErrors.phone}
+                          </p>
+                        )}
+                      </div>
                     </div>
-                    <div className="space-y-2">
-                      <label htmlFor="edit_status" className="text-sm font-medium">
-                        Status <span className="text-destructive">*</span>
-                      </label>
-                      <Select
-                        value={formData.status}
-                        onValueChange={(value) => setFormData({ ...formData, status: value })}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="active">Active</SelectItem>
-                          <SelectItem value="suspended">Suspended</SelectItem>
-                          <SelectItem value="deactivated">Deactivated</SelectItem>
-                        </SelectContent>
-                      </Select>
+                  </div>
+
+                  {/* Account Settings Section */}
+                  <div className="space-y-3 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
+                    <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide flex items-center gap-2">
+                      <div className="w-1 h-4 bg-purple-600 dark:bg-purple-400 rounded-full"></div>
+                      Account Settings
+                    </h3>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label htmlFor="edit_role" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                          Role <span className="text-destructive">*</span>
+                        </label>
+                        <Select
+                          value={formData.role}
+                          onValueChange={(value) => setFormData({ ...formData, role: value })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="staff">Staff</SelectItem>
+                            <SelectItem value="admin">Admin</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <label htmlFor="edit_status" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                          Status <span className="text-destructive">*</span>
+                        </label>
+                        <Select
+                          value={formData.status}
+                          onValueChange={(value) => setFormData({ ...formData, status: value })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="active">Active</SelectItem>
+                            <SelectItem value="suspended">Suspended</SelectItem>
+                            <SelectItem value="deactivated">Deactivated</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="space-y-2">
-                    <label htmlFor="edit_notes" className="text-sm font-medium">
-                      Notes
-                    </label>
-                    <Input
-                      id="edit_notes"
-                      value={formData.notes}
-                      onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                      placeholder="Enter any additional notes"
-                    />
+                  {/* Additional Notes Section */}
+                  <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
+                    <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide flex items-center gap-2 mb-3">
+                      <div className="w-1 h-4 bg-amber-600 dark:bg-amber-400 rounded-full"></div>
+                      Additional Notes
+                    </h3>
+                    <div className="space-y-2">
+                      <label htmlFor="edit_notes" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        Notes (Optional)
+                      </label>
+                      <Input
+                        id="edit_notes"
+                        value={formData.notes}
+                        onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                        placeholder="Enter any additional notes"
+                      />
+                    </div>
                   </div>
                 </div>
 
-                <DialogFooter>
+                <DialogFooter className="gap-2 sm:gap-0">
                   <Button
                     type="button"
                     variant="outline"
                     onClick={() => setEditDialogOpen(false)}
+                    className="flex-1 sm:flex-none"
                   >
                     Cancel
                   </Button>
                   <Button
                     type="submit"
                     disabled={Object.keys(validationErrors).length > 0}
+                    className="flex-1 sm:flex-none bg-blue-600 hover:bg-blue-700 text-white"
                   >
                     Save Changes
                   </Button>
