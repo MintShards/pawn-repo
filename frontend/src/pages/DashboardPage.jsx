@@ -6,8 +6,6 @@ import ErrorBoundary from "../components/common/ErrorBoundary";
 import { QuickActionsSection } from "../components/dashboard";
 import { getWelcomeMessage } from "../utils/roleUtils";
 import { useDashboardStats } from "../hooks/useDashboardStats";
-import serviceAlertService from "../services/serviceAlertService";
-import { POLLING_INTERVALS } from "../config/api";
 import { Card, CardContent } from "../components/ui/card";
 import {
   CreditCard,
@@ -70,6 +68,19 @@ const STATS_CONFIG = [
     valueColor: "text-pink-900 dark:text-pink-100",
     accentBg: "bg-pink-500/10",
     loadingColor: "bg-pink-200/60 dark:bg-pink-700/40",
+  },
+  {
+    key: "service_alerts",
+    title: "Service Alerts",
+    icon: AlertTriangle,
+    gradient:
+      "from-orange-50 to-red-50 dark:from-orange-950/50 dark:to-red-950/50",
+    iconBg: "bg-orange-500/10 dark:bg-orange-400/10",
+    iconColor: "text-orange-600 dark:text-orange-400",
+    titleColor: "text-orange-700 dark:text-orange-300",
+    valueColor: "text-orange-900 dark:text-orange-100",
+    accentBg: "bg-orange-500/5 dark:bg-orange-400/5",
+    loadingColor: "bg-orange-200/60 dark:bg-orange-700/40",
   },
 ];
 
@@ -157,13 +168,6 @@ const DashboardStatCard = React.memo(({ config, metric, loading }) => {
 
 const DashboardPage = () => {
   const { user, loading, fetchUserDataIfNeeded } = useAuth();
-  const [alertStats, setAlertStats] = useState({
-    unique_customer_count: 0,
-    total_alert_count: 0,
-    trend_direction: null,
-    trend_percentage: 0,
-  });
-  const [alertStatsInitialLoad, setAlertStatsInitialLoad] = useState(true);
 
   // Fetch user data if needed on component mount
   React.useEffect(() => {
@@ -173,56 +177,7 @@ const DashboardPage = () => {
   }, [user, loading, fetchUserDataIfNeeded]);
 
   // Fetch dashboard stats with polling (silent background updates after initial load)
-  const { metrics, isInitialLoad: metricsInitialLoad } = useDashboardStats();
-
-  // Fetch service alert stats (silent background updates after initial load)
-  React.useEffect(() => {
-    const fetchAlertStats = async () => {
-      try {
-        const stats = await serviceAlertService.getUniqueCustomerAlertStats();
-        setAlertStats(stats);
-        setAlertStatsInitialLoad(false); // Clear initial load flag after first success
-      } catch (error) {
-        setAlertStats({
-          unique_customer_count: 0,
-          total_alert_count: 0,
-          trend_direction: null,
-          trend_percentage: 0,
-        });
-        setAlertStatsInitialLoad(false);
-      }
-    };
-
-    if (user) {
-      fetchAlertStats();
-      const interval = setInterval(fetchAlertStats, POLLING_INTERVALS.ALERTS);
-      return () => clearInterval(interval);
-    }
-  }, [user]);
-
-  // Unified loading state for ALL 5 cards (only on initial page load)
-  const allCardsLoading = metricsInitialLoad || alertStatsInitialLoad;
-
-  // Listen for service alert updates
-  React.useEffect(() => {
-    const handleAlertUpdate = async () => {
-      try {
-        serviceAlertService.clearCacheByPattern("unique_customer_alert_stats");
-        const stats = await serviceAlertService.getUniqueCustomerAlertStats();
-        setAlertStats(stats);
-      } catch (error) {
-        // Handle error silently
-      }
-    };
-
-    window.addEventListener("refreshAlertCounts", handleAlertUpdate);
-    window.addEventListener("refreshCustomerAlerts", handleAlertUpdate);
-
-    return () => {
-      window.removeEventListener("refreshAlertCounts", handleAlertUpdate);
-      window.removeEventListener("refreshCustomerAlerts", handleAlertUpdate);
-    };
-  }, []);
+  const { metrics, isInitialLoad } = useDashboardStats();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/40 dark:from-slate-950 dark:via-slate-900 dark:to-slate-800">
@@ -241,57 +196,15 @@ const DashboardPage = () => {
           message="Unable to load dashboard statistics. Please refresh the page."
         >
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
-            {/* Render first 4 cards from config */}
+            {/* Render all 5 cards uniformly from config */}
             {STATS_CONFIG.map((config) => (
               <DashboardStatCard
                 key={config.key}
                 config={config}
                 metric={metrics[config.key]}
-                loading={allCardsLoading}
+                loading={isInitialLoad}
               />
             ))}
-
-            {/* Service Alerts card (special case with different data source) */}
-            <Card className="border-0 shadow-lg bg-gradient-to-br relative overflow-hidden transition-all duration-300 hover:shadow-xl from-orange-50 to-red-50 dark:from-orange-950/50 dark:to-red-950/50">
-              {/* Decorative accent */}
-              <div className="absolute top-0 right-0 w-20 h-20 bg-orange-500/5 dark:bg-orange-400/5 rounded-full -mr-10 -mt-10" />
-
-              <CardContent className="p-6">
-                {allCardsLoading ? (
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1 space-y-2 animate-pulse">
-                      <div className="h-4 bg-orange-200/60 dark:bg-orange-700/40 rounded w-24" />
-                      <div className="h-8 bg-orange-200/60 dark:bg-orange-700/40 rounded w-16" />
-                    </div>
-                    <div className="w-12 h-12 bg-orange-500/10 dark:bg-orange-400/10 rounded-xl flex items-center justify-center animate-pulse">
-                      <div className="w-6 h-6 bg-orange-200/60 dark:bg-orange-700/40 rounded" />
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1 space-y-2">
-                      <p className="text-sm font-medium text-orange-700 dark:text-orange-300">
-                        Service Alerts
-                      </p>
-                      <div className="flex items-baseline space-x-2">
-                        <p className="text-2xl font-bold text-orange-900 dark:text-orange-100">
-                          {alertStats.unique_customer_count}
-                        </p>
-                        {alertStats.trend_direction && (
-                          <TrendIndicator
-                            direction={alertStats.trend_direction}
-                            percentage={alertStats.trend_percentage}
-                          />
-                        )}
-                      </div>
-                    </div>
-                    <div className="w-12 h-12 bg-orange-500/10 dark:bg-orange-400/10 rounded-xl flex items-center justify-center">
-                      <AlertTriangle className="w-6 h-6 text-orange-600 dark:text-orange-400" />
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
           </div>
         </ErrorBoundary>
 

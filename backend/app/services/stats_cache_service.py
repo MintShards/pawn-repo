@@ -130,12 +130,30 @@ class StatsCacheService:
             MetricType.ACTIVE_LOANS
         ], triggered_by=f"extension:{transaction_id}:{extension_months}mo")
     
-    async def invalidate_after_bulk_operations(self, operation_type: str, 
+    async def invalidate_after_bulk_operations(self, operation_type: str,
                                              affected_count: int) -> None:
         """Invalidate all caches after bulk operations"""
         await self.invalidate_all_metrics(
             triggered_by=f"bulk_operation:{operation_type}:count_{affected_count}"
         )
+
+    async def invalidate_after_service_alert_creation(self, customer_phone: str) -> None:
+        """Invalidate service alerts cache after alert creation"""
+        await self.invalidate_specific_metrics([
+            MetricType.SERVICE_ALERTS
+        ], triggered_by=f"alert_creation:{customer_phone}")
+
+    async def invalidate_after_service_alert_resolution(self, customer_phone: str) -> None:
+        """Invalidate service alerts cache after alert resolution"""
+        await self.invalidate_specific_metrics([
+            MetricType.SERVICE_ALERTS
+        ], triggered_by=f"alert_resolution:{customer_phone}")
+
+    async def invalidate_after_service_alert_update(self, customer_phone: str) -> None:
+        """Invalidate service alerts cache after alert update"""
+        await self.invalidate_specific_metrics([
+            MetricType.SERVICE_ALERTS
+        ], triggered_by=f"alert_update:{customer_phone}")
 
 
 # Global instance

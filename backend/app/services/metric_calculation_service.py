@@ -1822,7 +1822,123 @@ class MetricCalculationService:
                 "is_typical": True,
                 "count_difference": 0
             }
-    
+
+    async def calculate_service_alerts(self) -> float:
+        """Calculate number of unique customers with active service alerts"""
+        start_time = time.time()
+
+        try:
+            from app.models.service_alert_model import ServiceAlert, AlertStatus
+
+            # Get distinct customer phone numbers with active alerts
+            pipeline = [
+                {"$match": {"status": AlertStatus.ACTIVE}},
+                {"$group": {"_id": "$customer_phone"}},
+                {"$count": "unique_customers"}
+            ]
+
+            result = await ServiceAlert.aggregate(pipeline).to_list()
+            count = result[0]["unique_customers"] if result else 0
+
+            calculation_time = (time.time() - start_time) * 1000
+            logger.info("Calculated service alerts", unique_customers=count, duration_ms=calculation_time)
+
+            # Cache the result
+            await self._cache_value("service_alerts", float(count))
+
+            return float(count)
+        except Exception as e:
+            logger.error("Failed to calculate service alerts", error=str(e))
+            return 0.0
+
+    async def calculate_service_alerts_trend(self, timezone_header: Optional[str] = None) -> Dict[str, Any]:
+        """Calculate trend for service alerts with daily comparison"""
+        try:
+            from app.core.timezone_utils import get_user_business_date
+            from app.models.service_alert_model import ServiceAlert, AlertStatus
+
+            # Get current count
+            current_count = await self.calculate_service_alerts()
+
+            # Get yesterday's business date
+            current_business_date = get_user_business_date(timezone_header)
+            yesterday = current_business_date - timedelta(days=1)
+
+            # Convert to UTC for database query
+            from app.core.timezone_utils import user_timezone_to_utc
+            yesterday_start_utc = user_timezone_to_utc(yesterday, timezone_header)
+            yesterday_end_utc = yesterday_start_utc + timedelta(days=1)
+
+            # Count unique customers with active alerts created before yesterday end
+            yesterday_pipeline = [
+                {
+                    "$match": {
+                        "status": AlertStatus.ACTIVE,
+                        "created_at": {"$lt": yesterday_end_utc}
+                    }
+                },
+                {"$group": {"_id": "$customer_phone"}},
+                {"$count": "unique_customers"}
+            ]
+
+            yesterday_result = await ServiceAlert.aggregate(yesterday_pipeline).to_list()
+            yesterday_count = float(yesterday_result[0]["unique_customers"]) if yesterday_result else 0.0
+
+            # Calculate trend
+            count_difference = int(current_count - yesterday_count)
+
+            if yesterday_count == 0:
+                if current_count > 0:
+                    trend_percentage = 100.0
+                    trend_direction = "up"
+                else:
+                    trend_percentage = 0.0
+                    trend_direction = "stable"
+            else:
+                percentage_change = ((current_count - yesterday_count) / yesterday_count) * 100
+                trend_percentage = self._cap_trend_percentage(percentage_change, current_count, yesterday_count, "service_alerts")
+                trend_direction = self._calculate_trend_direction(trend_percentage)
+
+            # Create business context message
+            if trend_direction == "up":
+                context_message = f"{abs(count_difference)} more customers than yesterday"
+            elif trend_direction == "down":
+                context_message = f"{abs(count_difference)} fewer customers than yesterday"
+            else:
+                context_message = "Same as yesterday"
+
+            # Determine if typical
+            is_typical = abs(count_difference) <= 3
+
+            return {
+                "current_value": current_count,
+                "previous_value": yesterday_count,
+                "trend_direction": trend_direction,
+                "trend_percentage": trend_percentage,
+                "context_message": context_message,
+                "period": "daily",
+                "period_label": "yesterday",
+                "is_typical": is_typical,
+                "count_difference": count_difference
+            }
+
+        except Exception as e:
+            logger.error("Failed to calculate service alerts trend", error=str(e))
+
+            # Return safe default
+            current_count = await self.calculate_service_alerts()
+            return {
+                "current_value": current_count,
+                "previous_value": 0.0,
+                "trend_direction": "stable",
+                "trend_percentage": 0.0,
+                "context_message": "Trend calculation unavailable",
+                "period": "daily",
+                "period_label": "yesterday",
+                "is_typical": True,
+                "count_difference": 0
+            }
+
     async def calculate_all_metrics(self, timezone_header: Optional[str] = None) -> Dict[str, float]:
         """Calculate all metrics concurrently"""
         logger.info("Starting calculation of all metrics")
@@ -1844,6 +1960,7 @@ class MetricCalculationService:
             self.calculate_new_customers_this_month(timezone_header),
             self.calculate_went_overdue_today(timezone_header),
             self.calculate_went_overdue_this_week(timezone_header),
+            self.calculate_service_alerts(),
             return_exceptions=True
         )
 
@@ -1851,7 +1968,7 @@ class MetricCalculationService:
 
         # Handle any exceptions
         metrics = {}
-        metric_names = ["active_loans", "new_this_month", "new_today", "overdue_loans", "maturity_this_week", "todays_collection", "yesterdays_collection", "new_last_month", "yesterdays_new", "this_month_revenue", "new_customers_this_month", "went_overdue_today", "went_overdue_this_week"]
+        metric_names = ["active_loans", "new_this_month", "new_today", "overdue_loans", "maturity_this_week", "todays_collection", "yesterdays_collection", "new_last_month", "yesterdays_new", "this_month_revenue", "new_customers_this_month", "went_overdue_today", "went_overdue_this_week", "service_alerts"]
         
         for i, result in enumerate(results):
             if isinstance(result, Exception):

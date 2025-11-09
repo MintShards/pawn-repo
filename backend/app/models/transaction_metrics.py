@@ -24,6 +24,7 @@ class MetricType(str, Enum):
     NEW_CUSTOMERS_THIS_MONTH = "new_customers_this_month"
     WENT_OVERDUE_TODAY = "went_overdue_today"
     WENT_OVERDUE_THIS_WEEK = "went_overdue_this_week"
+    SERVICE_ALERTS = "service_alerts"
 
 
 class TrendDirection(str, Enum):
@@ -200,7 +201,12 @@ class TransactionMetrics(Document):
             MetricType.NEW_TODAY: "New transactions created today",
             MetricType.OVERDUE_LOANS: "Transactions past their maturity date",
             MetricType.MATURITY_THIS_WEEK: "Transactions maturing within this week",
-            MetricType.TODAYS_COLLECTION: "Total payments collected today"
+            MetricType.TODAYS_COLLECTION: "Total payments collected today",
+            MetricType.THIS_MONTH_REVENUE: "Total revenue generated this month",
+            MetricType.NEW_CUSTOMERS_THIS_MONTH: "New customers added this month",
+            MetricType.WENT_OVERDUE_TODAY: "Loans that became overdue today",
+            MetricType.WENT_OVERDUE_THIS_WEEK: "Loans that became overdue this week",
+            MetricType.SERVICE_ALERTS: "Unique customers with active service alerts"
         }
         return descriptions.get(self.metric_type, "Transaction metric")
     

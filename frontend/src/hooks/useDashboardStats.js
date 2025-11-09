@@ -11,7 +11,8 @@ export const useDashboardStats = () => {
     this_month_revenue: { value: 0, loading: true },
     new_customers_this_month: { value: 0, loading: true },
     went_overdue_this_week: { value: 0, loading: true },
-    overdue_loans: { value: 0, loading: true }
+    overdue_loans: { value: 0, loading: true },
+    service_alerts: { value: 0, loading: true }
   });
   const [isInitialLoad, setIsInitialLoad] = useState(true); // Track initial load only
   const [error, setError] = useState(null);

@@ -229,7 +229,8 @@ async def get_all_metrics(
                         "this_month_revenue": MetricType.THIS_MONTH_REVENUE,
                         "new_customers_this_month": MetricType.NEW_CUSTOMERS_THIS_MONTH,
                         "went_overdue_today": MetricType.WENT_OVERDUE_TODAY,
-                        "went_overdue_this_week": MetricType.WENT_OVERDUE_THIS_WEEK
+                        "went_overdue_this_week": MetricType.WENT_OVERDUE_THIS_WEEK,
+                        "service_alerts": MetricType.SERVICE_ALERTS
                     }
                     
                     if metric_name in metric_type_map:
@@ -284,6 +285,12 @@ async def get_all_metrics(
                         elif metric_name == "this_month_revenue":
                                 # Calculate monthly trend for this month revenue
                                 trend_data = await metric_service.calculate_this_month_revenue_trend(timezone_header)
+                                metric = await _update_or_create_metric(
+                                    metric_type, calculated_value, trend_data, existing_metric, timezone_header
+                                )
+                        elif metric_name == "service_alerts":
+                                # Calculate daily trend for service alerts
+                                trend_data = await metric_service.calculate_service_alerts_trend(timezone_header)
                                 metric = await _update_or_create_metric(
                                     metric_type, calculated_value, trend_data, existing_metric, timezone_header
                                 )
