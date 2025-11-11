@@ -118,30 +118,42 @@ async def _handle_auth_exception(e: Exception, auth_data: UserAuth, client_ip: s
             headers={"WWW-Authenticate": "Bearer"}
         )
 
-    elif isinstance(e, HTTPException) and e.status_code == 403:
+    elif isinstance(e, HTTPException):
+        # Handle all HTTPException cases (403, 500, etc.)
         security_logger.warning(
-            f"Authentication forbidden{context_suffix}: user_id={auth_data.user_id}, "
-            f"ip={client_ip}, reason=account_inactive"
+            f"Authentication HTTP error{context_suffix}: user_id={auth_data.user_id}, "
+            f"ip={client_ip}, status={e.status_code}, detail={e.detail}"
         )
 
-        # Log forbidden access activity
-        await UserActivityService.log_activity(
-            user_id=auth_data.user_id,
-            activity_type=UserActivityType.LOGIN_FAILED,
-            description=f"Login attempt blocked - account inactive",
-            details="Account is not active",
-            request=request,
-            is_success=False,
-            error_message="Account inactive"
-        )
+        if e.status_code == 403:
+            # Log forbidden access activity
+            await UserActivityService.log_activity(
+                user_id=auth_data.user_id,
+                activity_type=UserActivityType.LOGIN_FAILED,
+                description=f"Login attempt blocked - account inactive",
+                details="Account is not active",
+                request=request,
+                is_success=False,
+                error_message="Account inactive"
+            )
 
+        # Re-raise the HTTPException as-is
         return e
 
     else:
+        # Log detailed error information for debugging
+        import traceback
+        error_details = {
+            "error_type": type(e).__name__,
+            "error_message": str(e),
+            "traceback": traceback.format_exc()
+        }
         security_logger.error(
             f"Authentication system error{context_suffix}: user_id={auth_data.user_id}, "
-            f"ip={client_ip}, error={type(e).__name__}"
+            f"ip={client_ip}, error={type(e).__name__}, details={str(e)}"
         )
+        security_logger.debug(f"Full traceback: {error_details['traceback']}")
+
         return HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Authentication service temporarily unavailable"
@@ -179,7 +191,7 @@ async def jwt_login(request: Request, auth_data: UserAuth) -> LoginResponse:
     client_ip, user_agent = _extract_client_info(request)
 
     try:
-        result = await UserService.authenticate_user(auth_data)
+        result = await UserService.authenticate_user(auth_data, request=request)
         _log_successful_auth(auth_data, client_ip, user_agent)
 
         # Log successful login activity

@@ -323,27 +323,39 @@ async def custom_rate_limit_handler(request: Request, exc: RateLimitExceeded):
 
 # Function to configure CORS
 def configure_cors(app, allowed_origins: list = None):
-    """Configure CORS middleware with proper settings"""
-    
+    """Configure CORS middleware with proper settings
+
+    CRITICAL FIX: This function now correctly uses the allowed_origins parameter
+    passed from settings.BACKEND_CORS_ORIGINS in .env file. Previously it was
+    ignoring the parameter and using hardcoded origins only.
+
+    For WSL + Windows dev: Ensure BACKEND_CORS_ORIGINS includes WSL IP (e.g., http://172.31.5.88:3000)
+    """
+
     # Default to localhost for development if no origins specified
-    if not allowed_origins:
+    if not allowed_origins or len(allowed_origins) == 0:
         allowed_origins = [
             "http://localhost:3000",  # React dev server
             "http://127.0.0.1:3000",
             "http://localhost:8080",  # Vue dev server
             "http://127.0.0.1:8080"
         ]
-    
+        security_logger.warning("No CORS origins in BACKEND_CORS_ORIGINS env var, using hardcoded defaults")
+    else:
+        # CRITICAL: Use environment-configured origins from .env BACKEND_CORS_ORIGINS
+        security_logger.info("CORS using BACKEND_CORS_ORIGINS from environment", origin_count=len(allowed_origins))
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allowed_origins,
         allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],  # Added OPTIONS for preflight
         allow_headers=["*"],
-        expose_headers=["X-Total-Count", "X-Process-Time"]
+        expose_headers=["X-Total-Count", "X-Process-Time"],
+        max_age=3600  # Cache preflight requests for 1 hour
     )
-    
-    security_logger.info("CORS configured", allowed_origins=allowed_origins)
+
+    security_logger.info("CORS middleware initialized", allowed_origins=allowed_origins)
 
 # Function to setup all security middleware
 def setup_security_middleware(app, cors_origins: list = None):

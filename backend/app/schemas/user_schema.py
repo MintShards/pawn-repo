@@ -345,3 +345,57 @@ class UserFilters(BaseModel):
                 "sort_order": "desc"
             }
         }
+
+
+# Phase 2 Security Hardening Schemas
+class UnlockAccountRequest(BaseModel):
+    """Schema for admin unlock account request"""
+    target_user_id: str = Field(..., min_length=2, max_length=2, description="User ID to unlock")
+    supervisor_pin: Optional[str] = Field(None, min_length=4, max_length=4, description="Optional supervisor PIN for additional authorization")
+    reason: str = Field(..., min_length=10, max_length=500, description="Reason for manual unlock")
+
+    @field_validator('target_user_id')
+    @classmethod
+    def validate_target_user_id(cls, v: str) -> str:
+        if not re.match(r'^\d{2}$', v):
+            raise ValueError('User ID must be exactly 2 digits')
+        return v
+
+    @field_validator('supervisor_pin')
+    @classmethod
+    def validate_supervisor_pin(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            if not v.isdigit():
+                raise ValueError('Supervisor PIN must contain only digits')
+            if len(v) != 4:
+                raise ValueError('Supervisor PIN must be exactly 4 digits')
+        return v
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "target_user_id": "02",
+                "supervisor_pin": "6969",
+                "reason": "Legitimate user locked out due to forgotten PIN attempts"
+            }
+        }
+
+
+class UnlockAccountResponse(BaseModel):
+    """Schema for unlock account response"""
+    success: bool
+    message: str
+    user_id: str
+    unlocked_by: str
+    unlocked_at: datetime
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "success": True,
+                "message": "Account successfully unlocked",
+                "user_id": "02",
+                "unlocked_by": "69",
+                "unlocked_at": "2025-11-11T10:30:00Z"
+            }
+        }

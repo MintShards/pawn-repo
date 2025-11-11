@@ -48,7 +48,102 @@ def _invalidate_search_caches():
 
 class PaymentError(Exception):
     """Base exception for payment processing operations"""
-    pass
+
+
+def _calculate_balance_from_payments(
+    transaction: PawnTransaction,
+    payments: List[Payment],
+    as_of_date: Optional[datetime] = None
+) -> Dict[str, Any]:
+    """
+    Calculate transaction balance from already-fetched payments.
+
+    This helper eliminates N+1 queries by calculating balance from data we already have,
+    instead of re-fetching transaction and payments via calculate_current_balance().
+
+    Args:
+        transaction: PawnTransaction object
+        payments: List of Payment objects (should exclude voided)
+        as_of_date: Date to calculate balance (defaults to current date)
+
+    Returns:
+        Dictionary with balance details matching calculate_current_balance() format
+    """
+    if as_of_date is None:
+        as_of_date = datetime.now(UTC)
+
+    # Calculate total due with interest accrual
+    total_due = transaction.calculate_total_due(as_of_date)
+
+    # Calculate total payments made (payments list should already exclude voided)
+    total_paid = sum(payment.payment_amount for payment in payments) if payments else 0
+
+    # Sum up payment portions from actual payment records
+    interest_paid = sum(
+        getattr(payment, 'interest_portion', 0) for payment in payments
+    ) if payments else 0
+
+    overdue_fee_paid = sum(
+        getattr(payment, 'overdue_fee_portion', 0) for payment in payments
+    ) if payments else 0
+
+    principal_paid = sum(
+        getattr(payment, 'principal_portion', 0) for payment in payments
+    ) if payments else 0
+
+    # Calculate current balance
+    current_balance = total_due - total_paid
+
+    # Calculate interest portion
+    pawn_date_aware = transaction.pawn_date
+    if pawn_date_aware.tzinfo is None:
+        pawn_date_aware = pawn_date_aware.replace(tzinfo=UTC)
+
+    interest_due = transaction.monthly_interest_amount * max(1, min(3,
+        ((as_of_date.year - pawn_date_aware.year) * 12 +
+         (as_of_date.month - pawn_date_aware.month)) +
+        (1 if as_of_date.day > pawn_date_aware.day else 0)
+    ))
+
+    principal_due = transaction.loan_amount
+
+    # Ensure timezone awareness for date fields
+    maturity_date = transaction.maturity_date
+    if maturity_date.tzinfo is None:
+        maturity_date = maturity_date.replace(tzinfo=UTC)
+
+    grace_period_end = transaction.grace_period_end
+    if grace_period_end.tzinfo is None:
+        grace_period_end = grace_period_end.replace(tzinfo=UTC)
+
+    return {
+        "transaction_id": transaction.transaction_id,
+        "as_of_date": as_of_date.isoformat(),
+        "loan_amount": transaction.loan_amount,
+        "monthly_interest": transaction.monthly_interest_amount,
+        "total_due": total_due,
+        "total_paid": total_paid,
+        "current_balance": current_balance,
+        "principal_due": principal_due,
+        "interest_due": interest_due,
+        "overdue_fee_due": transaction.overdue_fee,
+        "principal_paid": principal_paid,
+        "interest_paid": interest_paid,
+        "overdue_fee_paid": overdue_fee_paid,
+        "principal_balance": principal_due - principal_paid,
+        "interest_balance": interest_due - interest_paid,
+        "overdue_fee_balance": transaction.overdue_fee - overdue_fee_paid,
+        "extension_fees_paid": 0,  # Extension fees tracked separately
+        "extension_fees_balance": 0,  # Extension fees tracked separately
+        "payment_count": len(payments),
+        "status": transaction.status,
+        "pawn_date": pawn_date_aware.isoformat(),
+        "maturity_date": maturity_date.isoformat(),
+        "grace_period_end": grace_period_end.isoformat(),
+        "is_overdue": as_of_date > maturity_date,
+        "is_in_grace_period": maturity_date < as_of_date <= grace_period_end,
+        "days_until_forfeiture": (grace_period_end - as_of_date).days if as_of_date < grace_period_end else 0
+    }
 
 
 class PaymentValidationError(PaymentError):
@@ -361,12 +456,15 @@ class PaymentService:
         
         # Count only non-voided payments for summary
         active_payment_count = len([
-            payment for payment in payments 
+            payment for payment in payments
             if not getattr(payment, 'is_voided', False)
         ])
-        
-        # Get current balance
-        balance_info = await PaymentService._get_balance_info(transaction_id)
+
+        # Get active payments only (exclude voided) for balance calculation
+        active_payments = [p for p in payments if not getattr(p, 'is_voided', False)]
+
+        # Calculate balance using inline helper (eliminates N+1 query)
+        balance_info = _calculate_balance_from_payments(transaction, active_payments)
         
         # Calculate last payment date (only from non-voided payments)
         last_payment_date = None
@@ -449,14 +547,15 @@ class PaymentService:
             Payment.is_voided != True  # Exclude voided payments
         ).sort(-Payment.payment_date).to_list()
         
-        # Calculate totals
-        total_payments = sum(payment.payment_amount for payment in payments)
-        total_principal_paid = sum(payment.principal_portion for payment in payments)
-        total_interest_paid = sum(payment.interest_portion for payment in payments)
-        total_extension_fees_paid = sum(getattr(payment, 'extension_fees_portion', 0) for payment in payments)
-        
-        # Get current balance info
-        balance_info = await PaymentService._get_balance_info(transaction_id)
+        # Calculate balance using inline helper (eliminates N+1 query)
+        # Payments list already excludes voided, safe to use directly
+        balance_info = _calculate_balance_from_payments(transaction, payments)
+
+        # Extract calculated totals from balance info
+        total_payments = balance_info.get("total_paid", 0)
+        total_principal_paid = balance_info.get("principal_paid", 0)
+        total_interest_paid = balance_info.get("interest_paid", 0)
+        total_extension_fees_paid = balance_info.get("extension_fees_paid", 0)
         
         # Calculate last payment date with timezone conversion
         last_payment_date = None

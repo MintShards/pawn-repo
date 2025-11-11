@@ -1,7 +1,7 @@
 from beanie import Document, Indexed
 from pydantic import Field, field_validator, EmailStr, ConfigDict
 from typing import Optional, List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from enum import Enum
 import re
 
@@ -82,6 +82,10 @@ class User(Document):
     last_login: Optional[datetime] = None
     failed_login_attempts: int = Field(default=0, ge=0)
     locked_until: Optional[datetime] = None
+
+    # Progressive lockout fields (Phase 2 Security Hardening)
+    total_lockout_count: int = Field(default=0, ge=0, description="Total number of account lockouts (for progressive timeout)")
+    last_lockout_at: Optional[datetime] = Field(None, description="Timestamp of last account lockout")
     
     # Session management fields
     active_sessions: List[str] = Field(default_factory=list)
@@ -130,12 +134,20 @@ class User(Document):
 
     def is_locked(self) -> bool:
         """Check if user account is locked due to failed login attempts"""
-        if self.locked_until and self.locked_until > datetime.utcnow():
-            return True
-        # Auto-unlock if lockout period has passed
-        if self.locked_until and self.locked_until <= datetime.utcnow():
-            self.locked_until = None
-            self.failed_login_attempts = 0
+        now_utc = datetime.now(UTC)
+
+        if self.locked_until:
+            # Ensure locked_until is timezone-aware for comparison
+            locked_until_aware = self.locked_until
+            if locked_until_aware.tzinfo is None:
+                locked_until_aware = locked_until_aware.replace(tzinfo=UTC)
+
+            if locked_until_aware > now_utc:
+                return True
+            # Auto-unlock if lockout period has passed
+            else:
+                self.locked_until = None
+                self.failed_login_attempts = 0
         return False
     
     def can_access_admin_features(self) -> bool:
@@ -144,12 +156,12 @@ class User(Document):
     
     def update_last_login(self) -> None:
         """Update last login timestamp and reset failed attempts"""
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         self.last_login = now
         self.last_activity = now
         self.failed_login_attempts = 0
         self.locked_until = None
-        
+
         # Add to login history
         login_entry = {
             "timestamp": now.isoformat(),
@@ -162,8 +174,8 @@ class User(Document):
     def increment_failed_login(self) -> None:
         """Increment failed login attempts and lock account if necessary"""
         self.failed_login_attempts += 1
-        now = datetime.utcnow()
-        
+        now = datetime.now(UTC)
+
         # Add to login history
         login_entry = {
             "timestamp": now.isoformat(),
@@ -172,7 +184,7 @@ class User(Document):
         }
         self.login_history.insert(0, login_entry)
         self.login_history = self.login_history[:100]
-        
+
         if self.failed_login_attempts >= AuthConfig.MAX_FAILED_LOGIN_ATTEMPTS:
             # Lock account using timedelta (fixes the datetime bug)
             self.locked_until = now + timedelta(minutes=AuthConfig.ACCOUNT_LOCKOUT_DURATION_MINUTES)
@@ -202,7 +214,7 @@ class User(Document):
             # Remove oldest sessions if limit exceeded
             if len(self.active_sessions) > AuthConfig.MAX_CONCURRENT_SESSIONS:
                 self.active_sessions = self.active_sessions[-AuthConfig.MAX_CONCURRENT_SESSIONS:]
-        self.last_activity = datetime.utcnow()
+        self.last_activity = datetime.now(UTC)
     
     def remove_session(self, session_id: str) -> None:
         """Remove a session"""
@@ -214,7 +226,7 @@ class User(Document):
         if session_id not in self.active_sessions:
             return False
         if self.last_activity:
-            session_age = datetime.utcnow() - self.last_activity
+            session_age = datetime.now(UTC) - self.last_activity
             if session_age > timedelta(hours=AuthConfig.SESSION_TIMEOUT_HOURS):
                 self.remove_session(session_id)
                 return False
@@ -222,7 +234,7 @@ class User(Document):
     
     def update_activity(self) -> None:
         """Update last activity timestamp"""
-        self.last_activity = datetime.utcnow()
+        self.last_activity = datetime.now(UTC)
     
     class Settings:
         name = "users"

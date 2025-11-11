@@ -36,13 +36,19 @@ class Settings(BaseSettings):
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     @classmethod
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> Union[List[str], str]:
+        # Load from environment using decouple if not provided
+        if not v or v == []:
+            v = config("BACKEND_CORS_ORIGINS", default="")
+
         if isinstance(v, str) and not v.startswith("["):
-            return [i.strip() for i in v.split(",")]
+            return [i.strip() for i in v.split(",") if i.strip()]
         elif isinstance(v, (list, str)):
             return v
         raise ValueError(v)
 
     class Config:
         case_sensitive = True
+        # Note: Using decouple for .env loading instead of Pydantic's env_file
+        # to avoid JSON parsing issues with comma-separated BACKEND_CORS_ORIGINS
 
 settings = Settings()

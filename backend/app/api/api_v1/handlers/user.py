@@ -22,7 +22,8 @@ from app.models.user_model import User, UserRole, UserStatus, InvalidCredentials
 from app.schemas.user_schema import (
     UserAuth, UserCreate, UserUpdate, UserPinChange,
     UserResponse, UserDetailResponse, UserListResponse,
-    LoginResponse, UserStatsResponse, UserFilters
+    LoginResponse, UserStatsResponse, UserFilters,
+    UnlockAccountRequest, UnlockAccountResponse
 )
 from app.services.user_service import UserService
 from app.services.user_activity_service import UserActivityService
@@ -501,5 +502,112 @@ async def terminate_user_sessions(
     user.active_sessions = []
     user.updated_at = datetime.utcnow()
     await user.save()
-    
+
     return {"message": "All user sessions terminated successfully"}
+
+
+# Phase 2 Security Hardening Endpoints
+@user_router.post("/unlock-account",
+                 response_model=UnlockAccountResponse,
+                 summary="Unlock locked user account (Admin only)",
+                 description="Manually unlock a locked user account with optional supervisor PIN authorization",
+                 dependencies=[Depends(require_admin)])
+async def unlock_account(
+    request: Request,
+    unlock_request: UnlockAccountRequest,
+    admin_user: User = Depends(get_admin_user)
+) -> UnlockAccountResponse:
+    """
+    Manually unlock a locked user account (Admin only).
+
+    Security requirements:
+    - Admin role authorization required
+    - Optional supervisor PIN for additional security
+    - Comprehensive audit logging
+    - Reason for unlock mandatory
+
+    Args:
+        request: FastAPI request for security context
+        unlock_request: Unlock request with target user ID and reason
+        admin_user: Admin user performing unlock (from JWT token)
+
+    Returns:
+        UnlockAccountResponse with success status and unlock details
+
+    Raises:
+        HTTPException: 403 if not admin, 404 if user not found, 401 if invalid supervisor PIN
+    """
+    from app.core.account_security import AccountSecurityService, SecurityEventType
+
+    # Find target user
+    target_user = await User.find_one(User.user_id == unlock_request.target_user_id)
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User {unlock_request.target_user_id} not found"
+        )
+
+    # Check if account is actually locked
+    if not target_user.is_locked():
+        # Log warning for unnecessary unlock attempt
+        security_context = AccountSecurityService.get_security_context(request)
+        AccountSecurityService.log_security_event(
+            SecurityEventType.ACCOUNT_UNLOCKED,
+            target_user.user_id,
+            {
+                "admin_id": admin_user.user_id,
+                "reason": unlock_request.reason,
+                "status": "account_not_locked",
+                "unnecessary_unlock": True
+            },
+            security_context
+        )
+
+        return UnlockAccountResponse(
+            success=True,
+            message=f"Account {unlock_request.target_user_id} was not locked",
+            user_id=target_user.user_id,
+            unlocked_by=admin_user.user_id,
+            unlocked_at=datetime.utcnow()
+        )
+
+    # Unlock account using security service
+    security_context = AccountSecurityService.get_security_context(request)
+    await AccountSecurityService.unlock_account_admin(
+        user=target_user,
+        admin_user=admin_user,
+        supervisor_pin=unlock_request.supervisor_pin,
+        context=security_context
+    )
+
+    # Log unlock activity
+    await UserActivityService.log_activity(
+        user_id=target_user.user_id,
+        activity_type=UserActivityType.ACCOUNT_UNLOCKED,
+        description=f"Account manually unlocked by admin {admin_user.user_id}",
+        details=unlock_request.reason,
+        request=request,
+        is_success=True,
+        admin_user_id=admin_user.user_id
+    )
+
+    # Log security event
+    AccountSecurityService.log_security_event(
+        SecurityEventType.ACCOUNT_UNLOCKED,
+        target_user.user_id,
+        {
+            "admin_id": admin_user.user_id,
+            "reason": unlock_request.reason,
+            "supervisor_pin_used": bool(unlock_request.supervisor_pin),
+            "previous_lockout_count": getattr(target_user, 'total_lockout_count', 0)
+        },
+        security_context
+    )
+
+    return UnlockAccountResponse(
+        success=True,
+        message=f"Account {unlock_request.target_user_id} successfully unlocked",
+        user_id=target_user.user_id,
+        unlocked_by=admin_user.user_id,
+        unlocked_at=datetime.utcnow()
+    )

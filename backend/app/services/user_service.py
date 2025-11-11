@@ -1,5 +1,5 @@
 from typing import Optional, List, Union
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 import secrets
 
 import jwt
@@ -13,6 +13,7 @@ from app.schemas.user_schema import (
     LoginResponse, UserStatsResponse, UserFilters
 )
 from app.core.config import settings
+from app.core.account_security import AccountSecurityService, SecurityEventType
 from app.services.user_activity_service import UserActivityService
 from app.models.user_activity_log_model import UserActivityType
 
@@ -60,7 +61,7 @@ class UserService:
                 "phone": user_data.phone,
                 "role": user_data.role,
                 "created_by": created_by,
-                "password_changed_at": datetime.utcnow()
+                "password_changed_at": datetime.now(UTC)
             }
 
             # Only include email if it's not None (sparse index compatibility)
@@ -91,50 +92,130 @@ class UserService:
             )
     
     @staticmethod
-    async def authenticate_user(auth_data: UserAuth) -> LoginResponse:
-        """Authenticate user and return login response with JWT token"""
+    async def authenticate_user(auth_data: UserAuth, request=None) -> LoginResponse:
+        """
+        Authenticate user with progressive security controls.
+
+        Security features:
+        - Progressive delays (2s, 4s, 8s) before lockout
+        - Progressive lockout duration (15min → 30min → 60min → 120min)
+        - Automatic unlock after timeout
+        - Comprehensive security logging
+
+        Args:
+            auth_data: User authentication credentials
+            request: Optional FastAPI request for security context
+
+        Returns:
+            LoginResponse with JWT token and user information
+
+        Raises:
+            InvalidCredentialsError: Invalid credentials
+            AccountLockedError: Account is locked
+            HTTPException: Account inactive or system error
+        """
         try:
+            # Extract security context
+            context = AccountSecurityService.get_security_context(request) if request else {}
+
             # Find user by user_id
             user = await User.find_one(User.user_id == auth_data.user_id)
             if not user:
+                # Log failed attempt for non-existent user (prevents enumeration but aids security analysis)
+                AccountSecurityService.log_security_event(
+                    SecurityEventType.AUTH_FAILURE,
+                    auth_data.user_id,
+                    {"reason": "user_not_found"},
+                    context
+                )
                 raise InvalidCredentialsError("Invalid user ID or PIN")
-            
-            # Check if account is locked
+
+            # Check for expired lockout and auto-unlock
+            await AccountSecurityService.check_and_unlock_expired(user)
+
+            # Check if account is currently locked
             if user.is_locked():
+                AccountSecurityService.log_security_event(
+                    SecurityEventType.AUTH_FAILURE,
+                    user.user_id,
+                    {"reason": "account_locked", "locked_until": user.locked_until.isoformat() if user.locked_until else None},
+                    context
+                )
                 raise AccountLockedError(
                     "Account locked due to too many failed login attempts",
                     locked_until=user.locked_until
                 )
-            
+
             # Check if user is active
             if user.status != UserStatus.ACTIVE:
+                AccountSecurityService.log_security_event(
+                    SecurityEventType.AUTH_FAILURE,
+                    user.user_id,
+                    {"reason": "account_inactive", "status": str(user.status)},
+                    context
+                )
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Account is {user.status.value}"
+                    detail=f"Account is {str(user.status)}"
                 )
-            
+
+            # Apply progressive delay BEFORE PIN verification (slow down brute force)
+            await AccountSecurityService.apply_progressive_delay(user, context)
+
             # Verify PIN
             if not user.verify_pin(auth_data.pin):
                 user.increment_failed_login()
-                await user.save()
 
-                attempts_remaining = AuthConfig.MAX_FAILED_LOGIN_ATTEMPTS - user.failed_login_attempts
-                if attempts_remaining <= 0:
+                # Check if this failed attempt triggers lockout
+                if user.failed_login_attempts >= AuthConfig.MAX_FAILED_LOGIN_ATTEMPTS:
+                    # Lock account with progressive timeout
+                    await AccountSecurityService.lock_account(user, context)
+
                     # Log account lockout activity
                     await UserActivityService.log_account_locked(
                         user_id=user.user_id,
                         reason="Too many failed login attempts"
                     )
 
+                    AccountSecurityService.log_security_event(
+                        SecurityEventType.ACCOUNT_LOCKED,
+                        user.user_id,
+                        {
+                            "lockout_number": user.total_lockout_count,
+                            "locked_until": user.locked_until.isoformat() if user.locked_until else None,
+                            "failed_attempts": user.failed_login_attempts
+                        },
+                        context
+                    )
+
                     raise AccountLockedError(
                         "Account locked due to too many failed login attempts",
                         locked_until=user.locked_until
                     )
+                else:
+                    # Save failed attempt count
+                    await user.save()
 
-                raise InvalidCredentialsError(f"Invalid user ID or PIN. {attempts_remaining} attempts remaining")
-            
-            # Successful login
+                    attempts_remaining = AuthConfig.MAX_FAILED_LOGIN_ATTEMPTS - user.failed_login_attempts
+
+                    AccountSecurityService.log_security_event(
+                        SecurityEventType.AUTH_FAILURE,
+                        user.user_id,
+                        {
+                            "reason": "invalid_pin",
+                            "failed_attempts": user.failed_login_attempts,
+                            "attempts_remaining": attempts_remaining
+                        },
+                        context
+                    )
+
+                    raise InvalidCredentialsError(f"Invalid user ID or PIN. {attempts_remaining} attempts remaining")
+
+            # Successful login - reset security counters
             user.update_last_login()
+
+            # Reset lockout counter if user has demonstrated good behavior
+            await AccountSecurityService.reset_lockout_counter(user)
 
             # Generate session ID first
             session_id = f"sess_{secrets.token_urlsafe(16)}"
@@ -142,7 +223,19 @@ class UserService:
 
             # Generate JWT token with session ID
             access_token = UserService._create_access_token(user, session_id=session_id)
-            
+
+            # Log successful authentication
+            AccountSecurityService.log_security_event(
+                SecurityEventType.AUTH_SUCCESS,
+                user.user_id,
+                {
+                    "session_id": session_id,
+                    "role": str(user.role),
+                    "previous_failed_attempts": user.failed_login_attempts
+                },
+                context
+            )
+
             # Use try/catch around save to handle concurrent modifications gracefully
             try:
                 await user.save()
@@ -150,7 +243,7 @@ class UserService:
                 # If save fails due to concurrent modification, generate token anyway
                 # The user was already validated, so authentication should succeed
                 pass
-            
+
             return LoginResponse(
                 access_token=access_token,
                 expires_in=settings.ACCESS_TOKEN_EXPIRATION * 60,  # Convert to seconds
@@ -221,7 +314,7 @@ class UserService:
 
         # Apply updates using MongoDB's atomic $set operation (bypass Beanie revision checking)
         update_dict = update_data.model_dump(exclude_unset=True)
-        update_dict["updated_at"] = datetime.utcnow()
+        update_dict["updated_at"] = datetime.now(UTC)
 
         # Remove email and notes from update if they're None (sparse index compatibility)
         if "email" in update_dict and update_dict["email"] is None:
@@ -271,8 +364,8 @@ class UserService:
         
         # Update PIN
         user.pin_hash = User.hash_pin(pin_data.new_pin)
-        user.password_changed_at = datetime.utcnow()
-        user.updated_at = datetime.utcnow()
+        user.password_changed_at = datetime.now(UTC)
+        user.updated_at = datetime.now(UTC)
         await user.save()
         
         return {"message": "PIN changed successfully"}
@@ -320,8 +413,7 @@ class UserService:
         if filters.is_locked is not None:
             # Use timezone-aware datetime (MongoDB stores timezone-aware datetimes)
             # Using UTC since account lock status is not user-timezone dependent
-            from datetime import timezone
-            current_time = datetime.now(timezone.utc)
+            current_time = datetime.now(UTC)
 
             if filters.is_locked:
                 # Find locked users (locked_until exists and is in the future)
@@ -347,8 +439,7 @@ class UserService:
         # Apply activity filters
         if filters.has_active_sessions is not None:
             # Use timezone-aware datetime for consistent comparison with database
-            from datetime import timezone
-            eight_hours_ago = datetime.now(timezone.utc) - timedelta(hours=8)
+            eight_hours_ago = datetime.now(UTC) - timedelta(hours=8)
 
             if filters.has_active_sessions:
                 # Users with at least one active session that's not expired
@@ -407,7 +498,7 @@ class UserService:
 
         # Account age filters
         if filters.account_age_min_days is not None or filters.account_age_max_days is not None:
-            current_time = datetime.utcnow()
+            current_time = datetime.now(UTC)
 
             if filters.account_age_min_days is not None:
                 # Account must be older than min days
@@ -435,8 +526,13 @@ class UserService:
         skip = (filters.page - 1) * filters.per_page
         users = await query.skip(skip).limit(filters.per_page).to_list()
 
-        # Convert to response format
-        user_responses = [UserResponse.model_validate(user.model_dump()) for user in users]
+        # Convert to response format and remove heavy fields
+        # PERFORMANCE OPTIMIZATION: Remove login_history which can be 100+ entries
+        user_responses = []
+        for user in users:
+            user_dict = user.model_dump()
+            user_dict.pop('login_history', None)  # Reduce payload size
+            user_responses.append(UserResponse.model_validate(user_dict))
 
         # Hide notes from non-admin users
         if requester_role != UserRole.ADMIN:
@@ -468,7 +564,7 @@ class UserService:
             {"user_id": user_id},
             {"$set": {
                 "status": UserStatus.DEACTIVATED.value,
-                "updated_at": datetime.utcnow()
+                "updated_at": datetime.now(UTC)
             }}
         )
 
@@ -497,7 +593,7 @@ class UserService:
         recent_logins = await User.find(User.last_login >= business_today).count()
 
         # Count locked users
-        current_time = datetime.utcnow()
+        current_time = datetime.now(UTC)
         locked_users = await User.find({
             "locked_until": {"$exists": True, "$gte": current_time}
         }).count()
@@ -531,8 +627,8 @@ class UserService:
             "sub": user.user_id,
             "role": str(user.role),  # Handle both enum and string values
             "status": str(user.status),  # Handle both enum and string values
-            "exp": datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRATION),
-            "iat": datetime.utcnow()
+            "exp": datetime.now(UTC) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRATION),
+            "iat": datetime.now(UTC)
         }
 
         # Include session ID as jti (JWT ID) for session tracking
@@ -580,7 +676,7 @@ class UserService:
         if user.status != UserStatus.ACTIVE:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Account is {user.status.value}"
+                detail=f"Account is {str(user.status)}"
             )
 
         # Validate session is still active (if jti claim exists)
@@ -601,8 +697,8 @@ class UserService:
             "sub": user.user_id,
             "role": str(user.role),
             "status": str(user.status),
-            "exp": datetime.utcnow() + timedelta(minutes=settings.REFRESH_TOKEN_EXPIRATION),
-            "iat": datetime.utcnow(),
+            "exp": datetime.now(UTC) + timedelta(minutes=settings.REFRESH_TOKEN_EXPIRATION),
+            "iat": datetime.now(UTC),
             "token_type": "refresh"
         }
 
@@ -661,7 +757,7 @@ class UserService:
             if user.status != UserStatus.ACTIVE:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Account is {user.status.value}"
+                    detail=f"Account is {str(user.status)}"
                 )
 
             # Extract session ID from refresh token (if present)

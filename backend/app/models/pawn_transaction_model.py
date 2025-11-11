@@ -544,12 +544,16 @@ class PawnTransaction(Document):
         """Beanie document settings"""
         name = "pawn_transactions"
         indexes = [
+            # Single field indexes
             "transaction_id",
             "formatted_id",  # Index for fast PW000105 lookups
             "customer_id",
             "status",
             "pawn_date",
             "maturity_date",
-            [("status", 1), ("maturity_date", 1)],  # Compound index for queries
-            [("pawn_date", 1), ("created_at", 1)],  # Compound index for chronological search ordering
+
+            # NOTE: Compound indexes are managed via scripts/apply_critical_indexes.py
+            # This allows for named indexes with better management and monitoring
+            # See: customer_status_date_idx, status_date_idx, maturity_status_idx,
+            #      chronological_idx, grace_period_status_idx
         ]
