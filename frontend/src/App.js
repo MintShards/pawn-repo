@@ -6,8 +6,8 @@ import { AlertCountProvider } from './context/AlertCountContext';
 import { WeatherProvider } from './context/WeatherContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import LoginPage from './pages/LoginPage';
-import DashboardPage from './pages/DashboardPage';
 import CustomersPage from './pages/CustomersPage';
+import ReportsPage from './pages/ReportsPage';
 import TransactionHub from './pages/TransactionHub';
 import UserManagementPage from './pages/UserManagementPage';
 import AdminSettingsPage from './pages/AdminSettingsPage';
@@ -29,31 +29,31 @@ function App() {
             <Routes>
               {/* Public routes */}
               <Route path="/login" element={<LoginPage />} />
-              
+
               {/* Protected routes */}
-              <Route 
-                path="/dashboard" 
-                element={
-                  <ProtectedRoute>
-                    <DashboardPage />
-                  </ProtectedRoute>
-                } 
-              />
-              
-              <Route 
-                path="/customers" 
-                element={
-                  <ProtectedRoute>
-                    <CustomersPage />
-                  </ProtectedRoute>
-                } 
-              />
-              
               <Route
                 path="/transactions"
                 element={
                   <ProtectedRoute>
                     <TransactionHub />
+                  </ProtectedRoute>
+                }
+              />
+
+              <Route
+                path="/customers"
+                element={
+                  <ProtectedRoute>
+                    <CustomersPage />
+                  </ProtectedRoute>
+                }
+              />
+
+              <Route
+                path="/reports"
+                element={
+                  <ProtectedRoute>
+                    <ReportsPage />
                   </ProtectedRoute>
                 }
               />
@@ -76,11 +76,11 @@ function App() {
                 }
               />
 
-              {/* Redirect root to dashboard */}
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
-              
-              {/* Catch all route - redirect to dashboard */}
-              <Route path="*" element={<Navigate to="/dashboard" replace />} />
+              {/* Redirect root to transactions */}
+              <Route path="/" element={<Navigate to="/transactions" replace />} />
+
+              {/* Catch all route - redirect to transactions */}
+              <Route path="*" element={<Navigate to="/transactions" replace />} />
             </Routes>
             
             </div>

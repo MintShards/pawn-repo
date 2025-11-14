@@ -1,10 +1,7 @@
-import React, { useState } from "react";
-import { useAuth } from "../context/AuthContext";
+import React from "react";
 import AppHeader from "../components/common/AppHeader";
 import PageHeader from "../components/common/PageHeader";
 import ErrorBoundary from "../components/common/ErrorBoundary";
-import { QuickActionsSection } from "../components/dashboard";
-import { getWelcomeMessage } from "../utils/roleUtils";
 import { useDashboardStats } from "../hooks/useDashboardStats";
 import { Card, CardContent } from "../components/ui/card";
 import {
@@ -166,28 +163,18 @@ const DashboardStatCard = React.memo(({ config, metric, loading }) => {
   );
 });
 
-const DashboardPage = () => {
-  const { user, loading, fetchUserDataIfNeeded } = useAuth();
-
-  // Fetch user data if needed on component mount
-  React.useEffect(() => {
-    if (!user && !loading) {
-      fetchUserDataIfNeeded();
-    }
-  }, [user, loading, fetchUserDataIfNeeded]);
-
+const ReportsPage = () => {
   // Fetch dashboard stats with polling (silent background updates after initial load)
   const { metrics, isInitialLoad } = useDashboardStats();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/40 dark:from-slate-950 dark:via-slate-900 dark:to-slate-800">
-      <AppHeader pageTitle="Dashboard" />
+      <AppHeader pageTitle="Reports" />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Page Header */}
         <PageHeader
-          title={getWelcomeMessage(user, loading)}
-          subtitle="Your daily overview and key metrics at a glance"
+          title="Reports"
+          subtitle="Business analytics and reporting metrics"
         />
 
         {/* Stats Grid */}
@@ -207,14 +194,9 @@ const DashboardPage = () => {
             ))}
           </div>
         </ErrorBoundary>
-
-        {/* Quick Actions Section */}
-        <div className="mb-8">
-          <QuickActionsSection />
-        </div>
       </main>
     </div>
   );
 };
 
-export default DashboardPage;
+export default ReportsPage;

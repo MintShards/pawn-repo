@@ -143,4 +143,3 @@ router.include_router(
     tags=["Business Configuration"],
     responses={403: {"description": "Admin access required"}}
 )
-

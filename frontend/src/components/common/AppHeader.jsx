@@ -6,18 +6,18 @@ import { ThemeToggle } from '../ui/theme-toggle';
 import { Avatar, AvatarImage, AvatarFallback } from '../ui/avatar';
 import { Card } from '../ui/card';
 import {
-  LayoutDashboard,
   Users,
   LogOut,
   CreditCard,
   Crown,
   UserCheck,
-  Shield,
+  UserCog,
   Settings,
+  BarChart3,
 } from 'lucide-react';
 import { getRoleTitle, getUserDisplayString } from '../../utils/roleUtils';
 
-const AppHeader = ({ pageTitle = 'Dashboard' }) => {
+const AppHeader = ({ pageTitle = 'Transactions' }) => {
   const { user, logout, loading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -59,25 +59,6 @@ const AppHeader = ({ pageTitle = 'Dashboard' }) => {
 
             {/* Navigation Pills */}
             <nav className="hidden md:flex items-center space-x-1">
-              {isActivePage('/dashboard') || isActivePage('/') ? (
-                <div className="flex items-center space-x-2 px-3 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/50 dark:to-indigo-950/50 rounded-lg border border-blue-100 dark:border-blue-900/50">
-                  <LayoutDashboard className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                  <span className="text-sm font-medium text-blue-900 dark:text-blue-100">
-                    Dashboard
-                  </span>
-                </div>
-              ) : (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => navigate('/dashboard')}
-                  className="h-9 px-3 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100"
-                >
-                  <LayoutDashboard className="w-4 h-4 mr-2" />
-                  Dashboard
-                </Button>
-              )}
-
               {isActivePage('/transactions') ? (
                 <div className="flex items-center space-x-2 px-3 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/50 dark:to-indigo-950/50 rounded-lg border border-blue-100 dark:border-blue-900/50">
                   <CreditCard className="w-4 h-4 text-blue-600 dark:text-blue-400" />
@@ -119,9 +100,28 @@ const AppHeader = ({ pageTitle = 'Dashboard' }) => {
               {/* Admin-only navigation */}
               {user?.role === 'admin' && (
                 <>
+                  {isActivePage('/reports') ? (
+                    <div className="flex items-center space-x-2 px-3 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/50 dark:to-indigo-950/50 rounded-lg border border-blue-100 dark:border-blue-900/50">
+                      <BarChart3 className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                      <span className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                        Reports
+                      </span>
+                    </div>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => navigate('/reports')}
+                      className="h-9 px-3 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100"
+                    >
+                      <BarChart3 className="w-4 h-4 mr-2" />
+                      Reports
+                    </Button>
+                  )}
+
                   {isActivePage('/admin/users') ? (
                     <div className="flex items-center space-x-2 px-3 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/50 dark:to-indigo-950/50 rounded-lg border border-blue-100 dark:border-blue-900/50">
-                      <Shield className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                      <UserCog className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                       <span className="text-sm font-medium text-blue-900 dark:text-blue-100">
                         Team
                       </span>
@@ -133,7 +133,7 @@ const AppHeader = ({ pageTitle = 'Dashboard' }) => {
                       onClick={() => navigate('/admin/users')}
                       className="h-9 px-3 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100"
                     >
-                      <Shield className="w-4 h-4 mr-2" />
+                      <UserCog className="w-4 h-4 mr-2" />
                       Team
                     </Button>
                   )}

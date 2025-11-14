@@ -92,70 +92,62 @@ const QuickActionsSection = () => {
 
   return (
     <>
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
-      {/* Left Section - Quick Actions */}
-      <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm lg:col-span-1">
-        <CardContent className="py-4">
-          <div className="flex flex-col gap-4">
-            {/* Section Header */}
-            <div className="flex items-center gap-2">
-              <div
-                className="w-8 h-8 bg-gradient-to-br from-amber-500 to-orange-600 rounded-lg flex items-center justify-center shadow-sm self-center"
-                aria-hidden="true"
-              >
-                <Zap className="w-4 h-4 text-white" />
-              </div>
-              <div className="flex flex-col gap-0.5">
-                <CardTitle className="text-xl font-bold text-slate-900 dark:text-slate-100">
-                  Quick Actions
-                </CardTitle>
-                <p className="text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">
-                  Frequently used operations
-                </p>
-              </div>
-            </div>
-
-            {/* Action Buttons */}
-            <nav
-              className="flex flex-col gap-3"
-              aria-label="Quick action buttons"
-              role="navigation"
+    <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm h-full">
+      <CardContent className="py-4">
+        <div className="flex flex-col gap-4">
+          {/* Section Header */}
+          <div className="flex items-center gap-2">
+            <div
+              className="w-8 h-8 bg-gradient-to-br from-amber-500 to-orange-600 rounded-lg flex items-center justify-center shadow-sm self-center"
+              aria-hidden="true"
             >
-            {QUICK_ACTIONS.map((action) => {
-              const isActive = location.pathname.startsWith(action.route);
-              const Icon = action.icon;
+              <Zap className="w-4 h-4 text-white" />
+            </div>
+            <div className="flex flex-col gap-0.5">
+              <CardTitle className="text-xl font-bold text-slate-900 dark:text-slate-100">
+                Quick Actions
+              </CardTitle>
+              <p className="text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                Frequently used operations
+              </p>
+            </div>
+          </div>
 
-              return (
-                <Button
-                  key={action.id}
-                  onClick={() => handleActionClick(action)}
-                  className={`w-full justify-start h-11 px-4 bg-white hover:bg-slate-50 text-slate-800 hover:text-slate-900 border border-slate-200 hover:border-slate-300 shadow-sm hover:shadow-md transition-all duration-200 group relative dark:bg-slate-700 dark:hover:bg-slate-600 dark:text-white dark:hover:text-white dark:border-slate-600/50 dark:hover:border-slate-500/70 ${
-                    isActive ? 'border-slate-300 shadow-md dark:border-slate-500/70' : ''
-                  }`}
-                  variant="outline"
-                  aria-label={action.tooltip}
-                  aria-current={isActive ? 'page' : undefined}
-                  title={action.tooltip}
-                >
-                  <div className="w-6 h-6 bg-slate-200/60 dark:bg-slate-500/30 rounded-md flex items-center justify-center mr-2 group-hover:bg-slate-300/70 dark:group-hover:bg-slate-400/40 transition-colors">
-                    <Icon className="w-4 h-4" aria-hidden="true" />
-                  </div>
-                  <span className="font-medium text-sm whitespace-nowrap">
-                    {action.label}
-                  </span>
-                </Button>
-              );
-            })}
-          </nav>
-        </div>
-      </CardContent>
-    </Card>
+          {/* Action Buttons */}
+          <nav
+            className="flex flex-col gap-3"
+            aria-label="Quick action buttons"
+            role="navigation"
+          >
+          {QUICK_ACTIONS.map((action) => {
+            const isActive = location.pathname.startsWith(action.route);
+            const Icon = action.icon;
 
-      {/* Right Section - Reserved for Future Implementation */}
-      <div className="lg:col-span-4">
-        {/* Reserved space for future content */}
+            return (
+              <Button
+                key={action.id}
+                onClick={() => handleActionClick(action)}
+                className={`w-full justify-start h-11 px-4 bg-white hover:bg-slate-50 text-slate-800 hover:text-slate-900 border border-slate-200 hover:border-slate-300 shadow-sm hover:shadow-md transition-all duration-200 group relative dark:bg-slate-700 dark:hover:bg-slate-600 dark:text-white dark:hover:text-white dark:border-slate-600/50 dark:hover:border-slate-500/70 ${
+                  isActive ? 'border-slate-300 shadow-md dark:border-slate-500/70' : ''
+                }`}
+                variant="outline"
+                aria-label={action.tooltip}
+                aria-current={isActive ? 'page' : undefined}
+                title={action.tooltip}
+              >
+                <div className="w-6 h-6 bg-slate-200/60 dark:bg-slate-500/30 rounded-md flex items-center justify-center mr-2 group-hover:bg-slate-300/70 dark:group-hover:bg-slate-400/40 transition-colors">
+                  <Icon className="w-4 h-4" aria-hidden="true" />
+                </div>
+                <span className="font-medium text-sm whitespace-nowrap">
+                  {action.label}
+                </span>
+              </Button>
+            );
+          })}
+        </nav>
       </div>
-    </div>
+    </CardContent>
+  </Card>
 
     {/* Create Pawn Transaction Dialog - Floating */}
     <Dialog open={showCreatePawnDialog} onOpenChange={setShowCreatePawnDialog}>
