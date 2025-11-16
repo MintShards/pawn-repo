@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     
     # Business rules configuration
     MAX_ACTIVE_LOANS: int = config("MAX_ACTIVE_LOANS", default=8, cast=int)
+
+    # Trends cache configuration
+    TRENDS_CACHE_ENABLED: bool = config("TRENDS_CACHE_ENABLED", default=True, cast=bool)
+    TRENDS_CACHE_TTL: int = config("TRENDS_CACHE_TTL", default=300, cast=int)  # 5 minutes in seconds
+    TRENDS_CACHE_MAX_SIZE: int = config("TRENDS_CACHE_MAX_SIZE", default=1000, cast=int)
     
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     @classmethod

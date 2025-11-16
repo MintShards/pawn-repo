@@ -3,6 +3,7 @@ import AppHeader from "../components/common/AppHeader";
 import PageHeader from "../components/common/PageHeader";
 import ErrorBoundary from "../components/common/ErrorBoundary";
 import { useDashboardStats } from "../hooks/useDashboardStats";
+import RevenueAndLoanTrends from "../components/dashboard/RevenueAndLoanTrends";
 import { Card, CardContent } from "../components/ui/card";
 import {
   CreditCard,
@@ -169,7 +170,7 @@ const ReportsPage = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/40 dark:from-slate-950 dark:via-slate-900 dark:to-slate-800">
-      <AppHeader pageTitle="Reports" />
+      <AppHeader />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <PageHeader
@@ -193,6 +194,14 @@ const ReportsPage = () => {
               />
             ))}
           </div>
+        </ErrorBoundary>
+
+        {/* Revenue and Loan Trends */}
+        <ErrorBoundary
+          title="Trends Loading Error"
+          message="Unable to load revenue and loan trends. Please refresh the page."
+        >
+          <RevenueAndLoanTrends />
         </ErrorBoundary>
       </main>
     </div>

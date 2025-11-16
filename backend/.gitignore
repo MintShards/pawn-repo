@@ -23,14 +23,10 @@ wheels/
 .installed.cfg
 *.egg
 
-# Logs
-*.log
-backend.log
-*.log.*
-
-# Environment variables
-.env
-.env.local
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
 
 # IDE
 .vscode/
@@ -39,25 +35,13 @@ backend.log
 *.swo
 *~
 
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
+# Environment
+.env
+.env.local
 
-# Jupyter
-.ipynb_checkpoints/
+# Logs
+*.log
 
-# Database
-*.db
-*.sqlite3
-
-# macOS
+# OS
 .DS_Store
-
-# Receipts
-receipts/
-*.pdf
-
-# Uploaded files (logos, etc.)
-frontend/public/uploads/
+Thumbs.db

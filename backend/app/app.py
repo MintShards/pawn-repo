@@ -134,6 +134,26 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Failed to create database indexes: {e}")
 
+    # BLOCKER-1 FIX: Verify trends-specific indexes exist before accepting requests
+    # This prevents 30+ second query times from missing indexes.
+    # Application MUST fail fast if required indexes are missing.
+    try:
+        from app.api.api_v1.handlers.trends import verify_trends_indexes
+        await verify_trends_indexes()
+        logger.info("Trends indexes verified successfully")
+    except RuntimeError as e:
+        logger.critical(
+            "Missing required indexes for trends endpoints",
+            error=str(e)
+        )
+        raise  # Fail fast if indexes are missing
+    except Exception as e:
+        logger.error(
+            "Trends indexes verification encountered an error",
+            error=str(e)
+        )
+        # Allow app to start on verification errors (but not missing indexes)
+
     # Initialize background scheduler for automatic status updates
     try:
         from app.services.pawn_transaction_service import PawnTransactionService
@@ -193,6 +213,14 @@ async def lifespan(app: FastAPI):
         logger.info("Background scheduler stopped")
     except Exception as e:
         logger.warning(f"Error stopping scheduler: {e}")
+
+    # CRITICAL-1: Shutdown trends cache gracefully
+    try:
+        from app.api.api_v1.handlers.trends import shutdown_cache
+        shutdown_cache()
+        logger.info("Trends cache shutdown completed")
+    except Exception as e:
+        logger.warning(f"Error shutting down trends cache: {e}")
 
     await close_database()
 

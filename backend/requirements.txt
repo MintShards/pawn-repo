@@ -30,3 +30,6 @@ psutil==5.9.6
 
 # Task Scheduling
 APScheduler==3.10.4
+
+# Timezone & Date Utilities
+pytz==2024.1

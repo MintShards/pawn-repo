@@ -299,12 +299,25 @@ class Payment(Document):
         """Override save to validate payment math and update timestamps"""
         # Validate payment math before saving
         self.validate_payment_math()
-        
+
         # Update timestamp
         self.updated_at = datetime.now(UTC)
-        
-        # Call parent save
+
+        # HIGH-1 FIX: Write to database FIRST, then invalidate cache
+        # This prevents race condition where:
+        # 1. Cache is invalidated
+        # 2. Another request comes in and caches stale data
+        # 3. Database write completes (but cache already has stale data)
         await super().save(*args, **kwargs)
+
+        # HIGH-1 FIX: Invalidate cache AFTER successful DB write
+        # Import here to avoid circular dependency
+        try:
+            from app.api.api_v1.handlers.trends import invalidate_trends_cache
+            invalidate_trends_cache()
+        except ImportError:
+            # Trends module not available (e.g., during testing)
+            pass
     
     def __str__(self) -> str:
         """Human-readable string representation."""

@@ -63,20 +63,23 @@ class Extension(Document):
     )
 
     # Financial breakdown (for bulk payments with discounts/overdue fees)
-    discount_amount: float = Field(
-        default=0.0,
+    # FIXED BLOCKER-1: Converted from float to int (whole dollars) to match Payment model
+    # This prevents precision loss when aggregating with integer values
+    # and ensures consistent financial calculations across the system
+    discount_amount: int = Field(
+        default=0,
         ge=0,
-        description="Discount amount applied to extension fee"
+        description="Discount amount in whole dollars"
     )
-    overdue_fee_collected: float = Field(
-        default=0.0,
+    overdue_fee_collected: int = Field(
+        default=0,
         ge=0,
-        description="Overdue fee collected with this extension"
+        description="Overdue fee collected in whole dollars"
     )
-    net_amount_collected: Optional[float] = Field(
+    net_amount_collected: Optional[int] = Field(
         default=None,
         ge=0,
-        description="Actual amount collected (total_extension_fee - discount + overdue_fee)"
+        description="Net amount collected in whole dollars (total_extension_fee - discount + overdue_fee)"
     )
     discount_approved_by: Optional[str] = Field(
         default=None,
@@ -312,7 +315,7 @@ class Extension(Document):
 
         # Calculate net_amount_collected if not set
         if self.net_amount_collected is None:
-            self.net_amount_collected = float(
+            self.net_amount_collected = int(
                 self.total_extension_fee - self.discount_amount + self.overdue_fee_collected
             )
 
@@ -322,8 +325,21 @@ class Extension(Document):
         # Update timestamp
         self.updated_at = datetime.now(UTC)
 
-        # Call parent save
+        # HIGH-1 FIX: Write to database FIRST, then invalidate cache
+        # This prevents race condition where:
+        # 1. Cache is invalidated
+        # 2. Another request comes in and caches stale data
+        # 3. Database write completes (but cache already has stale data)
         await super().save(*args, **kwargs)
+
+        # HIGH-1 FIX: Invalidate cache AFTER successful DB write
+        # Import here to avoid circular dependency
+        try:
+            from app.api.api_v1.handlers.trends import invalidate_trends_cache
+            invalidate_trends_cache()
+        except ImportError:
+            # Trends module not available (e.g., during testing)
+            pass
     
     def __str__(self) -> str:
         """Human-readable string representation."""

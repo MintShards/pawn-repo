@@ -151,8 +151,17 @@ export const AuthProvider = ({ children }) => {
         // Session is valid - trust the stored tokens and set authenticated state
         setIsAuthenticated(true);
 
-        // Don't fetch user data here - let components request it when needed
-        // This prevents request storms during initialization
+        // Fetch user data during initialization to populate user context
+        // This ensures user role/permissions are available after page refresh
+        try {
+          const userData = await authService.getCurrentUser();
+          if (userData) {
+            setUser(userData);
+          }
+        } catch (error) {
+          console.warn('Failed to fetch user data during initialization:', error);
+          // Continue with authentication - user data can be fetched later by components
+        }
 
         // Start security timer for existing session
         setTimeout(() => startTimer(), 200);
@@ -160,7 +169,6 @@ export const AuthProvider = ({ children }) => {
         return;
       }
 
-      // EMERGENCY FIX: Don't fetch user data during initialization
       // Sessions without refresh token are considered invalid - require re-login
       if (!hasRefreshToken) {
         // No refresh token - requiring fresh login
@@ -217,7 +225,7 @@ export const AuthProvider = ({ children }) => {
       }
     } catch (error) {
       // Login error
-      console.log('AuthContext login error:', error);
+      console.error('AuthContext login error:', error);
       return {
         success: false,
         error: error.message || 'Login failed. Please check your credentials.'
