@@ -4,6 +4,9 @@ import PageHeader from "../components/common/PageHeader";
 import ErrorBoundary from "../components/common/ErrorBoundary";
 import { useDashboardStats } from "../hooks/useDashboardStats";
 import RevenueAndLoanTrends from "../components/dashboard/RevenueAndLoanTrends";
+import CollectionsAnalytics from "../components/reports/CollectionsAnalytics";
+import TopCustomersCard from "../components/reports/TopCustomersCard";
+import InventorySnapshotCard from "../components/reports/InventorySnapshotCard";
 import { Card, CardContent } from "../components/ui/card";
 import {
   CreditCard,
@@ -201,8 +204,39 @@ const ReportsPage = () => {
           title="Trends Loading Error"
           message="Unable to load revenue and loan trends. Please refresh the page."
         >
-          <RevenueAndLoanTrends />
+          <div className="mb-8">
+            <RevenueAndLoanTrends />
+          </div>
         </ErrorBoundary>
+
+        {/* Collections Analytics (Full Width) */}
+        <ErrorBoundary
+          title="Collections Analytics Error"
+          message="Unable to load collections analytics. Please refresh the page."
+        >
+          <div className="mb-8">
+            <CollectionsAnalytics />
+          </div>
+        </ErrorBoundary>
+
+        {/* Top Customers & Inventory Snapshot (Two Columns) */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Top Customers (Left Column) */}
+          <ErrorBoundary
+            title="Top Customers Error"
+            message="Unable to load top customers. Please refresh the page."
+          >
+            <TopCustomersCard />
+          </ErrorBoundary>
+
+          {/* Inventory Snapshot (Right Column) */}
+          <ErrorBoundary
+            title="Inventory Snapshot Error"
+            message="Unable to load inventory snapshot. Please refresh the page."
+          >
+            <InventorySnapshotCard />
+          </ErrorBoundary>
+        </div>
       </main>
     </div>
   );

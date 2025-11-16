@@ -22,9 +22,41 @@ from app.core.exceptions import (
     BusinessRuleError, DatabaseError, RateLimitError, SecurityError,
     ConfigurationError, ExternalServiceError, get_http_status_for_exception
 )
+from app.core.config import settings
 
 # Configure structured logging
 exception_handler_logger = structlog.get_logger("exception_handler")
+
+
+def add_cors_headers(response: JSONResponse, request: Request) -> JSONResponse:
+    """
+    Add CORS headers to JSON responses.
+
+    This ensures error responses include proper CORS headers so browsers
+    don't block them as CORS policy violations.
+
+    Args:
+        response: JSONResponse to add headers to
+        request: Request object to get origin from
+
+    Returns:
+        JSONResponse with CORS headers added
+    """
+    # Get the origin from the request
+    origin = request.headers.get("origin", "")
+
+    # Check if origin is in allowed origins
+    allowed_origins = settings.BACKEND_CORS_ORIGINS
+
+    if origin in allowed_origins or "*" in allowed_origins:
+        response.headers["access-control-allow-origin"] = origin
+        response.headers["access-control-allow-credentials"] = "true"
+        response.headers["access-control-allow-methods"] = "GET, POST, PUT, DELETE, PATCH, OPTIONS"
+        response.headers["access-control-allow-headers"] = "*"
+        response.headers["access-control-expose-headers"] = "X-Total-Count, X-Process-Time"
+        response.headers["access-control-max-age"] = "3600"
+
+    return response
 
 
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
@@ -64,8 +96,8 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
         traceback=traceback.format_exc()
     )
     
-    # Return sanitized error response
-    return JSONResponse(
+    # Return sanitized error response with CORS headers
+    response = JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
             "error": "Internal server error",
@@ -75,6 +107,7 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
             "timestamp": request_context["timestamp"]
         }
     )
+    return add_cors_headers(response, request)
 
 
 async def pawn_shop_exception_handler(request: Request, exc: PawnShopException) -> JSONResponse:
@@ -129,11 +162,12 @@ async def pawn_shop_exception_handler(request: Request, exc: PawnShopException) 
     # Include details for client errors (400-499) but not server errors
     if 400 <= status_code < 500 and exc.details:
         response_content["details"] = exc.details
-    
-    return JSONResponse(
+
+    response = JSONResponse(
         status_code=status_code,
         content=response_content
     )
+    return add_cors_headers(response, request)
 
 
 async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
@@ -173,8 +207,8 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         validation_errors=validation_errors,
         timestamp=datetime.now(UTC).isoformat()
     )
-    
-    return JSONResponse(
+
+    response = JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={
             "error": "ValidationError",
@@ -188,6 +222,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             "timestamp": datetime.now(UTC).isoformat()
         }
     )
+    return add_cors_headers(response, request)
 
 
 async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
@@ -251,11 +286,12 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
             response_content["details"] = exc.detail
         else:
             response_content["details"] = {"message": str(exc.detail)}
-    
-    return JSONResponse(
+
+    response = JSONResponse(
         status_code=exc.status_code,
         content=response_content
     )
+    return add_cors_headers(response, request)
 
 
 async def starlette_http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
@@ -285,8 +321,8 @@ async def starlette_http_exception_handler(request: Request, exc: StarletteHTTPE
         detail=exc.detail,
         timestamp=datetime.now(UTC).isoformat()
     )
-    
-    return JSONResponse(
+
+    response = JSONResponse(
         status_code=exc.status_code,
         content={
             "error": f"HTTP{exc.status_code}Error",
@@ -296,6 +332,7 @@ async def starlette_http_exception_handler(request: Request, exc: StarletteHTTPE
             "timestamp": datetime.now(UTC).isoformat()
         }
     )
+    return add_cors_headers(response, request)
 
 
 # Dictionary mapping exception types to their handlers for easy registration

@@ -24,6 +24,7 @@ from app.api.api_v1.handlers.consistency import consistency_router
 from app.api.api_v1.handlers.user_activity import router as user_activity_router
 from app.api.api_v1.handlers.business_config import router as business_config_router
 from app.api.api_v1.handlers.trends import router as trends_router
+from app.api.api_v1.handlers.reports import reports_router
 
 # Main API v1 router
 router = APIRouter()
@@ -149,5 +150,12 @@ router.include_router(
     trends_router,
     prefix="/trends",
     tags=["Revenue & Loan Trends"],
+    responses={403: {"description": "Staff or Admin access required"}}
+)
+
+router.include_router(
+    reports_router,
+    prefix="/reports",
+    tags=["Reports & Analytics"],
     responses={403: {"description": "Staff or Admin access required"}}
 )
