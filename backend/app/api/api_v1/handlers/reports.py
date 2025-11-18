@@ -8,7 +8,7 @@ Implements three core report components:
 3. Inventory Snapshot - Storage analytics by loan status
 """
 
-from fastapi import APIRouter, Depends, Query, status, Request
+from fastapi import APIRouter, Depends, Query, status, Request, HTTPException
 from datetime import datetime
 from typing import Optional, Union
 
@@ -35,6 +35,7 @@ reports_router = APIRouter()
     description="Overdue loan tracking with aging breakdown and historical trends",
     responses={
         200: {"description": "Collections analytics data"},
+        400: {"description": "Invalid date format or date range"},
         401: {"description": "Not authenticated"},
         429: {"description": "Rate limit exceeded"},
         500: {"description": "Internal server error"}
@@ -63,14 +64,67 @@ async def get_collections_analytics(
         - Aging buckets (1-7d, 8-14d, 15-30d, 30+d)
         - Historical trend (90-day weekly data points)
     """
-    # Parse dates if provided
+    # Parse and validate dates with comprehensive error handling
     start_dt = None
     end_dt = None
+    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
 
-    if end_date:
-        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-    if start_date:
-        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+    try:
+        # Parse end_date if provided
+        if end_date:
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+
+            # Validate end_date is not in the future
+            if end_dt > today:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": "invalid_date_range",
+                        "message": f"End date cannot be in the future. Maximum allowed: {today.strftime('%Y-%m-%d')}",
+                        "field": "end_date",
+                        "provided_value": end_date
+                    }
+                )
+
+        # Parse start_date if provided
+        if start_date:
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+
+            # Validate start_date is not in the future
+            if start_dt > today:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": "invalid_date_range",
+                        "message": f"Start date cannot be in the future. Maximum allowed: {today.strftime('%Y-%m-%d')}",
+                        "field": "start_date",
+                        "provided_value": start_date
+                    }
+                )
+
+        # Validate start_date < end_date if both provided
+        if start_dt and end_dt and start_dt >= end_dt:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "invalid_date_range",
+                    "message": "Start date must be before end date",
+                    "field": "date_range",
+                    "provided_start": start_date,
+                    "provided_end": end_date
+                }
+            )
+
+    except ValueError as e:
+        # Handle invalid date format
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "invalid_date_format",
+                "message": "Date must be in YYYY-MM-DD format (e.g., 2024-01-31)",
+                "validation_error": str(e)
+            }
+        )
 
     # Get timezone from request header
     timezone_header = request.headers.get("X-Client-Timezone")

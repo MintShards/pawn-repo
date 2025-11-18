@@ -23,7 +23,7 @@ class CollectionsSummary(BaseModel):
 
 class AgingBucket(BaseModel):
     """Aging bucket for overdue transactions"""
-    range: str = Field(..., description="Age range (e.g., '1-7 days')")
+    range: str = Field(..., description="Age range (e.g., '0-7 days', '8-14 days')")
     count: int = Field(..., description="Number of transactions in this range")
     amount: int = Field(..., description="Total amount in this range")
     percentage: float = Field(..., description="Percentage of total overdue")

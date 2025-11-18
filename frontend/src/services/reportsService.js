@@ -13,38 +13,53 @@ const reportsService = {
   /**
    * Get collections analytics with overdue tracking and aging breakdown
    *
-   * @param {Object} params - Query parameters
-   * @param {string} params.startDate - Start date (YYYY-MM-DD)
-   * @param {string} params.endDate - End date (YYYY-MM-DD)
+   * @param {string} startDate - Start date (YYYY-MM-DD)
+   * @param {string} endDate - End date (YYYY-MM-DD)
+   * @param {AbortSignal} signal - Optional abort signal for request cancellation
    * @returns {Promise<Object>} Collections analytics data
    */
-  getCollectionsAnalytics: async (params = {}) => {
-    const queryParams = new URLSearchParams();
+  getCollectionsAnalytics: async (startDate = null, endDate = null, signal = null) => {
+    try {
+      const params = new URLSearchParams();
 
-    if (params.startDate) {
-      queryParams.append('start_date', params.startDate);
-    }
-    if (params.endDate) {
-      queryParams.append('end_date', params.endDate);
-    }
-
-    const url = `${API_BASE_URL}/api/v1/reports/collections${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
-    const token = authService.getToken();
-
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        'X-Client-Timezone': Intl.DateTimeFormat().resolvedOptions().timeZone
+      if (startDate) {
+        params.append('start_date', startDate); // Format: YYYY-MM-DD
       }
-    });
+      if (endDate) {
+        params.append('end_date', endDate); // Format: YYYY-MM-DD
+      }
 
-    if (!response.ok) {
-      throw new Error(`Failed to fetch collections analytics: ${response.statusText}`);
+      const queryString = params.toString();
+      const url = `${API_BASE_URL}/api/v1/reports/collections${queryString ? `?${queryString}` : ''}`;
+      const token = authService.getToken();
+
+      const fetchOptions = {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'X-Client-Timezone': Intl.DateTimeFormat().resolvedOptions().timeZone
+        }
+      };
+
+      if (signal) {
+        fetchOptions.signal = signal;
+      }
+
+      const response = await fetch(url, fetchOptions);
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch collections analytics: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      // Don't log AbortError - it's expected
+      if (error.name !== 'AbortError') {
+        console.error('Error fetching collections analytics:', error);
+      }
+      throw error;
     }
-
-    return await response.json();
   },
 
   /**

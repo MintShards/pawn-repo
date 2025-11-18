@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
 import { Button } from '../ui/button';
 import { Download, TrendingUp, TrendingDown, Clock } from 'lucide-react';
+import { DateRangePicker } from '../ui/date-range-picker';
+import { format, subDays, startOfDay, endOfDay } from 'date-fns';
 import reportsService from '../../services/reportsService';
 import { Alert, AlertDescription } from '../ui/alert';
 import {
@@ -14,29 +16,156 @@ import {
   ResponsiveContainer
 } from 'recharts';
 
+// Period options for preset selection
+const PERIOD_OPTIONS = [
+  { value: '7d', label: '7 Days' },
+  { value: '30d', label: '30 Days' },
+  { value: '90d', label: '90 Days' },
+  { value: '1y', label: '1 Year' }
+];
+
 const CollectionsAnalytics = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [data, setData] = useState(null);
   const [exporting, setExporting] = useState(false);
+  const [selectedPeriod, setSelectedPeriod] = useState('30d');
+  const [customDateRange, setCustomDateRange] = useState(null);
+  const [selectionMode, setSelectionMode] = useState('preset'); // 'preset' or 'custom'
+  const abortControllerRef = useRef(null);
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  // Convert period to date range
+  const periodToDateRange = (period) => {
+    const now = new Date();
+    const end = endOfDay(now);
+    let start;
 
-  const fetchData = async () => {
+    switch (period) {
+      case '7d':
+        start = startOfDay(subDays(now, 7));
+        break;
+      case '30d':
+        start = startOfDay(subDays(now, 30));
+        break;
+      case '90d':
+        start = startOfDay(subDays(now, 90));
+        break;
+      case '1y':
+        start = startOfDay(subDays(now, 365));
+        break;
+      default:
+        start = startOfDay(subDays(now, 30));
+    }
+
+    return { start, end };
+  };
+
+  // Fetch data with race condition prevention
+  const fetchData = useCallback(async () => {
+    // Abort previous request if still pending
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
       setLoading(true);
       setError(null);
-      const result = await reportsService.getCollectionsAnalytics();
-      setData(result);
+
+      let result;
+      if (selectionMode === 'custom' && customDateRange?.from && customDateRange?.to) {
+        // Custom date range
+        result = await reportsService.getCollectionsAnalytics(
+          format(customDateRange.from, 'yyyy-MM-dd'),
+          format(customDateRange.to, 'yyyy-MM-dd'),
+          controller.signal
+        );
+      } else {
+        // Preset period - convert to dates
+        const { start, end } = periodToDateRange(selectedPeriod);
+        result = await reportsService.getCollectionsAnalytics(
+          format(start, 'yyyy-MM-dd'),
+          format(end, 'yyyy-MM-dd'),
+          controller.signal
+        );
+      }
+
+      if (!controller.signal.aborted) {
+        setData(result);
+      }
     } catch (err) {
-      setError('Failed to load collections analytics. Please try again.');
-      console.error('Collections analytics error:', err);
+      if (err.name !== 'AbortError') {
+        setError('Failed to load collections analytics. Please try again.');
+        console.error('Collections analytics error:', err);
+      }
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) {
+        setLoading(false);
+      }
     }
-  };
+  }, [selectedPeriod, selectionMode, customDateRange]);
+
+  // OPTIMIZATION: Memoize chart data transformation (MUST be before early returns)
+  const chartData = useMemo(() => data?.historical || [], [data?.historical]);
+
+  // OPTIMIZATION: Memoize tooltip configuration (MUST be before early returns)
+  const tooltipConfig = useMemo(() => ({
+    formatter: (value) => {
+      const formatted = new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
+      }).format(value);
+      return [formatted, 'Overdue Amount'];
+    },
+    labelFormatter: (date) => new Date(date).toLocaleDateString(),
+    contentStyle: {
+      backgroundColor: 'rgba(255, 255, 255, 0.95)',
+      border: '1px solid #f43f5e',
+      borderRadius: '8px'
+    }
+  }), []);
+
+  // OPTIMIZATION: Memoize date formatter for X-axis (MUST be before early returns)
+  const xAxisFormatter = useCallback((date) => {
+    const d = new Date(date);
+    return `${d.getMonth() + 1}/${d.getDate()}`;
+  }, []);
+
+  // OPTIMIZATION: Memoize Y-axis formatter (MUST be before early returns)
+  const yAxisFormatter = useCallback((value) => `$${(value / 1000).toFixed(0)}K`, []);
+
+  // Fetch on mount and when dependencies change
+  useEffect(() => {
+    fetchData();
+
+    // Cleanup: abort pending request on unmount
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, [fetchData]);
+
+  // Event handlers
+  const handlePeriodChange = useCallback((period) => {
+    setSelectedPeriod(period);
+    setSelectionMode('preset');
+    setCustomDateRange(null);
+  }, []);
+
+  const handleCustomDateRangeChange = useCallback((range) => {
+    setCustomDateRange(range);
+    setSelectionMode('custom');
+  }, []);
+
+  const handleClearCustomRange = useCallback(() => {
+    setCustomDateRange(null);
+    setSelectionMode('preset');
+  }, []);
 
   const handleExport = async () => {
     try {
@@ -51,97 +180,188 @@ const CollectionsAnalytics = () => {
     }
   };
 
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-US', {
+  // OPTIMIZATION: Memoize currency formatter to avoid recreation on every render
+  const formatCurrency = useMemo(() => {
+    const formatter = new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
       minimumFractionDigits: 0,
       maximumFractionDigits: 0
-    }).format(amount);
-  };
+    });
+    return (amount) => formatter.format(amount);
+  }, []);
 
-  const TrendIndicator = ({ value, isPercentage = false }) => {
-    if (Math.abs(value) < 0.1) {
-      return <span className="text-xs text-slate-500 dark:text-slate-400">Stable</span>;
-    }
+  // OPTIMIZATION: Memoize TrendIndicator component to prevent re-renders
+  const TrendIndicator = useMemo(() => {
+    return ({ value, isPercentage = false }) => {
+      if (Math.abs(value) < 0.1) {
+        return <span className="text-xs text-slate-500 dark:text-slate-400">Stable</span>;
+      }
 
-    const isPositive = value > 0;
-    const Icon = isPositive ? TrendingUp : TrendingDown;
-    const colorClass = isPositive
-      ? 'text-red-600 dark:text-red-400'  // Positive trend is bad for overdue
-      : 'text-green-600 dark:text-green-400';  // Negative trend is good
+      const isPositive = value > 0;
+      const Icon = isPositive ? TrendingUp : TrendingDown;
+      const colorClass = isPositive
+        ? 'text-red-600 dark:text-red-400'  // Positive trend is bad for overdue
+        : 'text-green-600 dark:text-green-400';  // Negative trend is good
 
-    return (
-      <div className={`flex items-center space-x-1 ${colorClass}`}>
-        <Icon className="w-3 h-3" />
-        <span className="text-xs font-medium">
-          {Math.abs(value).toFixed(1)}{isPercentage ? '%' : ''}
-        </span>
-      </div>
-    );
-  };
+      return (
+        <div className={`flex items-center space-x-1 ${colorClass}`}>
+          <Icon className="w-3 h-3" />
+          <span className="text-xs font-medium">
+            {Math.abs(value).toFixed(1)}{isPercentage ? '%' : ''}
+          </span>
+        </div>
+      );
+    };
+  }, []);
 
   if (loading) {
     return (
       <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
         <CardHeader className="pb-4">
-          <div className="animate-pulse">
-            <div className="flex justify-between items-start mb-4">
-              <div className="flex items-center gap-2">
-                {/* Icon badge skeleton */}
-                <div className="w-10 h-10 bg-gradient-to-br from-rose-500 to-pink-600 rounded-lg opacity-50" />
-                <div className="space-y-2">
-                  {/* Title skeleton */}
-                  <div className="h-6 bg-slate-200/60 dark:bg-slate-700/40 rounded w-48" />
-                  {/* Description skeleton */}
-                  <div className="h-3 bg-slate-200/60 dark:bg-slate-700/40 rounded w-64" />
-                </div>
+          <div className="flex justify-between items-start mb-4">
+            <div className="flex items-center gap-2">
+              {/* Icon badge skeleton with pulse */}
+              <div className="w-10 h-10 bg-gradient-to-br from-rose-500 to-pink-600 rounded-lg opacity-50 animate-pulse" />
+              <div className="space-y-2">
+                {/* Title skeleton with shimmer */}
+                <div className="h-6 bg-gradient-to-r from-slate-200 via-slate-300 to-slate-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 rounded w-48 animate-shimmer bg-[length:200%_100%]" />
+                {/* Description skeleton */}
+                <div className="h-3 bg-gradient-to-r from-slate-200 via-slate-300 to-slate-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 rounded w-64 animate-shimmer bg-[length:200%_100%]" />
               </div>
-              {/* Export button skeleton */}
-              <div className="h-9 w-28 bg-slate-200/60 dark:bg-slate-700/40 rounded-md" />
             </div>
+            {/* Export button skeleton */}
+            <div className="h-9 w-28 bg-gradient-to-r from-slate-200 via-slate-300 to-slate-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 rounded-md animate-shimmer bg-[length:200%_100%]" />
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="animate-pulse space-y-6">
-            {/* Summary metrics skeleton */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="bg-white/50 dark:bg-slate-800/50 rounded-lg p-6 border border-slate-200 dark:border-slate-700">
-                  <div className="h-4 bg-slate-200/60 dark:bg-slate-700/40 rounded w-24 mb-2" />
-                  <div className="h-8 bg-slate-200/60 dark:bg-slate-700/40 rounded w-32 mb-1" />
-                  <div className="h-3 bg-slate-200/60 dark:bg-slate-700/40 rounded w-28" />
-                </div>
-              ))}
-            </div>
+          {/* Summary metrics skeleton */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[
+              { delay: '0s', width: 'w-24' },
+              { delay: '0.1s', width: 'w-28' },
+              { delay: '0.2s', width: 'w-20' }
+            ].map((config, i) => (
+              <div key={i} className="bg-white/50 dark:bg-slate-800/50 rounded-lg p-6 border border-slate-200 dark:border-slate-700 transition-all duration-300 hover:shadow-md">
+                {/* Label */}
+                <div
+                  className={`h-4 bg-gradient-to-r from-slate-200 via-slate-300 to-slate-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 rounded ${config.width} mb-3 animate-shimmer bg-[length:200%_100%]`}
+                  style={{ animationDelay: config.delay }}
+                />
+                {/* Value */}
+                <div
+                  className="h-8 bg-gradient-to-r from-slate-200 via-slate-300 to-slate-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 rounded w-32 mb-2 animate-shimmer bg-[length:200%_100%]"
+                  style={{ animationDelay: config.delay }}
+                />
+                {/* Trend indicator */}
+                <div
+                  className="h-3 bg-gradient-to-r from-slate-200 via-slate-300 to-slate-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 rounded w-28 animate-shimmer bg-[length:200%_100%]"
+                  style={{ animationDelay: config.delay }}
+                />
+              </div>
+            ))}
+          </div>
 
-            {/* Table skeleton */}
-            <div className="space-y-3">
-              <div className="h-5 bg-slate-200/60 dark:bg-slate-700/40 rounded w-48" />
-              <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
-                <div className="bg-slate-50 dark:bg-slate-800/50 p-3">
+          {/* Table skeleton */}
+          <div className="space-y-3">
+            {/* Table title */}
+            <div className="h-5 bg-gradient-to-r from-slate-200 via-slate-300 to-slate-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 rounded w-48 animate-shimmer bg-[length:200%_100%]" />
+            <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+              {/* Table header */}
+              <div className="bg-slate-50 dark:bg-slate-800/50 p-4">
+                <div className="grid grid-cols-4 gap-4">
+                  {['Age Range', 'Count', 'Amount', 'Percentage'].map((_, i) => (
+                    <div
+                      key={i}
+                      className="h-4 bg-gradient-to-r from-slate-200 via-slate-300 to-slate-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 rounded animate-shimmer bg-[length:200%_100%]"
+                      style={{ animationDelay: `${i * 0.05}s` }}
+                    />
+                  ))}
+                </div>
+              </div>
+              {/* Table rows */}
+              {[0, 1, 2, 3].map((rowIndex) => (
+                <div key={rowIndex} className="border-t border-slate-100 dark:border-slate-800 p-4 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
                   <div className="grid grid-cols-4 gap-4">
-                    {[1, 2, 3, 4].map((i) => (
-                      <div key={i} className="h-4 bg-slate-200/60 dark:bg-slate-700/40 rounded" />
+                    {[0, 1, 2, 3].map((colIndex) => (
+                      <div
+                        key={colIndex}
+                        className="h-4 bg-gradient-to-r from-slate-200 via-slate-300 to-slate-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 rounded animate-shimmer bg-[length:200%_100%]"
+                        style={{
+                          animationDelay: `${(rowIndex * 4 + colIndex) * 0.03}s`,
+                          width: colIndex === 0 ? '75%' : colIndex === 3 ? '50%' : '85%'
+                        }}
+                      />
                     ))}
                   </div>
                 </div>
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="border-t border-slate-100 dark:border-slate-800 p-3">
-                    <div className="grid grid-cols-4 gap-4">
-                      {[1, 2, 3, 4].map((j) => (
-                        <div key={j} className="h-4 bg-slate-200/60 dark:bg-slate-700/40 rounded" />
-                      ))}
-                    </div>
-                  </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Chart skeleton with realistic graph pattern */}
+          <div className="space-y-3">
+            {/* Chart title */}
+            <div className="h-5 bg-gradient-to-r from-slate-200 via-slate-300 to-slate-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 rounded w-56 animate-shimmer bg-[length:200%_100%]" />
+            <div className="bg-white/50 dark:bg-slate-800/50 rounded-lg p-6 border border-slate-200 dark:border-slate-700 h-80 relative overflow-hidden">
+              {/* Chart axes skeleton */}
+              <div className="absolute bottom-6 left-6 right-6 h-px bg-slate-300 dark:bg-slate-600" />
+              <div className="absolute bottom-6 left-6 top-6 w-px bg-slate-300 dark:bg-slate-600" />
+
+              {/* Y-axis labels */}
+              <div className="absolute left-0 top-6 bottom-6 flex flex-col justify-between w-12 pr-2">
+                {[0, 1, 2, 3, 4].map((i) => (
+                  <div
+                    key={i}
+                    className="h-3 bg-gradient-to-r from-slate-200 via-slate-300 to-slate-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 rounded w-10 animate-shimmer bg-[length:200%_100%]"
+                    style={{ animationDelay: `${i * 0.05}s` }}
+                  />
                 ))}
               </div>
-            </div>
 
-            {/* Chart skeleton */}
-            <div className="space-y-3">
-              <div className="h-5 bg-slate-200/60 dark:bg-slate-700/40 rounded w-56" />
-              <div className="bg-white/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-200 dark:border-slate-700 h-80" />
+              {/* X-axis labels */}
+              <div className="absolute bottom-0 left-12 right-6 flex justify-between h-4">
+                {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+                  <div
+                    key={i}
+                    className="h-3 bg-gradient-to-r from-slate-200 via-slate-300 to-slate-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 rounded w-8 animate-shimmer bg-[length:200%_100%]"
+                    style={{ animationDelay: `${i * 0.04}s` }}
+                  />
+                ))}
+              </div>
+
+              {/* Simulated trend line */}
+              <svg className="absolute left-12 top-6 right-6 bottom-12" viewBox="0 0 100 100" preserveAspectRatio="none">
+                <path
+                  d="M 0,80 L 15,75 L 30,60 L 45,55 L 60,45 L 75,40 L 90,35 L 100,30"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className="text-rose-300 dark:text-rose-500 opacity-30 animate-pulse"
+                  strokeDasharray="5,5"
+                />
+                {/* Data points */}
+                {[0, 15, 30, 45, 60, 75, 90, 100].map((x, i) => (
+                  <circle
+                    key={i}
+                    cx={x}
+                    cy={80 - (i * 6)}
+                    r="2"
+                    className="fill-rose-400 dark:fill-rose-500 opacity-40 animate-pulse"
+                    style={{ animationDelay: `${i * 0.1}s` }}
+                  />
+                ))}
+              </svg>
+
+              {/* Loading text */}
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="text-center">
+                  <div className="inline-flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+                    <div className="w-4 h-4 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" />
+                    <span className="animate-pulse">Loading trend data...</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </CardContent>
@@ -159,32 +379,77 @@ const CollectionsAnalytics = () => {
 
   if (!data) return null;
 
-  const { summary, aging_buckets, historical } = data;
+  const { summary, aging_buckets } = data;
 
   return (
     <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
       <CardHeader className="pb-4">
-        <div className="flex justify-between items-start">
-          <div>
-            <CardTitle className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-              <div className="w-10 h-10 bg-gradient-to-br from-rose-500 to-pink-600 rounded-lg flex items-center justify-center shadow-sm">
-                <Clock className="w-5 h-5 text-white" />
-              </div>
-              Collections Analytics
-            </CardTitle>
-            <CardDescription className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-              Overdue loan tracking and aging analysis
-            </CardDescription>
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+          {/* Title section */}
+          <div className="flex items-center gap-2">
+            <div className="w-10 h-10 bg-gradient-to-br from-rose-500 to-pink-600 rounded-lg flex items-center justify-center shadow-sm">
+              <Clock className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <CardTitle className="text-xl font-bold text-slate-900 dark:text-slate-100">
+                Collections Analytics
+              </CardTitle>
+              <CardDescription className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                Overdue loan tracking and aging analysis
+              </CardDescription>
+            </div>
           </div>
-          <Button
-            onClick={handleExport}
-            disabled={exporting}
-            variant="outline"
-            size="sm"
-          >
-            <Download className="w-4 h-4 mr-2" />
-            Export CSV
-          </Button>
+
+          {/* Date selection controls */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+            {/* Period selector and date range picker */}
+            <div
+              role="radiogroup"
+              aria-label="Time period selection"
+              className="flex flex-wrap items-center gap-2"
+            >
+              {/* Preset period buttons */}
+              {PERIOD_OPTIONS.map((option) => (
+                <Button
+                  key={option.value}
+                  variant={selectionMode === 'preset' && selectedPeriod === option.value ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => handlePeriodChange(option.value)}
+                  aria-label={`Select ${option.label} period`}
+                  role="radio"
+                  aria-checked={selectionMode === 'preset' && selectedPeriod === option.value}
+                  className={
+                    selectionMode === 'preset' && selectedPeriod === option.value
+                      ? 'bg-rose-600 hover:bg-rose-700 text-white'
+                      : ''
+                  }
+                >
+                  {option.label}
+                </Button>
+              ))}
+
+              {/* Custom date range picker */}
+              <DateRangePicker
+                value={customDateRange}
+                onChange={handleCustomDateRangeChange}
+                onClear={handleClearCustomRange}
+                maxDate={new Date()}
+                maxRangeDays={365}
+                className={selectionMode === 'custom' ? 'ring-2 ring-rose-500 rounded-md' : ''}
+              />
+            </div>
+
+            {/* Export button */}
+            <Button
+              onClick={handleExport}
+              disabled={exporting}
+              variant="outline"
+              size="sm"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Export CSV
+            </Button>
+          </div>
         </div>
       </CardHeader>
 
@@ -312,34 +577,35 @@ const CollectionsAnalytics = () => {
         {/* Historical Trend Chart */}
         <div>
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-3">
-            Overdue Trend - Last 90 Days
+            {selectionMode === 'custom' && customDateRange?.from && customDateRange?.to
+              ? `Overdue Trend - ${format(customDateRange.from, 'MMM d')} to ${format(customDateRange.to, 'MMM d, yyyy')}`
+              : `Overdue Trend - Last ${
+                  selectedPeriod === '7d' ? '7 Days' :
+                  selectedPeriod === '30d' ? '30 Days' :
+                  selectedPeriod === '90d' ? '90 Days' :
+                  '365 Days'
+                }`
+            }
           </h3>
           <div className="bg-white/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
             <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={historical}>
+              <LineChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
                 <XAxis
                   dataKey="date"
                   className="text-xs"
                   tick={{ fill: 'currentColor' }}
-                  tickFormatter={(date) => {
-                    const d = new Date(date);
-                    return `${d.getMonth() + 1}/${d.getDate()}`;
-                  }}
+                  tickFormatter={xAxisFormatter}
                 />
                 <YAxis
                   className="text-xs"
                   tick={{ fill: 'currentColor' }}
-                  tickFormatter={(value) => `$${(value / 1000).toFixed(0)}K`}
+                  tickFormatter={yAxisFormatter}
                 />
                 <Tooltip
-                  formatter={(value) => [formatCurrency(value), 'Overdue Amount']}
-                  labelFormatter={(date) => new Date(date).toLocaleDateString()}
-                  contentStyle={{
-                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                    border: '1px solid #f43f5e',
-                    borderRadius: '8px'
-                  }}
+                  formatter={tooltipConfig.formatter}
+                  labelFormatter={tooltipConfig.labelFormatter}
+                  contentStyle={tooltipConfig.contentStyle}
                 />
                 <Line
                   type="monotone"

@@ -145,10 +145,10 @@
   /* Premium animations for dashboard components */
   @keyframes shimmer {
     0% {
-      transform: translateX(-100%);
+      background-position: -200% 0;
     }
     100% {
-      transform: translateX(100%);
+      background-position: 200% 0;
     }
   }
 
@@ -164,7 +164,8 @@
   }
 
   .animate-shimmer {
-    animation: shimmer 2.5s infinite;
+    animation: shimmer 2.5s ease-in-out infinite;
+    background-size: 200% 100%;
   }
 
   .animate-fade-in {
