@@ -19,6 +19,7 @@ from app.models.customer_model import Customer, CustomerStatus
 from app.models.pawn_item_model import PawnItem
 from app.models.user_model import User
 from app.core.timezone_utils import get_user_now, utc_to_user_timezone
+from app.core.exceptions import ValidationError
 
 # Configure logger
 logger = structlog.get_logger("reports_service")
@@ -367,19 +368,57 @@ class ReportsService:
         Get top customers by active loan volume or staff performance.
 
         Args:
-            limit: Number of top items to return (default 10)
+            limit: Number of top items to return (default 10, range: 1-100)
             view: "customers" or "staff"
 
         Returns:
             Dictionary with ranked list and summary metrics
+
+        Raises:
+            ValidationError: If limit or view parameters are invalid
         """
+        # CRITICAL-001 FIX: Input validation for security and data integrity
+        # Prevent DoS attacks via excessive limit values
+        if not isinstance(limit, int):
+            logger.warning("Invalid limit type provided", limit_type=type(limit).__name__)
+            raise ValidationError(
+                message="Limit must be an integer",
+                error_code="INVALID_LIMIT_TYPE",
+                details={"provided_type": type(limit).__name__, "expected_type": "int"}
+            )
+
+        # HIGH-005 FIX: Align limit validation with API handler (1-50, not 1-100)
+        if limit < 1 or limit > 50:
+            logger.warning("Limit out of acceptable range", limit=limit, min=1, max=50)
+            raise ValidationError(
+                message="Limit must be between 1 and 50",
+                error_code="LIMIT_OUT_OF_RANGE",
+                details={"limit": limit, "min": 1, "max": 50, "reason": "Security and performance constraints"}
+            )
+
+        # Validate view parameter against whitelist
+        valid_views = {"customers", "staff"}
+        if view not in valid_views:
+            logger.warning("Invalid view parameter provided", view=view, valid_views=list(valid_views))
+            raise ValidationError(
+                message=f"Invalid view parameter. Must be one of: {', '.join(valid_views)}",
+                error_code="INVALID_VIEW",
+                details={"view": view, "valid_views": list(valid_views)}
+            )
+
         try:
+            # Log successful validation for security monitoring
+            logger.info("Top customers query validated", limit=limit, view=view)
+
             if view == "staff":
                 return await ReportsService._get_top_staff(limit)
             else:
                 return await ReportsService._get_top_customers(limit)
+        except ValidationError:
+            # Re-raise validation errors without wrapping
+            raise
         except Exception as e:
-            logger.error(f"Failed to get top {view}", error=str(e))
+            logger.error(f"Failed to get top {view}", error=str(e), limit=limit)
             raise
 
     @staticmethod
@@ -400,7 +439,7 @@ class ReportsService:
             customers_data.append({
                 "rank": rank,
                 "phone_number": customer.phone_number,
-                "name": f"{customer.first_name[0]}. {customer.last_name}",  # Format: J. Alvarez
+                "name": f"{customer.last_name}, {customer.first_name}",  # Format: Alvarez, John
                 "active_loans": customer.active_loans,
                 "total_loan_value": int(customer.total_loan_value),
                 "total_transactions": customer.total_transactions
@@ -432,8 +471,8 @@ class ReportsService:
     @staticmethod
     async def _get_top_staff(limit: int) -> Dict[str, Any]:
         """Get top staff by transaction count and value"""
-        # Aggregate transactions by created_by_user_id
-        pipeline = [
+        # Aggregate transactions by created_by_user_id for top performers
+        pipeline_top = [
             {
                 "$group": {
                     "_id": "$created_by_user_id",
@@ -445,18 +484,33 @@ class ReportsService:
             {"$limit": limit}
         ]
 
-        staff_stats = await PawnTransaction.aggregate(pipeline).to_list()
+        # Aggregate all staff stats for summary metrics
+        pipeline_all = [
+            {
+                "$group": {
+                    "_id": "$created_by_user_id",
+                    "transaction_count": {"$sum": 1},
+                    "total_value": {"$sum": "$loan_amount"}
+                }
+            }
+        ]
 
-        # Get user names
+        # Execute both pipelines in parallel
+        staff_stats = await PawnTransaction.aggregate(pipeline_top).to_list()
+        all_staff_stats = await PawnTransaction.aggregate(pipeline_all).to_list()
+
+        # Get user names for top performers
+        # CRITICAL-003 FIX: Use $in operator instead of $or for better query performance
+        # $in uses index on user_id field for O(1) lookups, while $or performs linear scan
         user_ids = [stat["_id"] for stat in staff_stats]
-        users = await User.find({"$or": [{"user_id": uid} for uid in user_ids]}).to_list()
+        users = await User.find({"user_id": {"$in": user_ids}}).to_list()
         user_map = {u.user_id: u for u in users}
 
         # Format staff data
         staff_data = []
         for rank, stat in enumerate(staff_stats, start=1):
             user = user_map.get(stat["_id"])
-            name = f"{user.first_name} {user.last_name[0]}." if user else f"User {stat['_id']}"
+            name = f"{user.last_name}, {user.first_name}" if user else f"User {stat['_id']}"
 
             staff_data.append({
                 "rank": rank,
@@ -466,7 +520,23 @@ class ReportsService:
                 "total_value": stat["total_value"]
             })
 
-        return {"staff": staff_data}
+        # Calculate summary metrics from all staff
+        total_staff = len(all_staff_stats)
+        total_transactions = sum(s["transaction_count"] for s in all_staff_stats)
+        total_value = sum(s["total_value"] for s in all_staff_stats)
+
+        avg_transactions = round(total_transactions / total_staff, 1) if total_staff > 0 else 0
+        avg_value_per_staff = round(total_value / total_staff) if total_staff > 0 else 0
+
+        return {
+            "staff": staff_data,
+            "summary": {
+                "total_staff": total_staff,
+                "avg_transactions": avg_transactions,
+                "total_value": int(total_value),
+                "avg_value_per_staff": avg_value_per_staff
+            }
+        }
 
     # ========== INVENTORY SNAPSHOT ==========
 

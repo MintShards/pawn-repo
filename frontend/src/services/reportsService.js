@@ -9,6 +9,53 @@ import authService from './authService';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
+/**
+ * Escapes CSV field values with formula injection protection and RFC 4180 compliance
+ *
+ * SECURITY: Prevents CSV formula injection by prefixing dangerous characters with single quote
+ * Excel/LibreOffice/Google Sheets execute formulas starting with: = + - @ \t \r
+ *
+ * OWASP Reference: https://owasp.org/www-community/attacks/CSV_Injection
+ *
+ * Attack Vector: Malicious formulas executed when CSV opened in spreadsheet applications
+ * Defense Strategy: Prefix dangerous characters with single quote to force text interpretation
+ *
+ * Coverage:
+ * - Formula starters: = + - @
+ * - Control chars: \t \r
+ *
+ * False Positives: Numbers like +123/-456 (rare in customer names, acceptable security trade-off)
+ *
+ * RFC 4180: If field contains commas, quotes, or newlines, wrap in quotes
+ * and escape internal quotes by doubling them.
+ *
+ * @param {*} value - The value to escape
+ * @returns {string} - The escaped CSV field value
+ *
+ * @example
+ * escapeCSV('=2+2')                    // Returns: '=2+2 (blocks formula)
+ * escapeCSV('Smith, John')             // Returns: "Smith, John" (RFC 4180)
+ * escapeCSV('=cmd|"/c calc"!A1')       // Returns: '=cmd|"/c calc"!A1 (blocks command injection)
+ */
+const escapeCSV = (value) => {
+  if (value == null) return '';
+  let str = String(value);
+
+  // CRITICAL SECURITY FIX: Prevent CSV formula injection
+  // Excel executes formulas starting with these characters
+  const dangerousChars = ['=', '+', '-', '@', '\t', '\r'];
+  if (dangerousChars.some(char => str.startsWith(char))) {
+    // Prefix with single quote to force Excel to treat as text
+    str = `'${str}`;
+  }
+
+  // RFC 4180: If field contains comma, quote, newline, or carriage return, wrap in quotes and escape internal quotes
+  if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+};
+
 const reportsService = {
   /**
    * Get collections analytics with overdue tracking and aging breakdown
@@ -68,6 +115,7 @@ const reportsService = {
    * @param {Object} params - Query parameters
    * @param {number} params.limit - Number of top items (default 10)
    * @param {string} params.view - View type: 'customers' or 'staff' (default 'customers')
+   * @param {AbortSignal} params.signal - Optional abort signal for request cancellation
    * @returns {Promise<Object>} Top customers or staff data
    */
   getTopCustomers: async (params = {}) => {
@@ -83,14 +131,22 @@ const reportsService = {
     const url = `${API_BASE_URL}/api/v1/reports/top-customers${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
     const token = authService.getToken();
 
-    const response = await fetch(url, {
+    // P1-002 FIX: Build fetch options with optional AbortSignal support
+    const fetchOptions = {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
         'X-Client-Timezone': Intl.DateTimeFormat().resolvedOptions().timeZone
       }
-    });
+    };
+
+    // P1-002 FIX: Add signal to fetch options if provided
+    if (params.signal) {
+      fetchOptions.signal = params.signal;
+    }
+
+    const response = await fetch(url, fetchOptions);
 
     if (!response.ok) {
       throw new Error(`Failed to fetch top customers: ${response.statusText}`);
@@ -168,7 +224,7 @@ const reportsService = {
     const data = await reportsService.getTopCustomers(params);
 
     if (data.customers) {
-      // Customer view CSV
+      // Customer view CSV with proper escaping
       const rows = [
         ['Top Customers Report'],
         ['Generated:', new Date().toLocaleString()],
@@ -176,8 +232,8 @@ const reportsService = {
         ['Rank', 'Name', 'Phone', 'Active Loans', 'Total Loan Value', 'Total Transactions'],
         ...data.customers.map(customer => [
           customer.rank,
-          customer.name,
-          customer.phone_number,
+          escapeCSV(customer.name),           // CRITICAL-002 FIX: Escape name (contains comma: "Lastname, Firstname")
+          escapeCSV(customer.phone_number),   // CRITICAL-002 FIX: Escape phone (may contain extensions)
           customer.active_loans,
           `$${customer.total_loan_value.toLocaleString()}`,
           customer.total_transactions
@@ -187,7 +243,7 @@ const reportsService = {
       const csvContent = rows.map(row => row.join(',')).join('\n');
       return new Blob([csvContent], { type: 'text/csv' });
     } else if (data.staff) {
-      // Staff view CSV
+      // Staff view CSV with proper escaping
       const rows = [
         ['Staff Performance Report'],
         ['Generated:', new Date().toLocaleString()],
@@ -195,8 +251,8 @@ const reportsService = {
         ['Rank', 'Name', 'User ID', 'Transaction Count', 'Total Value'],
         ...data.staff.map(staff => [
           staff.rank,
-          staff.name,
-          staff.user_id,
+          escapeCSV(staff.name),              // CRITICAL-002 FIX: Escape name (contains comma: "Lastname, Firstname")
+          escapeCSV(staff.user_id),           // CRITICAL-002 FIX: Escape user ID (could contain special chars)
           staff.transaction_count,
           `$${staff.total_value.toLocaleString()}`
         ])

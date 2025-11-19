@@ -219,17 +219,20 @@ const ReportsPage = () => {
           </div>
         </ErrorBoundary>
 
-        {/* Top Customers & Inventory Snapshot (Two Columns) */}
+        {/* Performance Analytics & Inventory (Two Columns) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Top Customers (Left Column) */}
-          <ErrorBoundary
-            title="Top Customers Error"
-            message="Unable to load top customers. Please refresh the page."
-          >
-            <TopCustomersCard />
-          </ErrorBoundary>
+          {/* Left Column: Top Customers & Top Staff (Stacked) */}
+          <div className="space-y-6">
+            {/* Top Performers (Customers & Staff) */}
+            <ErrorBoundary
+              title="Top Performers Error"
+              message="Unable to load performance data. Please refresh the page."
+            >
+              <TopCustomersCard />
+            </ErrorBoundary>
+          </div>
 
-          {/* Inventory Snapshot (Right Column) */}
+          {/* Right Column: Inventory Snapshot */}
           <ErrorBoundary
             title="Inventory Snapshot Error"
             message="Unable to load inventory snapshot. Please refresh the page."

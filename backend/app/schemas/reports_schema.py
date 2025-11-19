@@ -49,7 +49,7 @@ class CustomerRankData(BaseModel):
     """Individual customer ranking data"""
     rank: int = Field(..., description="Customer rank (1-based)")
     phone_number: str = Field(..., description="Customer phone number")
-    name: str = Field(..., description="Customer name (formatted as 'J. Alvarez')")
+    name: str = Field(..., description="Customer name (formatted as 'Alvarez, John')")
     active_loans: int = Field(..., description="Number of active loans")
     total_loan_value: int = Field(..., description="Total value of active loans")
     total_transactions: int = Field(..., description="Lifetime transaction count")
@@ -73,14 +73,23 @@ class StaffRankData(BaseModel):
     """Individual staff performance data"""
     rank: int = Field(..., description="Staff rank (1-based)")
     user_id: str = Field(..., description="User ID")
-    name: str = Field(..., description="Staff name (formatted as 'Sarah J.')")
+    name: str = Field(..., description="Staff name (formatted as 'Johnson, Sarah')")
     transaction_count: int = Field(..., description="Number of transactions created")
     total_value: int = Field(..., description="Total loan value created")
+
+
+class StaffSummary(BaseModel):
+    """Summary metrics for staff analytics"""
+    total_staff: int = Field(..., description="Total staff who created transactions")
+    avg_transactions: float = Field(..., description="Average transactions per staff member")
+    total_value: int = Field(..., description="Total value of all transactions created")
+    avg_value_per_staff: int = Field(..., description="Average value created per staff member")
 
 
 class TopStaffResponse(BaseModel):
     """Response for top staff by transaction count"""
     staff: List[StaffRankData]
+    summary: StaffSummary
 
 
 # ========== INVENTORY SNAPSHOT SCHEMAS ==========
