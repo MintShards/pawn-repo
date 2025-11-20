@@ -7,6 +7,7 @@ import RevenueAndLoanTrends from "../components/dashboard/RevenueAndLoanTrends";
 import CollectionsAnalytics from "../components/reports/CollectionsAnalytics";
 import TopCustomersCard from "../components/reports/TopCustomersCard";
 import InventorySnapshotCard from "../components/reports/InventorySnapshotCard";
+import InventorySnapshotErrorState from "../components/reports/InventorySnapshotCard/InventorySnapshotErrorState";
 import { Card, CardContent } from "../components/ui/card";
 import {
   CreditCard,
@@ -122,7 +123,9 @@ const DashboardStatCard = React.memo(({ config, metric, loading }) => {
       className={`border-0 shadow-lg bg-gradient-to-br relative overflow-hidden transition-all duration-300 hover:shadow-xl ${config.gradient}`}
     >
       {/* Decorative accent */}
-      <div className={`absolute top-0 right-0 w-20 h-20 ${config.accentBg} rounded-full -mr-10 -mt-10`} />
+      <div
+        className={`absolute top-0 right-0 w-20 h-20 ${config.accentBg} rounded-full -mr-10 -mt-10`}
+      />
 
       <CardContent className="p-6">
         {loading ? (
@@ -233,9 +236,25 @@ const ReportsPage = () => {
           </div>
 
           {/* Right Column: Inventory Snapshot */}
+          {/* BLOCKER-002: Enhanced error boundary with custom fallback UI */}
           <ErrorBoundary
-            title="Inventory Snapshot Error"
-            message="Unable to load inventory snapshot. Please refresh the page."
+            fallback={<InventorySnapshotErrorState />}
+            onError={(error, errorInfo) => {
+              // Log to monitoring service
+              console.error("Inventory Snapshot Error:", error, errorInfo);
+
+              // Optional: Send to analytics
+              if (window.analytics) {
+                window.analytics.track("Component Error", {
+                  component: "InventorySnapshotCard",
+                  error: error.toString(),
+                  timestamp: new Date().toISOString(),
+                });
+              }
+            }}
+            onReset={() => {
+              console.log("Inventory Snapshot error boundary reset");
+            }}
           >
             <InventorySnapshotCard />
           </ErrorBoundary>

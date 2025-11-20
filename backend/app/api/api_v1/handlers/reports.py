@@ -8,20 +8,21 @@ Implements three core report components:
 3. Inventory Snapshot - Storage analytics by loan status
 """
 
-from fastapi import APIRouter, Depends, Query, status, Request, HTTPException
 from datetime import datetime
 from typing import Optional, Union
 
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+
 from app.api.deps.user_deps import get_current_user
+from app.core.security_middleware import api_rate_limit
 from app.models.user_model import User
 from app.schemas.reports_schema import (
     CollectionsAnalyticsResponse,
+    InventorySnapshotResponse,
     TopCustomersResponse,
     TopStaffResponse,
-    InventorySnapshotResponse
 )
 from app.services.reports_service import ReportsService
-from app.core.security_middleware import api_rate_limit
 
 # Create router
 reports_router = APIRouter()
@@ -207,15 +208,31 @@ async def get_inventory_snapshot(
     """
     Get inventory snapshot with storage analytics.
 
+    SECURITY: Validates timezone header to prevent crashes from malformed timezone strings.
+
+    Request Headers:
+        X-Client-Timezone: Optional timezone string (e.g., 'America/New_York')
+                          Falls back to UTC if invalid or missing
+
     Returns:
         - Summary (total items, value, avg storage days)
         - Breakdown by status (Active, Overdue, Extended, Forfeited)
         - Breakdown by age (0-30d, 31-60d, 61-90d, 90+d)
         - High-value items alert (>$5,000 transactions)
     """
-    # Get timezone from request header
-    timezone_header = request.headers.get("X-Client-Timezone")
+    # Import validation function
+    from app.core.timezone_utils import validate_and_get_timezone
 
-    snapshot = await ReportsService.get_inventory_snapshot(timezone_header)
+    # Extract timezone header (case-insensitive)
+    tz_header = request.headers.get("X-Client-Timezone") or request.headers.get("x-client-timezone")
+
+    # Validate and get timezone object (never fails, defaults to UTC)
+    user_timezone = validate_and_get_timezone(tz_header)
+
+    # Pass validated timezone to service
+    snapshot = await ReportsService.get_inventory_snapshot(
+        user_id=str(current_user.id),
+        timezone=user_timezone
+    )
 
     return InventorySnapshotResponse(**snapshot)

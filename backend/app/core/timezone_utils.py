@@ -8,57 +8,76 @@ business logic date calculations in the user's local timezone.
 from datetime import datetime, UTC
 from typing import Optional
 from zoneinfo import ZoneInfo
+import structlog
+
+# Configure logger
+logger = structlog.get_logger("timezone_utils")
 
 
-def get_user_timezone(timezone_header: Optional[str] = None) -> ZoneInfo:
+def validate_and_get_timezone(tz_string: Optional[str] = None) -> ZoneInfo:
     """
-    Get user timezone from header or fallback to UTC.
-    
+    Validate timezone string and return ZoneInfo timezone object.
+
+    SECURITY: Prevents crashes from malformed timezone strings by validating
+    against zoneinfo database. Always returns a valid timezone object.
+
     Args:
-        timezone_header: Client timezone from X-Client-Timezone header
-        
+        tz_string: Timezone string from X-Client-Timezone header
+
     Returns:
-        ZoneInfo timezone object
+        ZoneInfo object (defaults to UTC if invalid)
+
+    Raises:
+        Never raises - always returns valid timezone (defensive)
     """
-    if timezone_header:
-        try:
-            # Validate timezone string
-            return ZoneInfo(timezone_header)
-        except Exception:
-            # Invalid timezone, fallback to UTC
-            pass
-    
-    return ZoneInfo("UTC")
+    # Default to UTC if not provided
+    if not tz_string:
+        logger.debug("No timezone provided, defaulting to UTC")
+        return ZoneInfo("UTC")
+
+    # Validate and return timezone
+    try:
+        tz = ZoneInfo(tz_string)
+        logger.debug(f"Valid timezone received: {tz_string}")
+        return tz
+    except Exception as e:
+        logger.warning(
+            f"Invalid timezone received: {tz_string}, falling back to UTC",
+            extra={"invalid_timezone": tz_string, "error": str(e)}
+        )
+        return ZoneInfo("UTC")
+
+
 
 
 def get_user_now(timezone_header: Optional[str] = None) -> datetime:
     """
     Get current time in user's timezone.
-    
+
     Args:
         timezone_header: Client timezone from X-Client-Timezone header
-        
+
     Returns:
         Current datetime in user's timezone
     """
-    user_tz = get_user_timezone(timezone_header)
+    user_tz = validate_and_get_timezone(timezone_header)
     return datetime.now(user_tz)
 
 
 def get_user_business_date(timezone_header: Optional[str] = None) -> datetime:
     """
     Get current business date in user's timezone (midnight start of day).
-    
+
     Used for pawn transactions to ensure consistent business date
     regardless of time of day the transaction is created.
-    
+
     Args:
         timezone_header: Client timezone from X-Client-Timezone header
-        
+
     Returns:
         Datetime representing start of current business day in user's timezone
     """
-    user_tz = get_user_timezone(timezone_header)
+    user_tz = validate_and_get_timezone(timezone_header)
     local_now = datetime.now(user_tz)
     # Get start of business day (midnight) in user's timezone
     business_date = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -68,37 +87,37 @@ def get_user_business_date(timezone_header: Optional[str] = None) -> datetime:
 def utc_to_user_timezone(utc_dt: datetime, timezone_header: Optional[str] = None) -> datetime:
     """
     Convert UTC datetime to user's timezone.
-    
+
     Args:
         utc_dt: UTC datetime
         timezone_header: Client timezone from X-Client-Timezone header
-        
+
     Returns:
         Datetime converted to user's timezone
     """
     if utc_dt.tzinfo is None:
         utc_dt = utc_dt.replace(tzinfo=UTC)
-    
-    user_tz = get_user_timezone(timezone_header)
+
+    user_tz = validate_and_get_timezone(timezone_header)
     return utc_dt.astimezone(user_tz)
 
 
 def user_timezone_to_utc(local_dt: datetime, timezone_header: Optional[str] = None) -> datetime:
     """
     Convert user timezone datetime to UTC.
-    
+
     Args:
         local_dt: Datetime in user's timezone
         timezone_header: Client timezone from X-Client-Timezone header
-        
+
     Returns:
         Datetime converted to UTC
     """
-    user_tz = get_user_timezone(timezone_header)
-    
+    user_tz = validate_and_get_timezone(timezone_header)
+
     if local_dt.tzinfo is None:
         local_dt = local_dt.replace(tzinfo=user_tz)
-    
+
     return local_dt.astimezone(UTC)
 
 

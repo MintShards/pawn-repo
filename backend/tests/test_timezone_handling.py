@@ -10,7 +10,7 @@ from datetime import datetime, UTC
 from zoneinfo import ZoneInfo
 
 from app.core.timezone_utils import (
-    get_user_timezone,
+    validate_and_get_timezone,
     get_user_now,
     utc_to_user_timezone,
     user_timezone_to_utc,
@@ -23,19 +23,19 @@ from app.core.timezone_utils import (
 class TestTimezoneUtils:
     """Test timezone utility functions."""
     
-    def test_get_user_timezone_valid(self):
+    def test_validate_and_get_timezone_valid(self):
         """Test timezone detection with valid timezone."""
-        tz = get_user_timezone("America/New_York")
+        tz = validate_and_get_timezone("America/New_York")
         assert str(tz) == "America/New_York"
     
-    def test_get_user_timezone_invalid(self):
+    def test_validate_and_get_timezone_invalid(self):
         """Test timezone detection with invalid timezone."""
-        tz = get_user_timezone("Invalid/Timezone")
+        tz = validate_and_get_timezone("Invalid/Timezone")
         assert str(tz) == "UTC"
     
-    def test_get_user_timezone_none(self):
+    def test_validate_and_get_timezone_none(self):
         """Test timezone detection with None."""
-        tz = get_user_timezone(None)
+        tz = validate_and_get_timezone(None)
         assert str(tz) == "UTC"
     
     def test_utc_to_user_timezone_conversion(self):

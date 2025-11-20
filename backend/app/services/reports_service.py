@@ -10,16 +10,17 @@ Implements three core components:
 All data sources verified against actual database models.
 """
 
-from datetime import datetime, timedelta, UTC
-from typing import List, Dict, Any, Optional
 import structlog
+from datetime import UTC, datetime, timedelta
+from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo
 
-from app.models.pawn_transaction_model import PawnTransaction, TransactionStatus
+from app.core.exceptions import ValidationError
+from app.core.timezone_utils import get_user_now, utc_to_user_timezone
 from app.models.customer_model import Customer, CustomerStatus
 from app.models.pawn_item_model import PawnItem
+from app.models.pawn_transaction_model import PawnTransaction, TransactionStatus
 from app.models.user_model import User
-from app.core.timezone_utils import get_user_now, utc_to_user_timezone
-from app.core.exceptions import ValidationError
 
 # Configure logger
 logger = structlog.get_logger("reports_service")
@@ -224,56 +225,6 @@ class ReportsService:
 
         return list(buckets.values())
 
-    @staticmethod
-    async def _calculate_aging_buckets(overdue_transactions: List[PawnTransaction]) -> List[Dict[str, Any]]:
-        """
-        Calculate aging breakdown for overdue transactions (LEGACY VERSION - kept for compatibility).
-
-        DEPRECATED: Use _calculate_aging_buckets_optimized() for better performance.
-        This method is kept for backward compatibility but should not be used in new code.
-
-        Args:
-            overdue_transactions: List of overdue transactions to analyze
-
-        Returns:
-            List of aging bucket dictionaries with count, amount, and percentage
-        """
-        today = datetime.now(UTC)
-
-        # Initialize buckets (renamed to include day 0)
-        buckets = {
-            "0-7 days": {"range": "0-7 days", "count": 0, "amount": 0, "percentage": 0.0, "trend": 0},
-            "8-14 days": {"range": "8-14 days", "count": 0, "amount": 0, "percentage": 0.0, "trend": 0},
-            "15-30 days": {"range": "15-30 days", "count": 0, "amount": 0, "percentage": 0.0, "trend": 0},
-            "30+ days": {"range": "30+ days", "count": 0, "amount": 0, "percentage": 0.0, "trend": 0}
-        }
-
-        total_amount = sum(tx.total_due for tx in overdue_transactions)
-
-        for tx in overdue_transactions:
-            # Ensure maturity_date is timezone-aware
-            maturity_date = _ensure_timezone_aware(tx.maturity_date)
-            days_overdue = (today - maturity_date).days
-
-            # FIXED: Include day 0 (loans that became overdue today)
-            if 0 <= days_overdue <= 7:
-                bucket = buckets["0-7 days"]
-            elif 8 <= days_overdue <= 14:
-                bucket = buckets["8-14 days"]
-            elif 15 <= days_overdue <= 30:
-                bucket = buckets["15-30 days"]
-            else:  # 31+ days
-                bucket = buckets["30+ days"]
-
-            bucket["count"] += 1
-            bucket["amount"] += tx.total_due
-
-        # Calculate percentages
-        for bucket in buckets.values():
-            if total_amount > 0:
-                bucket["percentage"] = round((bucket["amount"] / total_amount) * 100, 1)
-
-        return list(buckets.values())
 
     @staticmethod
     async def _calculate_historical_overdue_trend(
@@ -541,18 +492,36 @@ class ReportsService:
     # ========== INVENTORY SNAPSHOT ==========
 
     @staticmethod
-    async def get_inventory_snapshot(timezone_header: Optional[str] = None) -> Dict[str, Any]:
+    async def get_inventory_snapshot(
+        user_id: Optional[str] = None,
+        timezone: Optional[ZoneInfo] = None,
+        timezone_header: Optional[str] = None  # Legacy parameter for backward compatibility
+    ) -> Dict[str, Any]:
         """
         Get inventory snapshot with storage analytics and loan status breakdown.
 
         PERFORMANCE OPTIMIZED: Pre-fetches all items in single query to avoid N+1 problem.
+        SECURITY: Accepts pre-validated ZoneInfo object to prevent timezone injection attacks.
 
         Args:
-            timezone_header: Client timezone from X-Client-Timezone header
+            user_id: Optional user ID for filtering (admin feature, not currently used)
+            timezone: Validated ZoneInfo timezone object (preferred, never None after API validation)
+            timezone_header: Legacy string parameter (deprecated, use timezone parameter)
 
         Returns:
             Dictionary with summary, status breakdown, aging analysis, and alerts
         """
+        # Import ZoneInfo for type checking
+        from zoneinfo import ZoneInfo as ZoneInfoType
+
+        # Handle legacy timezone_header parameter for backward compatibility
+        if timezone is None and timezone_header is not None:
+            from app.core.timezone_utils import validate_and_get_timezone
+            timezone = validate_and_get_timezone(timezone_header)
+
+        # Final fallback to UTC (defensive programming)
+        if timezone is None:
+            timezone = ZoneInfoType("UTC")
         try:
             # Get all active/non-terminal transactions
             active_statuses = [
@@ -585,6 +554,10 @@ class ReportsService:
             total_loan_value = 0
             total_days = 0
 
+            # Convert timezone to string for compatibility with existing functions
+            # TODO: Refactor all helper functions to accept ZoneInfo directly
+            timezone_str = str(timezone) if timezone else None
+
             for tx in transactions:
                 items = items_by_transaction.get(tx.transaction_id, [])
                 item_count = len(items)
@@ -592,15 +565,15 @@ class ReportsService:
                 total_loan_value += tx.loan_amount
 
                 # Calculate days in storage (using user's timezone)
-                now_user = get_user_now(timezone_header)
-                days_in_storage = (now_user - utc_to_user_timezone(_ensure_timezone_aware(tx.created_at), timezone_header)).days
+                now_user = get_user_now(timezone_str)
+                days_in_storage = (now_user - utc_to_user_timezone(_ensure_timezone_aware(tx.created_at), timezone_str)).days
                 total_days += days_in_storage * item_count  # Weight by item count
 
             avg_storage_days = round(total_days / total_items) if total_items > 0 else 0
 
             # Calculate breakdown by status (pass pre-fetched items and timezone)
             by_status = await ReportsService._calculate_status_breakdown(
-                transactions, items_by_transaction, timezone_header
+                transactions, items_by_transaction, timezone_str
             )
 
             # Calculate breakdown by age (pass pre-fetched items)
@@ -610,7 +583,7 @@ class ReportsService:
 
             # Calculate high-value alert (pass timezone)
             high_value_alert = await ReportsService._calculate_high_value_alert(
-                transactions, items_by_transaction, timezone_header
+                transactions, items_by_transaction, timezone_str
             )
 
             return {
@@ -639,19 +612,29 @@ class ReportsService:
 
         PERFORMANCE OPTIMIZED: Uses pre-fetched items dictionary to avoid database queries.
 
+        STATUS CONSISTENCY FIX: Returns all 9 transaction statuses (including zeros) to ensure
+        frontend table and visual display use identical data, preventing UX inconsistencies.
+
         Args:
             transactions: List of transactions to analyze
             items_by_transaction: Pre-fetched items lookup dictionary
             timezone_header: Client timezone from X-Client-Timezone header
 
         Returns:
-            List of status breakdown dictionaries
+            List of status breakdown dictionaries for all 9 statuses (zeros included)
         """
+        # STATUS CONSISTENCY FIX: Expanded from 4 to all 9 statuses to match frontend requirements
+        # This ensures the backend returns complete status data, eliminating frontend merging logic
         status_map = {
             "Active": TransactionStatus.ACTIVE,
             "Overdue": TransactionStatus.OVERDUE,
             "Extended": TransactionStatus.EXTENDED,
-            "Forfeited": TransactionStatus.FORFEITED
+            "Hold": TransactionStatus.HOLD,
+            "Damaged": TransactionStatus.DAMAGED,
+            "Redeemed": TransactionStatus.REDEEMED,
+            "Forfeited": TransactionStatus.FORFEITED,
+            "Sold": TransactionStatus.SOLD,
+            "Voided": TransactionStatus.VOIDED
         }
 
         breakdown = []

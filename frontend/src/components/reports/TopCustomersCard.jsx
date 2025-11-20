@@ -1,11 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
-import { Button } from '../ui/button';
-import { Download, Users, Briefcase } from 'lucide-react';
-import reportsService from '../../services/reportsService';
-import { Alert, AlertDescription } from '../ui/alert';
-import { formatCurrency, getMedalEmoji } from './utils/reportUtils';
-import { toast } from 'sonner';
+import React, { useState, useEffect } from "react";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "../ui/card";
+import { Button } from "../ui/button";
+import { Download, Users, Briefcase } from "lucide-react";
+import reportsService from "../../services/reportsService";
+import { Alert, AlertDescription } from "../ui/alert";
+import { formatCurrency, getMedalEmoji } from "./utils/reportUtils";
+import { toast } from "sonner";
 
 const TopCustomersCard = () => {
   const [loading, setLoading] = useState(true);
@@ -15,7 +21,10 @@ const TopCustomersCard = () => {
   const [customersError, setCustomersError] = useState(null);
   const [staffError, setStaffError] = useState(null);
   // P1-001 FIX: Unified export state object (eliminates duplication)
-  const [exporting, setExporting] = useState({ customers: false, staff: false });
+  const [exporting, setExporting] = useState({
+    customers: false,
+    staff: false,
+  });
 
   // P1-002 FIX: Memory leak prevention with cleanup
   useEffect(() => {
@@ -33,43 +42,55 @@ const TopCustomersCard = () => {
         // This ensures that if one request fails, we still get data from the other
         // P1-002 FIX: Pass AbortController signal for cancellation support
         const results = await Promise.allSettled([
-          reportsService.getTopCustomers({ limit: 5, view: 'customers', signal: abortController.signal }),
-          reportsService.getTopCustomers({ limit: 5, view: 'staff', signal: abortController.signal })
+          reportsService.getTopCustomers({
+            limit: 5,
+            view: "customers",
+            signal: abortController.signal,
+          }),
+          reportsService.getTopCustomers({
+            limit: 5,
+            view: "staff",
+            signal: abortController.signal,
+          }),
         ]);
 
         // P1-002 FIX: Prevent state updates on unmounted component
         if (!isMounted) return;
 
         // Process customers data result
-        if (results[0].status === 'fulfilled') {
+        if (results[0].status === "fulfilled") {
           setCustomersData(results[0].value);
         } else {
-          const customersErrorMsg = 'Failed to load customer data. Please try again.';
+          const customersErrorMsg =
+            "Failed to load customer data. Please try again.";
           setCustomersError(customersErrorMsg);
-          console.error('Top customers error:', results[0].reason);
+          console.error("Top customers error:", results[0].reason);
         }
 
         // Process staff data result
-        if (results[1].status === 'fulfilled') {
+        if (results[1].status === "fulfilled") {
           setStaffData(results[1].value);
         } else {
-          const staffErrorMsg = 'Failed to load staff data. Please try again.';
+          const staffErrorMsg = "Failed to load staff data. Please try again.";
           setStaffError(staffErrorMsg);
-          console.error('Top staff error:', results[1].reason);
+          console.error("Top staff error:", results[1].reason);
         }
 
         // Only set global error if both requests failed
-        if (results[0].status === 'rejected' && results[1].status === 'rejected') {
-          setError('Failed to load performance data. Please try again.');
+        if (
+          results[0].status === "rejected" &&
+          results[1].status === "rejected"
+        ) {
+          setError("Failed to load performance data. Please try again.");
         }
       } catch (err) {
         // P1-002 FIX: Don't log expected AbortError
-        if (err.name === 'AbortError') return;
+        if (err.name === "AbortError") return;
 
         // Catch-all for unexpected errors
         if (isMounted) {
-          setError('An unexpected error occurred. Please try again.');
-          console.error('Top performance unexpected error:', err);
+          setError("An unexpected error occurred. Please try again.");
+          console.error("Top performance unexpected error:", err);
         }
       } finally {
         // P1-002 FIX: Only update loading state if still mounted
@@ -91,20 +112,26 @@ const TopCustomersCard = () => {
   // P1-001 FIX: Unified export handler (eliminates 95% duplication)
   const handleExport = async (view, filename) => {
     try {
-      setExporting(prev => ({ ...prev, [view]: true }));
-      const blob = await reportsService.exportTopCustomersCSV({ limit: 5, view });
-      reportsService.downloadCSV(blob, filename);
-      toast.success(`Top ${view === 'customers' ? 'Customers' : 'Staff'} exported successfully`, {
-        description: `Downloaded as ${filename}`
+      setExporting((prev) => ({ ...prev, [view]: true }));
+      const blob = await reportsService.exportTopCustomersCSV({
+        limit: 5,
+        view,
       });
+      reportsService.downloadCSV(blob, filename);
+      toast.success(
+        `Top ${view === "customers" ? "Customers" : "Staff"} exported successfully`,
+        {
+          description: `Downloaded as ${filename}`,
+        },
+      );
     } catch (err) {
       console.error(`Export ${view} failed:`, err);
       // ENHANCEMENT-002: Enhanced error context with error message
-      toast.error('Export failed', {
-        description: `Unable to export Top ${view === 'customers' ? 'Customers' : 'Staff'} data: ${err.message || 'Unknown error'}. Please try again or contact support.`
+      toast.error("Export failed", {
+        description: `Unable to export Top ${view === "customers" ? "Customers" : "Staff"} data: ${err.message || "Unknown error"}. Please try again or contact support.`,
       });
     } finally {
-      setExporting(prev => ({ ...prev, [view]: false }));
+      setExporting((prev) => ({ ...prev, [view]: false }));
     }
   };
 
@@ -148,7 +175,10 @@ const TopCustomersCard = () => {
                   </div>
                 </div>
                 {[1, 2, 3, 4, 5].map((i) => (
-                  <div key={i} className="border-t border-slate-100 dark:border-slate-800 p-4">
+                  <div
+                    key={i}
+                    className="border-t border-slate-100 dark:border-slate-800 p-4"
+                  >
                     <div className="grid grid-cols-4 gap-4 items-center">
                       <div className="h-5 bg-slate-200/60 dark:bg-slate-700/40 rounded w-8" />
                       <div className="h-5 bg-slate-200/60 dark:bg-slate-700/40 rounded w-32" />
@@ -202,7 +232,10 @@ const TopCustomersCard = () => {
                   </div>
                 </div>
                 {[1, 2, 3, 4, 5].map((i) => (
-                  <div key={`staff-${i}`} className="border-t border-slate-100 dark:border-slate-800 p-4">
+                  <div
+                    key={`staff-${i}`}
+                    className="border-t border-slate-100 dark:border-slate-800 p-4"
+                  >
                     <div className="grid grid-cols-4 gap-4 items-center">
                       <div className="h-5 bg-slate-200/60 dark:bg-slate-700/40 rounded w-8" />
                       <div className="h-5 bg-slate-200/60 dark:bg-slate-700/40 rounded w-32" />
@@ -255,7 +288,7 @@ const TopCustomersCard = () => {
     <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
       <CardHeader className="pb-4">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-lg flex items-center justify-center shadow-sm">
+          <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-lg flex items-center justify-center shadow-sm mt-[4px]">
             <Users className="w-5 h-5 text-white" />
           </div>
           <div>
@@ -282,7 +315,12 @@ const TopCustomersCard = () => {
               </h3>
             </div>
             <Button
-              onClick={() => handleExport('customers', `top-customers-${new Date().toISOString().split('T')[0]}.csv`)}
+              onClick={() =>
+                handleExport(
+                  "customers",
+                  `top-customers-${new Date().toISOString().split("T")[0]}.csv`,
+                )
+              }
               disabled={exporting.customers || !customersData}
               variant="outline"
               size="sm"
@@ -295,7 +333,9 @@ const TopCustomersCard = () => {
           {/* Show inline error if customers data failed to load */}
           {customersError && (
             <Alert variant="destructive" className="mb-3">
-              <AlertDescription className="text-sm">{customersError}</AlertDescription>
+              <AlertDescription className="text-sm">
+                {customersError}
+              </AlertDescription>
             </Alert>
           )}
 
@@ -342,7 +382,9 @@ const TopCustomersCard = () => {
                       >
                         <td className="py-3.5 px-4 h-12">
                           <div className="flex items-center justify-start h-full">
-                            <span className={`text-base leading-none ${customer.rank > 3 ? 'pl-1.5' : ''}`}>
+                            <span
+                              className={`text-base leading-none ${customer.rank > 3 ? "pl-1.5" : ""}`}
+                            >
                               {getMedalEmoji(customer.rank)}
                             </span>
                           </div>
@@ -379,21 +421,33 @@ const TopCustomersCard = () => {
                 <div className="bg-white/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
                   <div className="grid grid-cols-3 gap-6 text-xs">
                     <div className="text-center">
-                      <div className="text-slate-600 dark:text-slate-400 mb-2">Total Active Value</div>
+                      <div className="text-slate-600 dark:text-slate-400 mb-2">
+                        Total Active Value
+                      </div>
                       <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                        {formatCurrency(customersData.summary?.total_active_value ?? 0)}
+                        {formatCurrency(
+                          customersData.summary?.total_active_value ?? 0,
+                        )}
                       </div>
                     </div>
                     <div className="text-center border-l border-r border-slate-200 dark:border-slate-700 px-4">
-                      <div className="text-slate-600 dark:text-slate-400 mb-2">Avg Loan Value</div>
+                      <div className="text-slate-600 dark:text-slate-400 mb-2">
+                        Avg Loan Value
+                      </div>
                       <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                        {formatCurrency(customersData.summary?.avg_loan_value ?? 0)}
+                        {formatCurrency(
+                          customersData.summary?.avg_loan_value ?? 0,
+                        )}
                       </div>
                     </div>
                     <div className="text-center">
-                      <div className="text-slate-600 dark:text-slate-400 mb-2">Avg Active Loans</div>
+                      <div className="text-slate-600 dark:text-slate-400 mb-2">
+                        Avg Active Loans
+                      </div>
                       <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                        {(customersData.summary?.avg_active_loans ?? 0).toFixed(1)}
+                        {(customersData.summary?.avg_active_loans ?? 0).toFixed(
+                          1,
+                        )}
                       </div>
                     </div>
                   </div>
@@ -418,7 +472,12 @@ const TopCustomersCard = () => {
               </h3>
             </div>
             <Button
-              onClick={() => handleExport('staff', `top-staff-${new Date().toISOString().split('T')[0]}.csv`)}
+              onClick={() =>
+                handleExport(
+                  "staff",
+                  `top-staff-${new Date().toISOString().split("T")[0]}.csv`,
+                )
+              }
               disabled={exporting.staff || !staffData}
               variant="outline"
               size="sm"
@@ -431,7 +490,9 @@ const TopCustomersCard = () => {
           {/* Show inline error if staff data failed to load */}
           {staffError && (
             <Alert variant="destructive" className="mb-3">
-              <AlertDescription className="text-sm">{staffError}</AlertDescription>
+              <AlertDescription className="text-sm">
+                {staffError}
+              </AlertDescription>
             </Alert>
           )}
 
@@ -439,97 +500,107 @@ const TopCustomersCard = () => {
           {staffData && (
             <>
               <div className="bg-white/50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
-            <table className="w-full table-fixed">
-              <colgroup>
-                <col className="w-[14%]" />
-                <col className="w-[36%]" />
-                <col className="w-[20%]" />
-                <col className="w-[30%]" />
-              </colgroup>
-              <thead className="bg-slate-50 dark:bg-slate-800/50">
-                <tr className="border-b border-slate-200 dark:border-slate-700">
-                  <th className="py-3.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-300 h-11">
-                    <div className="flex items-center justify-start h-full">
-                      Rank
-                    </div>
-                  </th>
-                  <th className="py-3.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-300 h-11">
-                    <div className="flex items-center justify-start h-full">
-                      Name
-                    </div>
-                  </th>
-                  <th className="py-3.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-300 h-11">
-                    <div className="flex items-center justify-end h-full">
-                      Trans
-                    </div>
-                  </th>
-                  <th className="py-3.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-300 h-11">
-                    <div className="flex items-center justify-end h-full">
-                      Value
-                    </div>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {staffData.staff.slice(0, 5).map((staff) => (
-                  <tr
-                    key={staff.user_id}
-                    className="border-b border-slate-100 dark:border-slate-800 last:border-0 hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors"
-                  >
-                    <td className="py-3.5 px-4 h-12">
-                      <div className="flex items-center justify-start h-full">
-                        <span className={`text-base leading-none ${staff.rank > 3 ? 'pl-1.5' : ''}`}>
-                          {getMedalEmoji(staff.rank)}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4 h-12">
-                      <div className="flex items-center justify-start h-full">
-                        <span className="text-sm text-slate-700 dark:text-slate-300 leading-tight truncate block">
-                          {staff.name}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4 h-12">
-                      <div className="flex items-center justify-end h-full">
-                        <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
-                          {staff.transaction_count}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4 h-12">
-                      <div className="flex items-center justify-end h-full">
-                        <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
-                          {formatCurrency(staff.total_value)}
-                        </span>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                <table className="w-full table-fixed">
+                  <colgroup>
+                    <col className="w-[14%]" />
+                    <col className="w-[36%]" />
+                    <col className="w-[20%]" />
+                    <col className="w-[30%]" />
+                  </colgroup>
+                  <thead className="bg-slate-50 dark:bg-slate-800/50">
+                    <tr className="border-b border-slate-200 dark:border-slate-700">
+                      <th className="py-3.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-300 h-11">
+                        <div className="flex items-center justify-start h-full">
+                          Rank
+                        </div>
+                      </th>
+                      <th className="py-3.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-300 h-11">
+                        <div className="flex items-center justify-start h-full">
+                          Name
+                        </div>
+                      </th>
+                      <th className="py-3.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-300 h-11">
+                        <div className="flex items-center justify-end h-full">
+                          Trans
+                        </div>
+                      </th>
+                      <th className="py-3.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-300 h-11">
+                        <div className="flex items-center justify-end h-full">
+                          Value
+                        </div>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {staffData.staff.slice(0, 5).map((staff) => (
+                      <tr
+                        key={staff.user_id}
+                        className="border-b border-slate-100 dark:border-slate-800 last:border-0 hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors"
+                      >
+                        <td className="py-3.5 px-4 h-12">
+                          <div className="flex items-center justify-start h-full">
+                            <span
+                              className={`text-base leading-none ${staff.rank > 3 ? "pl-1.5" : ""}`}
+                            >
+                              {getMedalEmoji(staff.rank)}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4 h-12">
+                          <div className="flex items-center justify-start h-full">
+                            <span className="text-sm text-slate-700 dark:text-slate-300 leading-tight truncate block">
+                              {staff.name}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4 h-12">
+                          <div className="flex items-center justify-end h-full">
+                            <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
+                              {staff.transaction_count}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4 h-12">
+                          <div className="flex items-center justify-end h-full">
+                            <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
+                              {formatCurrency(staff.total_value)}
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
 
               {/* Staff Summary Metrics */}
               {staffData.summary && (
                 <div className="bg-white/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
                   <div className="grid grid-cols-3 gap-6 text-xs">
                     <div className="text-center">
-                      <div className="text-slate-600 dark:text-slate-400 mb-2">Total Value</div>
+                      <div className="text-slate-600 dark:text-slate-400 mb-2">
+                        Total Value
+                      </div>
                       <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
                         {formatCurrency(staffData.summary?.total_value ?? 0)}
                       </div>
                     </div>
                     <div className="text-center border-l border-r border-slate-200 dark:border-slate-700 px-4">
-                      <div className="text-slate-600 dark:text-slate-400 mb-2">Avg Transactions</div>
+                      <div className="text-slate-600 dark:text-slate-400 mb-2">
+                        Avg Transactions
+                      </div>
                       <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
                         {(staffData.summary?.avg_transactions ?? 0).toFixed(1)}
                       </div>
                     </div>
                     <div className="text-center">
-                      <div className="text-slate-600 dark:text-slate-400 mb-2">Avg Value/Staff</div>
+                      <div className="text-slate-600 dark:text-slate-400 mb-2">
+                        Avg Value/Staff
+                      </div>
                       <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                        {formatCurrency(staffData.summary?.avg_value_per_staff ?? 0)}
+                        {formatCurrency(
+                          staffData.summary?.avg_value_per_staff ?? 0,
+                        )}
                       </div>
                     </div>
                   </div>

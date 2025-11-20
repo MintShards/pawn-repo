@@ -16,7 +16,7 @@ from prometheus_client import Counter, Gauge, Histogram
 
 from app.core.auth import get_current_user
 from app.core.config import settings
-from app.core.timezone_utils import get_user_timezone, get_user_now, get_user_business_date, utc_to_user_timezone, user_timezone_to_utc
+from app.core.timezone_utils import validate_and_get_timezone, get_user_now, get_user_business_date, utc_to_user_timezone, user_timezone_to_utc
 from app.models.user_model import User
 from app.models.pawn_transaction_model import PawnTransaction
 from app.models.payment_model import Payment

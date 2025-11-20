@@ -33,3 +33,4 @@ APScheduler==3.10.4
 
 # Timezone & Date Utilities
 pytz==2024.1
+tzdata==2024.1  # System timezone database for Windows/fallback
