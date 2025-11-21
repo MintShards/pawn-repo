@@ -421,7 +421,7 @@ class ReportsService:
 
     @staticmethod
     async def _get_top_staff(limit: int) -> Dict[str, Any]:
-        """Get top staff by transaction count and value"""
+        """Get top staff by total loan value (primary) and transaction count (secondary)"""
         # Aggregate transactions by created_by_user_id for top performers
         pipeline_top = [
             {
@@ -431,7 +431,7 @@ class ReportsService:
                     "total_value": {"$sum": "$loan_amount"}
                 }
             },
-            {"$sort": {"transaction_count": -1}},
+            {"$sort": {"total_value": -1, "transaction_count": -1}},
             {"$limit": limit}
         ]
 

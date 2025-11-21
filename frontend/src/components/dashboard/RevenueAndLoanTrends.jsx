@@ -3,7 +3,7 @@ import { Card, CardContent, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Alert, AlertDescription } from '../ui/alert';
 import { DateRangePicker } from '../ui/date-range-picker';
-import { format, subDays, startOfDay, endOfDay } from 'date-fns';
+import { useComponentLoading } from '../../contexts/ReportsLoadingContext';
 import {
   LineChart,
   Line,
@@ -33,8 +33,6 @@ import trendsService from '../../services/trendsService';
 // Optimized imports from extracted modules
 import {
   PERIOD_OPTIONS,
-  REVENUE_COLORS,
-  LOAN_COLORS,
   REVENUE_GRADIENTS,
   REVENUE_BAR_CONFIG,
   LOAN_LINE_CONFIG,
@@ -102,17 +100,21 @@ const validateTrendsData = (data) => {
  * @returns {JSX.Element}
  */
 const RevenueAndLoanTrends = () => {
+  // Coordinated loading state
+  const { showLoading, setReady, setFailed } = useComponentLoading('revenue_trends');
+
   const [selectedPeriod, setSelectedPeriod] = useState('30d');
   const [customDateRange, setCustomDateRange] = useState(null);
   const [selectionMode, setSelectionMode] = useState('preset'); // 'preset' or 'custom'
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [revenueTrends, setRevenueTrends] = useState(null);
   const [loanTrends, setLoanTrends] = useState(null);
   const abortControllerRef = useRef(null);
 
   // Fetch trends data with abort controller for race condition prevention
-  const fetchTrends = useCallback(async () => {
+  // Using useRef to avoid fetchTrends recreation on every render
+  const fetchTrendsRef = useRef(null);
+  fetchTrendsRef.current = useCallback(async () => {
     // Abort previous request if still pending
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -123,7 +125,6 @@ const RevenueAndLoanTrends = () => {
     abortControllerRef.current = controller;
 
     try {
-      setLoading(true);
       setError(null);
 
       let data;
@@ -150,6 +151,7 @@ const RevenueAndLoanTrends = () => {
 
       setRevenueTrends(validatedData.revenue);
       setLoanTrends(validatedData.loans);
+      setReady(); // Notify coordinated loading system
     } catch (err) {
       // Ignore AbortError - it's expected when user changes period quickly
       if (err.name === 'AbortError') {
@@ -158,25 +160,23 @@ const RevenueAndLoanTrends = () => {
 
       setError(err.message || 'Failed to load trends data');
       console.error('Error fetching trends:', err);
-    } finally {
-      // Only update loading state if request wasn't aborted
-      if (!controller.signal.aborted) {
-        setLoading(false);
-      }
+      setFailed(); // Notify coordinated loading system (don't block others)
     }
-  }, [selectedPeriod, selectionMode, customDateRange]);
+  }, [selectedPeriod, selectionMode, customDateRange, setReady, setFailed]);
 
-  // Fetch on mount and period change
+  // Fetch on mount and period change - instant for all selections
   useEffect(() => {
-    fetchTrends();
+    // Fetch immediately for all selection types (preset buttons and custom date ranges)
+    // DateRangePicker only fires onChange on "Apply" click, so no need for debouncing
+    fetchTrendsRef.current?.();
 
-    // Cleanup: abort pending request on unmount
+    // Cleanup: abort pending request on unmount or dependency change
     return () => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
     };
-  }, [fetchTrends]);
+  }, [selectedPeriod, selectionMode, customDateRange]);
 
   // Memoized summary statistics calculations
   const summaryStats = useMemo(() => {
@@ -244,27 +244,34 @@ const RevenueAndLoanTrends = () => {
     </defs>
   ), []);
 
-  // Memoized period change handler
+  // Memoized period change handler - batched state update for immediate response
   const handlePeriodChange = useCallback((period) => {
-    setSelectedPeriod(period);
-    setSelectionMode('preset');
-    setCustomDateRange(null);
+    // Use React 18 automatic batching with startTransition for non-urgent updates
+    React.startTransition(() => {
+      setSelectedPeriod(period);
+      setSelectionMode('preset');
+      setCustomDateRange(null);
+    });
   }, []);
 
-  // Custom date range handler
+  // Custom date range handler - batched state update
   const handleCustomDateRangeChange = useCallback((range) => {
-    setCustomDateRange(range);
-    setSelectionMode('custom');
+    React.startTransition(() => {
+      setCustomDateRange(range);
+      setSelectionMode('custom');
+    });
   }, []);
 
-  // Clear custom date range and return to preset
+  // Clear custom date range and return to preset - batched state update
   const handleClearCustomRange = useCallback(() => {
-    setCustomDateRange(null);
-    setSelectionMode('preset');
+    React.startTransition(() => {
+      setCustomDateRange(null);
+      setSelectionMode('preset');
+    });
   }, []);
 
   // Render loading skeleton
-  if (loading) {
+  if (showLoading) {
     return <TrendsLoadingSkeleton />;
   }
 
@@ -281,7 +288,7 @@ const RevenueAndLoanTrends = () => {
                 variant="outline"
                 size="sm"
                 className="ml-4"
-                onClick={fetchTrends}
+                onClick={() => fetchTrendsRef.current?.()}
               >
                 <RefreshCw className="w-3 h-3 mr-2" />
                 Retry
@@ -359,7 +366,7 @@ const RevenueAndLoanTrends = () => {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={fetchTrends}
+                onClick={() => fetchTrendsRef.current?.()}
                 title="Refresh data"
                 aria-label="Refresh trends data"
               >

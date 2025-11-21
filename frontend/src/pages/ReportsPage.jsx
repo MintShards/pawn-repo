@@ -8,6 +8,7 @@ import CollectionsAnalytics from "../components/reports/CollectionsAnalytics";
 import TopCustomersCard from "../components/reports/TopCustomersCard";
 import InventorySnapshotCard from "../components/reports/InventorySnapshotCard";
 import InventorySnapshotErrorState from "../components/reports/InventorySnapshotCard/InventorySnapshotErrorState";
+import { ReportsLoadingProvider } from "../contexts/ReportsLoadingContext";
 import { Card, CardContent } from "../components/ui/card";
 import {
   CreditCard,
@@ -175,14 +176,15 @@ const ReportsPage = () => {
   const { metrics, isInitialLoad } = useDashboardStats();
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/40 dark:from-slate-950 dark:via-slate-900 dark:to-slate-800">
-      <AppHeader />
+    <ReportsLoadingProvider>
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/40 dark:from-slate-950 dark:via-slate-900 dark:to-slate-800">
+        <AppHeader />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <PageHeader
-          title="Reports"
-          subtitle="Business analytics and reporting metrics"
-        />
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <PageHeader
+            title="Reports"
+            subtitle="Business analytics and reporting metrics"
+          />
 
         {/* Stats Grid */}
         <ErrorBoundary
@@ -253,7 +255,7 @@ const ReportsPage = () => {
               }
             }}
             onReset={() => {
-              console.log("Inventory Snapshot error boundary reset");
+              // Error boundary reset - component will remount
             }}
           >
             <InventorySnapshotCard />
@@ -261,6 +263,7 @@ const ReportsPage = () => {
         </div>
       </main>
     </div>
+    </ReportsLoadingProvider>
   );
 };
 

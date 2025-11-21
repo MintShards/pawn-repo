@@ -11,7 +11,6 @@
 
 import React from "react";
 import { Card, CardContent, CardHeader } from "../../ui/card";
-import { Package } from "lucide-react";
 
 /**
  * Shimmer skeleton element
@@ -35,10 +34,10 @@ const SummaryCardSkeleton = () => (
   <div className="bg-white/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
     <div className="flex items-center gap-2 mb-1">
       <Shimmer width="w-4" height="h-4" />
-      <Shimmer width="w-20" height="h-3" />
+      <Shimmer width="w-24" height="h-4" />
     </div>
-    <Shimmer width="w-16" height="h-8" className="mb-1" />
-    <Shimmer width="w-24" height="h-3" />
+    <Shimmer width="w-20" height="h-9" />
+    <Shimmer width="w-28" height="h-4" />
   </div>
 );
 
@@ -51,19 +50,19 @@ const SummaryCardSkeleton = () => (
  */
 const TableSkeleton = ({ rows = 4, columns = 5 }) => (
   <div className="bg-white/50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
-    {/* Header */}
-    <div className="bg-slate-50 dark:bg-slate-800/50 p-2 border-b border-slate-200 dark:border-slate-700">
+    {/* Header - matches py-2.5 px-3 from actual tables, text-xs line-height */}
+    <div className="bg-slate-50 dark:bg-slate-800/50 py-2.5 px-3 border-b border-slate-200 dark:border-slate-700">
       <div className="flex justify-between gap-4">
         {Array.from({ length: columns }).map((_, i) => (
-          <Shimmer key={i} width="w-16" height="h-3" />
+          <Shimmer key={i} width="w-16" height="h-4" />
         ))}
       </div>
     </div>
-    {/* Rows */}
+    {/* Rows - matches py-2.5 px-3 from actual tables, text-xs line-height */}
     {Array.from({ length: rows }).map((_, i) => (
       <div
         key={i}
-        className="p-2 border-b last:border-b-0 border-slate-100 dark:border-slate-800"
+        className="py-2.5 px-3 border-b last:border-b-0 border-slate-100 dark:border-slate-800"
       >
         <div className="flex justify-between gap-4">
           {Array.from({ length: columns }).map((_, j) => (
@@ -93,20 +92,14 @@ const InventoryLoadingSkeleton = () => {
       <CardHeader className="pb-4">
         <div className="flex justify-between items-start">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-teal-500 to-cyan-600 rounded-lg flex items-center justify-center shadow-sm flex-shrink-0 mt-[4px] animate-pulse">
-              <Package className="w-5 h-5 text-white" />
-            </div>
+            <div className="w-10 h-10 bg-gradient-to-br from-teal-500 to-cyan-600 rounded-lg flex items-center justify-center shadow-sm flex-shrink-0 mt-[4px] opacity-50 animate-pulse" />
             <div>
-              <div className="text-xl font-bold text-slate-900 dark:text-slate-100">
-                Inventory Snapshot
-              </div>
-              <div className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
-                Storage analytics and aging alerts
-              </div>
+              <Shimmer width="w-40" height="h-7" />
+              <Shimmer width="w-56" height="h-4" className="mt-0.5" />
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Shimmer width="w-24" height="h-8" />
+          <div className="flex flex-col items-end gap-2">
+            <Shimmer width="w-24" height="h-9" />
           </div>
         </div>
       </CardHeader>
@@ -122,45 +115,36 @@ const InventoryLoadingSkeleton = () => {
 
         {/* By Loan Status Section */}
         <div>
-          <Shimmer width="w-32" height="h-4" className="mb-2" />
+          <Shimmer width="w-32" height="h-5" className="mb-3" />
           <TableSkeleton rows={4} columns={5} />
         </div>
 
         {/* Storage Aging Analysis Section */}
         <div>
-          <Shimmer width="w-44" height="h-4" className="mb-2" />
+          <Shimmer width="w-44" height="h-5" className="mb-3" />
           <TableSkeleton rows={4} columns={4} />
         </div>
 
-        {/* High-Value Alert Section */}
-        <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-3 border border-yellow-200 dark:border-yellow-800">
-          <div className="flex items-start gap-2">
-            <Shimmer width="w-5" height="h-5" className="flex-shrink-0" />
-            <div className="flex-1 space-y-2">
-              <Shimmer width="w-40" height="h-4" />
-              <Shimmer width="w-full" height="h-3" />
-              <Shimmer width="w-3/4" height="h-3" />
-            </div>
-          </div>
-        </div>
+        {/* High-Value Alert Section - REMOVED: Conditional in actual component */}
+        {/* Only shows if high_value_alert.count > 0, so excluded from skeleton */}
 
         {/* Turnover Insights Section */}
-        <div className="mt-6">
-          <Shimmer width="w-32" height="h-4" className="mb-4" />
+        <div>
+          <Shimmer width="w-32" height="h-5" className="mb-4" />
 
-          {/* Top 3 Insights Cards */}
+          {/* Top 3 Insights Cards - p-3 matches actual component */}
           <div className="grid grid-cols-3 gap-4">
             {Array.from({ length: 3 }).map((_, i) => (
               <div
                 key={i}
-                className="bg-white/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-200 dark:border-slate-700"
+                className="bg-white/50 dark:bg-slate-800/50 rounded-lg p-3 border border-slate-200 dark:border-slate-700"
               >
-                <Shimmer width="w-28" height="h-3" className="mb-1" />
+                <Shimmer width="w-28" height="h-4" className="mb-1" />
                 <div className="space-y-1.5">
                   {Array.from({ length: 3 }).map((_, j) => (
                     <div key={j} className="flex justify-between items-center">
-                      <Shimmer width="w-16" height="h-3" />
-                      <Shimmer width="w-12" height="h-3" />
+                      <Shimmer width="w-16" height="h-4" />
+                      <Shimmer width="w-12" height="h-4" />
                     </div>
                   ))}
                 </div>
@@ -175,9 +159,9 @@ const InventoryLoadingSkeleton = () => {
                 key={i}
                 className="bg-white/50 dark:bg-slate-800/50 rounded-lg p-3 border border-slate-200 dark:border-slate-700"
               >
-                <Shimmer width="w-16" height="h-3" className="mb-0.5" />
-                <Shimmer width="w-20" height="h-5" className="mb-0.5" />
-                <Shimmer width="w-16" height="h-3" />
+                <Shimmer width="w-16" height="h-4" className="mb-0.5" />
+                <Shimmer width="w-20" height="h-7" />
+                <Shimmer width="w-16" height="h-4" />
               </div>
             ))}
           </div>

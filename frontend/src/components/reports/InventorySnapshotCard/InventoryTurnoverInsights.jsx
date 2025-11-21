@@ -98,7 +98,7 @@ const InventoryTurnoverInsights = ({
   data,
 }) => {
   return (
-    <div className="mt-6">
+    <div>
       <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-4">
         Turnover Insights
       </h3>
@@ -106,7 +106,7 @@ const InventoryTurnoverInsights = ({
       {/* Top 3 Insights Cards */}
       <div className="grid grid-cols-3 gap-4">
         {/* Average Days by Status */}
-        <div className="bg-white/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
+        <div className="bg-white/50 dark:bg-slate-800/50 rounded-lg p-3 border border-slate-200 dark:border-slate-700">
           <div className="text-xs text-slate-600 dark:text-slate-400 mb-1 font-medium">
             Avg Days by Status
           </div>
@@ -128,7 +128,7 @@ const InventoryTurnoverInsights = ({
         </div>
 
         {/* Value Concentration */}
-        <div className="bg-white/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
+        <div className="bg-white/50 dark:bg-slate-800/50 rounded-lg p-3 border border-slate-200 dark:border-slate-700">
           <div className="text-xs text-slate-600 dark:text-slate-400 mb-1 font-medium">
             Value Concentration
           </div>
@@ -168,7 +168,7 @@ const InventoryTurnoverInsights = ({
         </div>
 
         {/* Risk Indicators */}
-        <div className="bg-white/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
+        <div className="bg-white/50 dark:bg-slate-800/50 rounded-lg p-3 border border-slate-200 dark:border-slate-700">
           <div className="text-xs text-slate-600 dark:text-slate-400 mb-1 font-medium">
             Risk Indicators
           </div>

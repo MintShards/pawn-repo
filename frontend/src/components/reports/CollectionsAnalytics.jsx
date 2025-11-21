@@ -6,6 +6,7 @@ import { DateRangePicker } from '../ui/date-range-picker';
 import { format, subDays, startOfDay, endOfDay } from 'date-fns';
 import reportsService from '../../services/reportsService';
 import { Alert, AlertDescription } from '../ui/alert';
+import { useComponentLoading } from '../../contexts/ReportsLoadingContext';
 import {
   LineChart,
   Line,
@@ -25,13 +26,16 @@ const PERIOD_OPTIONS = [
 ];
 
 const CollectionsAnalytics = () => {
-  const [loading, setLoading] = useState(true);
+  // Coordinated loading state
+  const { showLoading, setReady, setFailed } = useComponentLoading('collections');
+
   const [error, setError] = useState(null);
   const [data, setData] = useState(null);
   const [exporting, setExporting] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState('30d');
   const [customDateRange, setCustomDateRange] = useState(null);
   const [selectionMode, setSelectionMode] = useState('preset'); // 'preset' or 'custom'
+  const [isTransitioning, setIsTransitioning] = useState(false); // Track data transitions
   const abortControllerRef = useRef(null);
 
   // Convert period to date range
@@ -61,7 +65,9 @@ const CollectionsAnalytics = () => {
   };
 
   // Fetch data with race condition prevention
-  const fetchData = useCallback(async () => {
+  // Using useRef to avoid fetchData recreation on every render
+  const fetchDataRef = useRef(null);
+  fetchDataRef.current = useCallback(async () => {
     // Abort previous request if still pending
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -71,8 +77,8 @@ const CollectionsAnalytics = () => {
     abortControllerRef.current = controller;
 
     try {
-      setLoading(true);
       setError(null);
+      setIsTransitioning(true); // Mark as transitioning when fetch starts
 
       let result;
       if (selectionMode === 'custom' && customDateRange?.from && customDateRange?.to) {
@@ -94,18 +100,18 @@ const CollectionsAnalytics = () => {
 
       if (!controller.signal.aborted) {
         setData(result);
+        setIsTransitioning(false); // Clear transitioning state on success
+        setReady(); // Notify coordinated loading system
       }
     } catch (err) {
       if (err.name !== 'AbortError') {
         setError('Failed to load collections analytics. Please try again.');
         console.error('Collections analytics error:', err);
-      }
-    } finally {
-      if (!controller.signal.aborted) {
-        setLoading(false);
+        setIsTransitioning(false); // Clear transitioning state on error
+        setFailed(); // Notify coordinated loading system (don't block others)
       }
     }
-  }, [selectedPeriod, selectionMode, customDateRange]);
+  }, [selectedPeriod, selectionMode, customDateRange, setReady, setFailed]);
 
   // OPTIMIZATION: Memoize chart data transformation (MUST be before early returns)
   const chartData = useMemo(() => data?.historical || [], [data?.historical]);
@@ -138,33 +144,41 @@ const CollectionsAnalytics = () => {
   // OPTIMIZATION: Memoize Y-axis formatter (MUST be before early returns)
   const yAxisFormatter = useCallback((value) => `$${(value / 1000).toFixed(0)}K`, []);
 
-  // Fetch on mount and when dependencies change
+  // Fetch on mount and when dependencies change - instant for all selections
   useEffect(() => {
-    fetchData();
+    // Fetch immediately for all selection types (preset buttons and custom date ranges)
+    // DateRangePicker only fires onChange on "Apply" click, so no need for debouncing
+    fetchDataRef.current?.();
 
-    // Cleanup: abort pending request on unmount
+    // Cleanup: abort pending request on unmount or dependency change
     return () => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
     };
-  }, [fetchData]);
+  }, [selectedPeriod, selectionMode, customDateRange]);
 
-  // Event handlers
+  // Event handlers - batched state updates for immediate response
   const handlePeriodChange = useCallback((period) => {
-    setSelectedPeriod(period);
-    setSelectionMode('preset');
-    setCustomDateRange(null);
+    React.startTransition(() => {
+      setSelectedPeriod(period);
+      setSelectionMode('preset');
+      setCustomDateRange(null);
+    });
   }, []);
 
   const handleCustomDateRangeChange = useCallback((range) => {
-    setCustomDateRange(range);
-    setSelectionMode('custom');
+    React.startTransition(() => {
+      setCustomDateRange(range);
+      setSelectionMode('custom');
+    });
   }, []);
 
   const handleClearCustomRange = useCallback(() => {
-    setCustomDateRange(null);
-    setSelectionMode('preset');
+    React.startTransition(() => {
+      setCustomDateRange(null);
+      setSelectionMode('preset');
+    });
   }, []);
 
   const handleExport = async () => {
@@ -215,11 +229,13 @@ const CollectionsAnalytics = () => {
     };
   }, []);
 
-  if (loading) {
+  // Render loading skeleton
+  if (showLoading) {
     return (
       <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
         <CardHeader className="pb-4">
-          <div className="flex justify-between items-start mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-4">
+            {/* Title section skeleton */}
             <div className="flex items-center gap-2">
               {/* Icon badge skeleton with pulse */}
               <div className="w-10 h-10 bg-gradient-to-br from-rose-500 to-pink-600 rounded-lg opacity-50 animate-pulse" />
@@ -230,8 +246,26 @@ const CollectionsAnalytics = () => {
                 <div className="h-3 bg-gradient-to-r from-slate-200 via-slate-300 to-slate-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 rounded w-64 animate-shimmer bg-[length:200%_100%]" />
               </div>
             </div>
-            {/* Export button skeleton */}
-            <div className="h-9 w-28 bg-gradient-to-r from-slate-200 via-slate-300 to-slate-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 rounded-md animate-shimmer bg-[length:200%_100%]" />
+
+            {/* Date selection controls skeleton */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+              {/* Preset period buttons skeleton */}
+              <div className="flex flex-wrap items-center gap-2">
+                {[0, 1, 2, 3].map((i) => (
+                  <div
+                    key={i}
+                    className="h-8 w-16 bg-gradient-to-r from-slate-200 via-slate-300 to-slate-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 rounded-md animate-shimmer bg-[length:200%_100%]"
+                    style={{ animationDelay: `${i * 0.05}s` }}
+                  />
+                ))}
+
+                {/* Date range picker skeleton */}
+                <div className="h-8 w-56 bg-gradient-to-r from-slate-200 via-slate-300 to-slate-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 rounded-md animate-shimmer bg-[length:200%_100%]" style={{ animationDelay: '0.2s' }} />
+              </div>
+
+              {/* Export button skeleton */}
+              <div className="h-8 w-28 bg-gradient-to-r from-slate-200 via-slate-300 to-slate-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 rounded-md animate-shimmer bg-[length:200%_100%]" style={{ animationDelay: '0.25s' }} />
+            </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -587,7 +621,16 @@ const CollectionsAnalytics = () => {
                 }`
             }
           </h3>
-          <div className="bg-white/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
+          <div className="bg-white/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-200 dark:border-slate-700 relative">
+            {/* Loading overlay during data transitions */}
+            {isTransitioning && (
+              <div className="absolute inset-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm rounded-lg flex items-center justify-center z-10">
+                <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
+                  <div className="w-4 h-4 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" />
+                  <span className="text-sm font-medium">Loading trend data...</span>
+                </div>
+              </div>
+            )}
             <ResponsiveContainer width="100%" height={300}>
               <LineChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />

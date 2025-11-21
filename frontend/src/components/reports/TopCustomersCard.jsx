@@ -12,8 +12,13 @@ import reportsService from "../../services/reportsService";
 import { Alert, AlertDescription } from "../ui/alert";
 import { formatCurrency, getMedalEmoji } from "./utils/reportUtils";
 import { toast } from "sonner";
+import TopCustomersLoadingSkeleton from "./TopCustomersLoadingSkeleton";
+import { useComponentLoading } from "../../contexts/ReportsLoadingContext";
 
 const TopCustomersCard = () => {
+  // Coordinated loading state
+  const { showLoading, setReady, setFailed } = useComponentLoading('top_performers');
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [customersData, setCustomersData] = useState(null);
@@ -82,6 +87,9 @@ const TopCustomersCard = () => {
           results[1].status === "rejected"
         ) {
           setError("Failed to load performance data. Please try again.");
+          setFailed(); // Notify coordinated loading system
+        } else {
+          setReady(); // At least one succeeded, notify ready
         }
       } catch (err) {
         // P1-002 FIX: Don't log expected AbortError
@@ -91,6 +99,7 @@ const TopCustomersCard = () => {
         if (isMounted) {
           setError("An unexpected error occurred. Please try again.");
           console.error("Top performance unexpected error:", err);
+          setFailed(); // Notify coordinated loading system
         }
       } finally {
         // P1-002 FIX: Only update loading state if still mounted
@@ -135,139 +144,8 @@ const TopCustomersCard = () => {
     }
   };
 
-  if (loading) {
-    return (
-      <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
-        <CardHeader className="pb-4">
-          <div className="animate-pulse">
-            <div className="flex justify-between items-start mb-4">
-              <div className="flex items-center gap-2">
-                <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-lg opacity-50" />
-                <div className="space-y-2">
-                  <div className="h-6 bg-slate-200/60 dark:bg-slate-700/40 rounded w-48" />
-                  <div className="h-3 bg-slate-200/60 dark:bg-slate-700/40 rounded w-64" />
-                </div>
-              </div>
-            </div>
-          </div>
-        </CardHeader>
-
-        <CardContent className="space-y-6">
-          <div className="animate-pulse space-y-6">
-            {/* Customers section skeleton */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 bg-amber-500/50 rounded" />
-                  <div className="h-5 bg-slate-200/60 dark:bg-slate-700/40 rounded w-32" />
-                </div>
-                <div className="h-9 w-28 bg-slate-200/60 dark:bg-slate-700/40 rounded-md" />
-              </div>
-
-              {/* Table skeleton */}
-              <div className="bg-white/50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
-                <div className="bg-slate-50 dark:bg-slate-800/50 p-4">
-                  <div className="grid grid-cols-4 gap-4">
-                    <div className="h-4 bg-slate-200/60 dark:bg-slate-700/40 rounded w-16" />
-                    <div className="h-4 bg-slate-200/60 dark:bg-slate-700/40 rounded w-20" />
-                    <div className="h-4 bg-slate-200/60 dark:bg-slate-700/40 rounded w-16 ml-auto" />
-                    <div className="h-4 bg-slate-200/60 dark:bg-slate-700/40 rounded w-20 ml-auto" />
-                  </div>
-                </div>
-                {[1, 2, 3, 4, 5].map((i) => (
-                  <div
-                    key={i}
-                    className="border-t border-slate-100 dark:border-slate-800 p-4"
-                  >
-                    <div className="grid grid-cols-4 gap-4 items-center">
-                      <div className="h-5 bg-slate-200/60 dark:bg-slate-700/40 rounded w-8" />
-                      <div className="h-5 bg-slate-200/60 dark:bg-slate-700/40 rounded w-32" />
-                      <div className="h-5 bg-slate-200/60 dark:bg-slate-700/40 rounded w-12 ml-auto" />
-                      <div className="h-5 bg-slate-200/60 dark:bg-slate-700/40 rounded w-20 ml-auto" />
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Summary metrics skeleton */}
-              <div className="bg-white/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
-                <div className="grid grid-cols-3 gap-6">
-                  <div className="text-center space-y-2">
-                    <div className="h-3 bg-slate-200/60 dark:bg-slate-700/40 rounded w-28 mx-auto" />
-                    <div className="h-6 bg-slate-200/60 dark:bg-slate-700/40 rounded w-24 mx-auto" />
-                  </div>
-                  <div className="text-center space-y-2 border-l border-r border-slate-200 dark:border-slate-700 px-4">
-                    <div className="h-3 bg-slate-200/60 dark:bg-slate-700/40 rounded w-24 mx-auto" />
-                    <div className="h-6 bg-slate-200/60 dark:bg-slate-700/40 rounded w-20 mx-auto" />
-                  </div>
-                  <div className="text-center space-y-2">
-                    <div className="h-3 bg-slate-200/60 dark:bg-slate-700/40 rounded w-24 mx-auto" />
-                    <div className="h-6 bg-slate-200/60 dark:bg-slate-700/40 rounded w-16 mx-auto" />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Divider */}
-            <div className="border-t border-slate-200 dark:border-slate-700" />
-
-            {/* Staff section skeleton */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 bg-blue-500/50 rounded" />
-                  <div className="h-5 bg-slate-200/60 dark:bg-slate-700/40 rounded w-24" />
-                </div>
-                <div className="h-9 w-28 bg-slate-200/60 dark:bg-slate-700/40 rounded-md" />
-              </div>
-
-              {/* Table skeleton */}
-              <div className="bg-white/50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
-                <div className="bg-slate-50 dark:bg-slate-800/50 p-4">
-                  <div className="grid grid-cols-4 gap-4">
-                    <div className="h-4 bg-slate-200/60 dark:bg-slate-700/40 rounded w-16" />
-                    <div className="h-4 bg-slate-200/60 dark:bg-slate-700/40 rounded w-20" />
-                    <div className="h-4 bg-slate-200/60 dark:bg-slate-700/40 rounded w-16 ml-auto" />
-                    <div className="h-4 bg-slate-200/60 dark:bg-slate-700/40 rounded w-20 ml-auto" />
-                  </div>
-                </div>
-                {[1, 2, 3, 4, 5].map((i) => (
-                  <div
-                    key={`staff-${i}`}
-                    className="border-t border-slate-100 dark:border-slate-800 p-4"
-                  >
-                    <div className="grid grid-cols-4 gap-4 items-center">
-                      <div className="h-5 bg-slate-200/60 dark:bg-slate-700/40 rounded w-8" />
-                      <div className="h-5 bg-slate-200/60 dark:bg-slate-700/40 rounded w-32" />
-                      <div className="h-5 bg-slate-200/60 dark:bg-slate-700/40 rounded w-12 ml-auto" />
-                      <div className="h-5 bg-slate-200/60 dark:bg-slate-700/40 rounded w-20 ml-auto" />
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Staff summary metrics skeleton */}
-              <div className="bg-white/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
-                <div className="grid grid-cols-3 gap-6">
-                  <div className="text-center space-y-2">
-                    <div className="h-3 bg-slate-200/60 dark:bg-slate-700/40 rounded w-20 mx-auto" />
-                    <div className="h-6 bg-slate-200/60 dark:bg-slate-700/40 rounded w-24 mx-auto" />
-                  </div>
-                  <div className="text-center space-y-2 border-l border-r border-slate-200 dark:border-slate-700 px-4">
-                    <div className="h-3 bg-slate-200/60 dark:bg-slate-700/40 rounded w-28 mx-auto" />
-                    <div className="h-6 bg-slate-200/60 dark:bg-slate-700/40 rounded w-16 mx-auto" />
-                  </div>
-                  <div className="text-center space-y-2">
-                    <div className="h-3 bg-slate-200/60 dark:bg-slate-700/40 rounded w-24 mx-auto" />
-                    <div className="h-6 bg-slate-200/60 dark:bg-slate-700/40 rounded w-24 mx-auto" />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    );
+  if (showLoading) {
+    return <TopCustomersLoadingSkeleton />;
   }
 
   // Show global error only if both requests failed and no partial data exists
@@ -285,7 +163,7 @@ const TopCustomersCard = () => {
   }
 
   return (
-    <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
+    <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm h-full flex flex-col">
       <CardHeader className="pb-4">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-lg flex items-center justify-center shadow-sm mt-[4px]">
@@ -302,7 +180,7 @@ const TopCustomersCard = () => {
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-6">
+      <CardContent className="space-y-6 flex-1 flex flex-col">
         {/* TOP CUSTOMERS SECTION */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
@@ -352,22 +230,22 @@ const TopCustomersCard = () => {
                   </colgroup>
                   <thead className="bg-slate-50 dark:bg-slate-800/50">
                     <tr className="border-b border-slate-200 dark:border-slate-700">
-                      <th className="py-3.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-300 h-11">
+                      <th className="py-3 px-3.5 text-xs font-semibold text-slate-700 dark:text-slate-300 h-11">
                         <div className="flex items-center justify-start h-full">
                           Rank
                         </div>
                       </th>
-                      <th className="py-3.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-300 h-11">
+                      <th className="py-3 px-3.5 text-xs font-semibold text-slate-700 dark:text-slate-300 h-11">
                         <div className="flex items-center justify-start h-full">
                           Name
                         </div>
                       </th>
-                      <th className="py-3.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-300 h-11">
+                      <th className="py-3 px-3.5 text-xs font-semibold text-slate-700 dark:text-slate-300 h-11">
                         <div className="flex items-center justify-end h-full">
                           Loans
                         </div>
                       </th>
-                      <th className="py-3.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-300 h-11">
+                      <th className="py-3 px-3.5 text-xs font-semibold text-slate-700 dark:text-slate-300 h-11">
                         <div className="flex items-center justify-end h-full">
                           Value
                         </div>
@@ -380,7 +258,7 @@ const TopCustomersCard = () => {
                         key={customer.phone_number}
                         className="border-b border-slate-100 dark:border-slate-800 last:border-0 hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors"
                       >
-                        <td className="py-3.5 px-4 h-12">
+                        <td className="py-3 px-3.5 h-12">
                           <div className="flex items-center justify-start h-full">
                             <span
                               className={`text-base leading-none ${customer.rank > 3 ? "pl-1.5" : ""}`}
@@ -389,21 +267,21 @@ const TopCustomersCard = () => {
                             </span>
                           </div>
                         </td>
-                        <td className="py-3.5 px-4 h-12">
+                        <td className="py-3 px-3.5 h-12">
                           <div className="flex items-center justify-start h-full">
                             <span className="text-sm text-slate-700 dark:text-slate-300 leading-tight truncate block">
                               {customer.name}
                             </span>
                           </div>
                         </td>
-                        <td className="py-3.5 px-4 h-12">
+                        <td className="py-3 px-3.5 h-12">
                           <div className="flex items-center justify-end h-full">
                             <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
                               {customer.active_loans}
                             </span>
                           </div>
                         </td>
-                        <td className="py-3.5 px-4 h-12">
+                        <td className="py-3 px-3.5 h-12">
                           <div className="flex items-center justify-end h-full">
                             <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
                               {formatCurrency(customer.total_loan_value)}
@@ -418,7 +296,7 @@ const TopCustomersCard = () => {
 
               {/* Customer Summary Metrics */}
               {customersData.summary && (
-                <div className="bg-white/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
+                <div className="bg-white/50 dark:bg-slate-800/50 rounded-lg p-3 border border-slate-200 dark:border-slate-700">
                   <div className="grid grid-cols-3 gap-6 text-xs">
                     <div className="text-center">
                       <div className="text-slate-600 dark:text-slate-400 mb-2">
@@ -457,11 +335,8 @@ const TopCustomersCard = () => {
           )}
         </div>
 
-        {/* DIVIDER */}
-        <div className="border-t border-slate-200 dark:border-slate-700" />
-
         {/* TOP STAFF SECTION */}
-        <div className="space-y-3">
+        <div className="space-y-3 pt-[12px]">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="w-6 h-6 bg-gradient-to-br from-blue-500 to-indigo-600 rounded flex items-center justify-center">
@@ -509,22 +384,22 @@ const TopCustomersCard = () => {
                   </colgroup>
                   <thead className="bg-slate-50 dark:bg-slate-800/50">
                     <tr className="border-b border-slate-200 dark:border-slate-700">
-                      <th className="py-3.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-300 h-11">
+                      <th className="py-3 px-3.5 text-xs font-semibold text-slate-700 dark:text-slate-300 h-11">
                         <div className="flex items-center justify-start h-full">
                           Rank
                         </div>
                       </th>
-                      <th className="py-3.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-300 h-11">
+                      <th className="py-3 px-3.5 text-xs font-semibold text-slate-700 dark:text-slate-300 h-11">
                         <div className="flex items-center justify-start h-full">
                           Name
                         </div>
                       </th>
-                      <th className="py-3.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-300 h-11">
+                      <th className="py-3 px-3.5 text-xs font-semibold text-slate-700 dark:text-slate-300 h-11">
                         <div className="flex items-center justify-end h-full">
                           Trans
                         </div>
                       </th>
-                      <th className="py-3.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-300 h-11">
+                      <th className="py-3 px-3.5 text-xs font-semibold text-slate-700 dark:text-slate-300 h-11">
                         <div className="flex items-center justify-end h-full">
                           Value
                         </div>
@@ -537,7 +412,7 @@ const TopCustomersCard = () => {
                         key={staff.user_id}
                         className="border-b border-slate-100 dark:border-slate-800 last:border-0 hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors"
                       >
-                        <td className="py-3.5 px-4 h-12">
+                        <td className="py-3 px-3.5 h-12">
                           <div className="flex items-center justify-start h-full">
                             <span
                               className={`text-base leading-none ${staff.rank > 3 ? "pl-1.5" : ""}`}
@@ -546,21 +421,21 @@ const TopCustomersCard = () => {
                             </span>
                           </div>
                         </td>
-                        <td className="py-3.5 px-4 h-12">
+                        <td className="py-3 px-3.5 h-12">
                           <div className="flex items-center justify-start h-full">
                             <span className="text-sm text-slate-700 dark:text-slate-300 leading-tight truncate block">
                               {staff.name}
                             </span>
                           </div>
                         </td>
-                        <td className="py-3.5 px-4 h-12">
+                        <td className="py-3 px-3.5 h-12">
                           <div className="flex items-center justify-end h-full">
                             <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
                               {staff.transaction_count}
                             </span>
                           </div>
                         </td>
-                        <td className="py-3.5 px-4 h-12">
+                        <td className="py-3 px-3.5 h-12">
                           <div className="flex items-center justify-end h-full">
                             <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
                               {formatCurrency(staff.total_value)}
@@ -575,7 +450,7 @@ const TopCustomersCard = () => {
 
               {/* Staff Summary Metrics */}
               {staffData.summary && (
-                <div className="bg-white/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
+                <div className="bg-white/50 dark:bg-slate-800/50 rounded-lg p-3 border border-slate-200 dark:border-slate-700">
                   <div className="grid grid-cols-3 gap-6 text-xs">
                     <div className="text-center">
                       <div className="text-slate-600 dark:text-slate-400 mb-2">

@@ -144,7 +144,7 @@ async def get_collections_analytics(
     response_model=Union[TopCustomersResponse, TopStaffResponse],
     status_code=status.HTTP_200_OK,
     summary="Get top customers or staff performance",
-    description="Customer leaderboard by active loans or staff performance by transaction count",
+    description="Customer leaderboard by active loans or staff performance by total loan value",
     responses={
         200: {"description": "Top customers or staff data"},
         401: {"description": "Not authenticated"},
@@ -169,14 +169,15 @@ async def get_top_customers(
     current_user: User = Depends(get_current_user)
 ) -> Union[TopCustomersResponse, TopStaffResponse]:
     """
-    Get top customers by active loan volume or staff by transaction count.
+    Get top customers by active loan volume or staff by total loan value.
 
     Customer View:
         - Ranked list of customers by active loans
         - Summary metrics (total customers, averages)
 
     Staff View:
-        - Ranked list of staff by transaction count
+        - Ranked list of staff by total loan value (primary)
+        - Transaction count as secondary sort
         - Transaction value totals
     """
     data = await ReportsService.get_top_customers(limit=limit, view=view)

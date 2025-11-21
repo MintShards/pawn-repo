@@ -240,7 +240,7 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * @returns {boolean} isStale - Data is >2.5 minutes old
  * @returns {boolean} isCached - Currently displaying cached data
  */
-export const useInventoryData = () => {
+export const useInventoryData = (onReady, onFailed) => {
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState(false);
   const [error, setError] = useState(null);
@@ -292,6 +292,9 @@ export const useInventoryData = () => {
         setProgress(100);
         setLoading(false);
 
+        // Notify coordinated loading system when using cache
+        if (onReady) onReady();
+
         // Continue to fetch fresh data in background if stale
         if (cached.isStale) {
           // Don't return - continue to fetch fresh data
@@ -328,6 +331,9 @@ export const useInventoryData = () => {
           // Reset retry counter
           retryCountRef.current = 0;
 
+          // Notify coordinated loading system via callback
+          if (onReady) onReady();
+
           return; // Success
         } catch (err) {
           if (err.name === "AbortError") {
@@ -363,12 +369,15 @@ export const useInventoryData = () => {
         setError(errorMessage);
         setProgress(0);
         console.error("Inventory snapshot error:", err);
+
+        // Notify coordinated loading system via callback (don't block others)
+        if (onFailed) onFailed();
       }
     } finally {
       setLoading(false);
       setRetrying(false);
     }
-  }, []); // Safe: refs stable, setters guaranteed stable (React 19), service external
+  }, [onReady, onFailed]); // Include coordinated loading callbacks
 
   /**
    * Manual retry function for user-initiated retries

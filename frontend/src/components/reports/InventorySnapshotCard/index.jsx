@@ -28,6 +28,7 @@ import {
 import { Button } from "../../ui/button";
 import { Download, Package, AlertCircle } from "lucide-react";
 import { Alert, AlertDescription } from "../../ui/alert";
+import { useComponentLoading } from "../../../contexts/ReportsLoadingContext";
 
 // Custom hook for data management
 import { useInventoryData } from "./hooks/useInventoryData";
@@ -58,8 +59,11 @@ import { exportInventoryToCSV } from "./utils/inventoryExport";
  * - Stale data warnings
  */
 const InventorySnapshotCard = () => {
+  // Coordinated loading state
+  const { showLoading: coordinatedLoading, setReady, setFailed } = useComponentLoading('inventory');
+
   const { loading, retrying, error, data, progress, retry } =
-    useInventoryData();
+    useInventoryData(setReady, setFailed);
 
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState(null);
@@ -82,7 +86,8 @@ const InventorySnapshotCard = () => {
   }, [data]);
 
   // Loading state (show skeleton while loading, even if error exists)
-  if (loading && !data) {
+  // Use coordinated loading to ensure all components load simultaneously
+  if (coordinatedLoading || (loading && !data)) {
     return <InventoryLoadingSkeleton />;
   }
 

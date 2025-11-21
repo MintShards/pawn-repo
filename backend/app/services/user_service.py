@@ -73,23 +73,42 @@ class UserService:
                 user_dict["notes"] = user_data.notes
 
             user = User(**user_dict)
-            
+
             await user.insert()
             return UserResponse.model_validate(user.model_dump())
             
         except HTTPException:
             # Re-raise HTTP exceptions (like duplicate user checks)
             raise
-        except ValueError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(e)
-            )
-        except (TypeError, AttributeError, ValueError) as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"User creation failed: {str(e)}"
-            )
+        except Exception as e:
+            # Handle MongoDB duplicate key errors with better messaging
+            error_str = str(e)
+            if "E11000 duplicate key error" in error_str:
+                if "idx_user_email" in error_str or "email" in error_str:
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Database index error: Email field has corrupted unique constraint. Please contact system administrator to recreate the sparse unique index on the email field."
+                    )
+                elif "idx_user_id" in error_str or "user_id" in error_str:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"User ID {user_data.user_id} already exists"
+                    )
+                else:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="A user with this information already exists"
+                    )
+            elif isinstance(e, ValueError):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=str(e)
+                )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"User creation failed: {str(e)}"
+                )
     
     @staticmethod
     async def authenticate_user(auth_data: UserAuth, request=None) -> LoginResponse:
