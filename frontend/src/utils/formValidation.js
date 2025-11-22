@@ -287,7 +287,19 @@ export const useFormValidation = (initialData, validators) => {
   const isFormValid = React.useMemo(() => {
     return Object.values(errors).every(error => !error)
   }, [errors])
-  
+
+  // Clear specific field error
+  const clearFieldError = React.useCallback((field) => {
+    setErrors(prev => ({
+      ...prev,
+      [field]: null
+    }))
+    setSuggestions(prev => ({
+      ...prev,
+      [field]: []
+    }))
+  }, [])
+
   return {
     data,
     updateField,
@@ -297,6 +309,7 @@ export const useFormValidation = (initialData, validators) => {
     getFieldError,
     getFieldSuggestions,
     isFormValid,
+    clearFieldError,
     errors,
     touched
   }

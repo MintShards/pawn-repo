@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, UTC
 from typing import Optional, List
 from uuid import uuid4
 from enum import Enum
+from pymongo import IndexModel
 
 # Import the new AuditEntry model
 from .audit_entry_model import AuditEntry
@@ -28,6 +29,12 @@ class TransactionStatus(str, Enum):
     HOLD = "hold"
     DAMAGED = "damaged"
     VOIDED = "voided"      # Admin-voided transaction
+
+
+class TransactionType(str, Enum):
+    """Transaction type classification for tracking origin"""
+    MANUAL = "New Entry"
+    IMPORTED = "Imported"
 
 
 class PawnTransaction(Document):
@@ -55,7 +62,18 @@ class PawnTransaction(Document):
         ...,
         description="Reference to User document via user_id"
     )
-    
+
+    # Transaction type and reference tracking
+    transaction_type: TransactionType = Field(
+        default=TransactionType.MANUAL,
+        description="Transaction type: New Entry or Imported"
+    )
+    reference_barcode: Optional[str] = Field(
+        default=None,
+        max_length=100,
+        description="Reference barcode from external system (required when transaction_type is Imported)"
+    )
+
     # Dates (calculated automatically)
     pawn_date: datetime = Field(
         description="Date when item was pawned"
@@ -192,6 +210,18 @@ class PawnTransaction(Document):
             raise ValueError('Interest amount cannot be negative')
         if v > 1000:  # Business rule: max interest $1,000/month
             raise ValueError('Monthly interest cannot exceed $1,000')
+        return v
+
+    @field_validator('reference_barcode')
+    @classmethod
+    def validate_reference_barcode(cls, v: Optional[str], info) -> Optional[str]:
+        """Validate reference_barcode based on transaction_type."""
+        # Note: In Pydantic v2, we don't have access to other field values during validation
+        # The conditional requirement will be enforced at the schema/API level
+        if v is not None:
+            v = v.strip()
+            if not v:
+                return None
         return v
     
     def calculate_dates(self) -> None:
@@ -551,6 +581,17 @@ class PawnTransaction(Document):
             "status",
             "pawn_date",
             "maturity_date",
+            "reference_barcode",  # Index for reference barcode lookups
+
+            # Partial unique index for non-null reference barcodes
+            # Ensures uniqueness when barcode exists while allowing multiple NULL values
+            # Uses $type: "string" to only index string values (excludes null automatically)
+            IndexModel(
+                [("reference_barcode", 1)],
+                name="reference_barcode_unique",
+                unique=True,
+                partialFilterExpression={"reference_barcode": {"$type": "string"}}
+            ),
 
             # NOTE: Compound indexes are managed via scripts/apply_critical_indexes.py
             # This allows for named indexes with better management and monitoring

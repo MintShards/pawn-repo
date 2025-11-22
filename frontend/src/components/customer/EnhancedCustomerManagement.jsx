@@ -45,7 +45,9 @@ import {
   TableIcon,
   Award,
   Search,
-  PauseCircle
+  PauseCircle,
+  Pencil,
+  Tag,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -131,6 +133,7 @@ import StatusUpdateForm from '../transaction/components/StatusUpdateForm';
 import { ExtensionSuccessDialog } from '../extension/ExtensionSuccessDialog';
 import StatusBadge from '../transaction/components/StatusBadge';
 import AdvancedFilters from './AdvancedFilters';
+import TransactionTypeEditDialog from '../transaction/TransactionTypeEditDialog';
 
 // Sort field mapping: Frontend display name -> Backend database field
 const CUSTOMER_SORT_FIELD_MAP = {
@@ -195,6 +198,7 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
   const [loadingTransactionDetails, setLoadingTransactionDetails] = useState(false);
   const [showItemsDialog, setShowItemsDialog] = useState(false);
   const [selectedTransactionItems, setSelectedTransactionItems] = useState(null);
+  const [showTransactionTypeEdit, setShowTransactionTypeEdit] = useState(false);
   // Transaction void hook - consolidates duplicate logic
   const {
     showVoidApprovalDialog,
@@ -1543,6 +1547,45 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                             </CardContent>
                           </Card>
 
+                          {/* Transaction Type Section */}
+                          <Card>
+                            <CardHeader className="pb-1.5">
+                              <CardTitle className="flex items-center justify-between text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                <div className="flex items-center space-x-1.5">
+                                  <FileText className="w-3.5 h-3.5 text-blue-600" />
+                                  <span>Transaction Type</span>
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 px-2 text-xs hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                                  onClick={() => setShowTransactionTypeEdit(true)}
+                                  disabled={!selectedTransaction?.transaction_id && !selectedTransaction?.transaction?.transaction_id}
+                                  title="Edit transaction type"
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </Button>
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent className="pt-0 pb-2 space-y-1.5">
+                              <div className="flex justify-between items-center">
+                                <div className="text-xs text-slate-600 dark:text-slate-400">Type:</div>
+                                <div className="text-xs font-medium text-slate-900 dark:text-slate-100">
+                                  {getTransactionField('transaction_type') || 'New Entry'}
+                                </div>
+                              </div>
+                              {/* Reference Barcode - only show for Imported transactions */}
+                              {getTransactionField('transaction_type') === 'Imported' && getTransactionField('reference_barcode') && (
+                                <div className="flex justify-between items-center">
+                                  <div className="text-xs text-slate-600 dark:text-slate-400">Ref Barcode:</div>
+                                  <div className="text-xs font-mono font-medium text-slate-900 dark:text-slate-100">
+                                    {getTransactionField('reference_barcode')}
+                                  </div>
+                                </div>
+                              )}
+                            </CardContent>
+                          </Card>
+
                           {/* Transaction Info */}
                           <Card>
                             <CardHeader className="pb-1.5">
@@ -2194,6 +2237,12 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
                                                         <Plus className="w-3 h-3 text-blue-600 dark:text-blue-400" />
                                                       </div>
                                                     );
+                                                  } else if (event.data.action_summary === 'Transaction type updated') {
+                                                    return (
+                                                      <div className="w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center">
+                                                        <Tag className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                                                      </div>
+                                                    );
                                                   } else {
                                                     // Default audit entry styling
                                                     return (
@@ -2677,6 +2726,53 @@ const TransactionsTabContent = ({ selectedCustomer }) => {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Transaction Type Edit Dialog */}
+      <TransactionTypeEditDialog
+        isOpen={showTransactionTypeEdit}
+        onClose={() => setShowTransactionTypeEdit(false)}
+        transaction={selectedTransaction}
+        onSuccess={async (updatedData) => {
+          const transactionId = selectedTransaction?.transaction?.transaction_id || selectedTransaction?.transaction_id;
+
+          // Optimistic update - immediately update the transaction type display
+          if (updatedData && selectedTransaction) {
+            const updatedTransaction = {
+              ...selectedTransaction,
+              transaction_type: updatedData.transaction_type,
+              reference_barcode: updatedData.reference_barcode
+            };
+
+            if (selectedTransaction.transaction) {
+              updatedTransaction.transaction = {
+                ...selectedTransaction.transaction,
+                transaction_type: updatedData.transaction_type,
+                reference_barcode: updatedData.reference_barcode
+              };
+            }
+
+            setSelectedTransaction(updatedTransaction);
+
+            // Fetch only audit entries to update timeline (500ms delay for backend)
+            if (transactionId) {
+              setTimeout(async () => {
+                try {
+                  const auditEntriesData = await transactionService.getAuditEntries(transactionId, 50, true);
+                  if (auditEntriesData && Array.isArray(auditEntriesData)) {
+                    setAuditEntries(auditEntriesData);
+                  }
+                } catch (error) {
+                  console.error('Failed to refresh audit entries:', error);
+                  handleViewTransaction({ transaction_id: transactionId }).catch(() => {});
+                }
+              }, 500);
+            }
+          }
+
+          // Trigger immediate refresh of transaction list
+          setRefreshTrigger(prev => prev + 1);
+        }}
+      />
     </Card>
   );
 };

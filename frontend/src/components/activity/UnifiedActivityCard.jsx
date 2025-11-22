@@ -21,7 +21,8 @@ import {
   Key,
   Shield,
   Undo2,
-  Activity
+  Activity,
+  Tag
 } from 'lucide-react';
 import {
   getActivityTypeLabel,
@@ -45,9 +46,64 @@ import { formatBusinessDateTime } from '../../utils/timezoneUtils';
  */
 const UnifiedActivityCard = ({ activity, showUserId = true, formatRelativeTime }) => {
   /**
+   * Check if this is a transaction type update
+   */
+  const isTransactionTypeUpdate = () => {
+    return activity.activity_type === 'transaction_updated' &&
+           activity.metadata?.old_type &&
+           activity.metadata?.new_type;
+  };
+
+  /**
+   * Format transaction type update description for user-friendly display
+   */
+  const formatTransactionTypeDescription = () => {
+    if (!isTransactionTypeUpdate()) {
+      return null;
+    }
+
+    // Extract metadata for transaction type changes
+    const metadata = activity.metadata || {};
+    const oldType = metadata.old_type || metadata.previous_value;
+    const newType = metadata.new_type || metadata.new_value;
+    const oldBarcode = metadata.old_barcode;
+    const newBarcode = metadata.new_barcode;
+
+    // Format transaction type values (convert enum format to display names)
+    const formatTypeValue = (value) => {
+      if (!value) return 'Unknown';
+      if (String(value).includes('TransactionType.')) {
+        const enumValue = String(value).split('.')[1];
+        if (enumValue === 'MANUAL') return 'New Entry';
+        if (enumValue === 'IMPORTED') return 'Imported';
+      }
+      if (value === 'New Entry' || value === 'Imported') return value;
+      return String(value).charAt(0).toUpperCase() + String(value).slice(1);
+    };
+
+    const formattedOldType = formatTypeValue(oldType);
+    const formattedNewType = formatTypeValue(newType);
+
+    // Build user-friendly description
+    let description = `Transaction type changed from ${formattedOldType} to ${formattedNewType}`;
+
+    // Add barcode context if present
+    if (formattedNewType === 'Imported' && newBarcode && newBarcode !== 'N/A') {
+      description += ` (${newBarcode})`;
+    }
+
+    return description;
+  };
+
+  /**
    * Get activity icon based on activity type
    */
   const getActivityIcon = (activityType) => {
+    // Special case: Check if it's a transaction type update
+    if (isTransactionTypeUpdate()) {
+      return <Tag className="w-4 h-4 text-purple-600" />;
+    }
+
     const iconMap = {
       // Authentication
       'login_success': <LogIn className="w-4 h-4 text-green-600" />,
@@ -185,6 +241,12 @@ const UnifiedActivityCard = ({ activity, showUserId = true, formatRelativeTime }
       return null;
     }
 
+    // For transaction type updates, skip metadata badges since description already has all info
+    if (isTransactionTypeUpdate()) {
+      return null; // Description already shows "Transaction type changed from X to Y (barcode)"
+    }
+
+    // Standard metadata badges for other activity types
     return (
       <div className="mt-3 flex flex-wrap gap-2">
         {Object.entries(activity.metadata).map(([key, value]) => (
@@ -250,7 +312,7 @@ const UnifiedActivityCard = ({ activity, showUserId = true, formatRelativeTime }
             {/* Header with badges */}
             <div className="flex items-center flex-wrap gap-2 mb-2">
               <p className="text-sm font-semibold text-slate-900 dark:text-white">
-                {activity.description || getActivityTypeLabel(activity.activity_type)}
+                {formatTransactionTypeDescription() || activity.description || getActivityTypeLabel(activity.activity_type)}
               </p>
               {renderSeverityBadge()}
               {renderSuccessBadge()}

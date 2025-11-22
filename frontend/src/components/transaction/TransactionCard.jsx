@@ -1,7 +1,8 @@
 import React from 'react';
-import { DollarSign, CreditCard, Eye, Banknote, ArrowRightLeft, MapPin } from 'lucide-react';
+import { DollarSign, CreditCard, Eye, Banknote, ArrowRightLeft, MapPin, Barcode } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader } from '../ui/card';
+import { Badge } from '../ui/badge';
 import StatusBadge from './components/StatusBadge';
 import { formatTransactionId, formatStorageLocation, formatCurrency } from '../../utils/transactionUtils';
 import { formatBusinessDate } from '../../utils/timezoneUtils';
@@ -160,6 +161,37 @@ const TransactionCard = React.memo(({
             <span className="text-sm font-medium text-slate-900 dark:text-slate-100 text-right truncate ml-2">
               {formatStorageLocation(transaction.storage_location)}
             </span>
+          </div>
+        )}
+
+        {/* Transaction Type and Reference Barcode */}
+        {(transaction.transaction_type || transaction.reference_barcode) && (
+          <div className="space-y-2">
+            {/* Transaction Type Badge */}
+            {transaction.transaction_type && (
+              <div className="flex items-center justify-between px-3 py-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
+                <span className="text-sm text-slate-600 dark:text-slate-400">Type</span>
+                <Badge
+                  variant={transaction.transaction_type === 'Imported' ? 'default' : 'secondary'}
+                  className={transaction.transaction_type === 'Imported' ? 'bg-blue-500 hover:bg-blue-600' : ''}
+                >
+                  {transaction.transaction_type}
+                </Badge>
+              </div>
+            )}
+
+            {/* Reference Barcode - Only shown for Imported transactions */}
+            {transaction.transaction_type === 'Imported' && transaction.reference_barcode && (
+              <div className="flex items-center justify-between px-3 py-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
+                <div className="flex items-center space-x-2 min-w-0">
+                  <Barcode className="h-4 w-4 text-slate-500 dark:text-slate-400 flex-shrink-0" />
+                  <span className="text-sm text-slate-600 dark:text-slate-400">Reference</span>
+                </div>
+                <span className="text-sm font-mono font-medium text-slate-900 dark:text-slate-100 text-right truncate ml-2">
+                  {transaction.reference_barcode}
+                </span>
+              </div>
+            )}
           </div>
         )}
 

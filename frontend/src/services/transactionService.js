@@ -190,6 +190,21 @@ class TransactionService {
     }
   }
 
+  // Update transaction type and reference barcode
+  async updateTransactionType(transactionId, typeData) {
+    try {
+      const result = await authService.apiRequest(`/api/v1/pawn-transaction/${transactionId}/transaction-type`, {
+        method: 'PUT',
+        body: JSON.stringify(typeData),
+      });
+      this.clearTransactionCache();
+      return result;
+    } catch (error) {
+      // Error handled
+      throw error;
+    }
+  }
+
   // Bulk update transaction status
   async bulkUpdateStatus({ transaction_ids, new_status, notes }) {
     try {

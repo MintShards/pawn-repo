@@ -18,7 +18,8 @@ import {
   Shield,
   Save,
   Phone,
-  Mail
+  Mail,
+  Barcode
 } from 'lucide-react';
 
 // UI Components
@@ -30,6 +31,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Progress } from '../ui/progress';
 import { Badge } from '../ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 // Services
 import transactionService from '../../services/transactionService';
@@ -80,6 +82,28 @@ const CreatePawnFormRedesigned = ({ onSuccess, onCancel }) => {
     customer_id: (value) => validateRequired(value, 'Customer'),
     loan_amount: (value) => validateAmount(value, 'Loan amount', { min: 1, max: 50000 }),
     monthly_interest_amount: (value) => validateAmount(value, 'Monthly interest', { min: 0, allowZero: true }),
+    reference_barcode: (value, allData) => {
+      // Reference barcode is now optional for all transaction types
+      const trimmedValue = (value || '').trim();
+
+      if (!trimmedValue) {
+        return createValidationResult(true); // Optional field
+      }
+
+      if (trimmedValue.length > 100) {
+        return createValidationResult(false, 'Reference Barcode cannot exceed 100 characters');
+      }
+
+      // Match backend validation pattern - alphanumeric, hyphens, underscores only
+      if (!/^[A-Za-z0-9\-_]+$/.test(trimmedValue)) {
+        return createValidationResult(
+          false,
+          'Reference Barcode can only contain letters, numbers, hyphens, and underscores'
+        );
+      }
+
+      return createValidationResult(true);
+    },
     items: (items) => {
       // Filter out blank items - only validate items with descriptions
       const filledItems = (items || []).filter(item => item.description && item.description.trim());
@@ -104,8 +128,10 @@ const CreatePawnFormRedesigned = ({ onSuccess, onCancel }) => {
     monthly_interest_amount: '',
     storage_location: '',
     internal_notes: '',
-    items: [{ 
-      description: '', 
+    transaction_type: 'Manual', // Default to Manual
+    reference_barcode: '', // Empty by default
+    items: [{
+      description: '',
       serial_number: ''
     }]
   }, formValidators);
@@ -455,6 +481,8 @@ const CreatePawnFormRedesigned = ({ onSuccess, onCancel }) => {
         monthly_interest_amount: Math.round(parseFloat(formData.monthly_interest_amount)),
         storage_location: formData.storage_location?.trim() || "TBD",
         internal_notes: formData.internal_notes.trim() || null,
+        transaction_type: formData.transaction_type || 'Manual', // Include transaction type
+        reference_barcode: formData.transaction_type === 'Imported' ? (formData.reference_barcode?.trim() || null) : null, // Include reference barcode only for Imported
         items: formData.items
           .filter(item => item.description.trim()) // Only include items with descriptions
           .map(item => ({
@@ -1279,7 +1307,98 @@ const CreatePawnFormRedesigned = ({ onSuccess, onCancel }) => {
                           </div>
                         )}
                       </div>
-                      
+                    </CardContent>
+                  </Card>
+
+                  {/* Transaction Details Card */}
+                  <Card className="bg-gradient-to-br from-indigo-50/80 to-purple-50/80 dark:from-indigo-950/50 dark:to-purple-950/50 border-indigo-200/50 dark:border-indigo-800/50 shadow-lg">
+                    <CardHeader className="pb-4 border-b border-indigo-200/50 dark:border-indigo-700/50">
+                      <CardTitle className="flex items-center gap-3">
+                        <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-md">
+                          <Barcode className="w-4 h-4 text-white" />
+                        </div>
+                        <div>
+                          <div className="text-lg font-bold text-indigo-800 dark:text-indigo-200">
+                            Transaction Details
+                          </div>
+                          <div className="text-sm text-indigo-600 dark:text-indigo-400">
+                            Type and reference information
+                          </div>
+                        </div>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4 pt-4">
+                      {/* Transaction Type */}
+                      <div>
+                        <Label className="text-sm font-medium text-slate-700 dark:text-slate-300">Transaction Type *</Label>
+                        <Select
+                          value={formData.transaction_type}
+                          onValueChange={(value) => {
+                            updateField('transaction_type', value);
+                            // Clear reference barcode if switching to Manual
+                            if (value === 'Manual') {
+                              updateField('reference_barcode', '');
+                            }
+                          }}
+                        >
+                          <SelectTrigger className="h-10 mt-1 bg-white/70 dark:bg-slate-800/70 border-indigo-200 dark:border-indigo-700 focus:border-indigo-500 dark:focus:border-indigo-400">
+                            <SelectValue placeholder="Select transaction type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Manual">Manual</SelectItem>
+                            <SelectItem value="Imported">Imported</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                          Select "Imported" if this transaction is from an external system
+                        </p>
+                      </div>
+
+                      {/* Reference Barcode - Conditional on transaction_type */}
+                      {formData.transaction_type === 'Imported' && (
+                        <div className="animate-in fade-in slide-in-from-top-2 duration-300">
+                          <Label className="text-sm font-medium text-slate-700 dark:text-slate-300">Reference Barcode</Label>
+                          <div className="relative mt-1">
+                            <Barcode className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                            <Input
+                              value={formData.reference_barcode}
+                              onChange={(e) => updateField('reference_barcode', e.target.value)}
+                              placeholder="Enter barcode from main system"
+                              maxLength={100}
+                              className={`pl-12 h-10 bg-white/70 dark:bg-slate-800/70 border-indigo-200 dark:border-indigo-700 focus:border-indigo-500 dark:focus:border-indigo-400 ${
+                                getFieldError('reference_barcode') ? 'border-red-500' : ''
+                              }`}
+                            />
+                          </div>
+                          {getFieldError('reference_barcode') && (
+                            <p className="text-red-600 text-sm mt-1">{getFieldError('reference_barcode')}</p>
+                          )}
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                            Optional (max 100 characters)
+                          </p>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Storage & Notes Card */}
+                  <Card className="bg-gradient-to-br from-amber-50/80 to-orange-50/80 dark:from-amber-950/50 dark:to-orange-950/50 border-amber-200/50 dark:border-amber-800/50 shadow-lg">
+                    <CardHeader className="pb-4 border-b border-amber-200/50 dark:border-amber-700/50">
+                      <CardTitle className="flex items-center gap-3">
+                        <div className="w-8 h-8 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl flex items-center justify-center shadow-md">
+                          <Package className="w-4 h-4 text-white" />
+                        </div>
+                        <div>
+                          <div className="text-lg font-bold text-amber-800 dark:text-amber-200">
+                            Storage & Notes
+                          </div>
+                          <div className="text-sm text-amber-600 dark:text-amber-400">
+                            Item location and additional information
+                          </div>
+                        </div>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="pt-4">
                       {/* Storage Location */}
                       <div>
                         <Label className="text-sm font-medium text-slate-700 dark:text-slate-300">Storage Location</Label>
@@ -1287,7 +1406,7 @@ const CreatePawnFormRedesigned = ({ onSuccess, onCancel }) => {
                           value={formData.storage_location}
                           onChange={(e) => updateField('storage_location', e.target.value)}
                           placeholder="e.g., Shelf A-1, Safe #3, Vault B-12"
-                          className="h-10 mt-1 bg-white/70 dark:bg-slate-800/70 border-cyan-200 dark:border-cyan-700 focus:border-cyan-500 dark:focus:border-cyan-400"
+                          className="h-10 mt-1 bg-white/70 dark:bg-slate-800/70 border-amber-200 dark:border-amber-700 focus:border-amber-500 dark:focus:border-amber-400"
                         />
                       </div>
                     </CardContent>

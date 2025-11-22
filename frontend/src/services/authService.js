@@ -509,26 +509,32 @@ class AuthService {
         url
       };
       error.status = response.status;
-      
-      // For 422 validation errors, provide more detailed error information
-      if (response.status === 422) {
-        let errorMessage = 'Validation failed';
-        
-        if (errorData.detail) {
+
+      // For 400 and 422 validation errors, provide more detailed error information
+      if (response.status === 400 || response.status === 422) {
+        let detailedMessage = response.status === 422 ? 'Validation failed' : 'Bad request';
+
+        // Check for details.message first (actual backend format for HTTPException)
+        if (errorData.details && typeof errorData.details.message === 'string') {
+          detailedMessage = errorData.details.message;
+        }
+        // Then check for detail (validation errors and other formats)
+        else if (errorData.detail) {
           if (Array.isArray(errorData.detail)) {
-            // Pydantic validation errors
+            // Pydantic validation errors (typically 422)
             const errors = errorData.detail.map(err => `${err.loc?.join('.')}: ${err.msg}`).join('; ');
-            errorMessage = `Validation errors: ${errors}`;
+            detailedMessage = `Validation errors: ${errors}`;
           } else if (typeof errorData.detail === 'string') {
-            errorMessage = `Validation error: ${errorData.detail}`;
+            // String detail (both 400 and 422) - use as-is
+            detailedMessage = errorData.detail;
           } else {
-            errorMessage = `Validation error: ${JSON.stringify(errorData.detail)}`;
+            detailedMessage = `Validation error: ${JSON.stringify(errorData.detail)}`;
           }
         }
-        
-        error.message = errorMessage;
+
+        error.message = detailedMessage;
       }
-      
+
       throw error;
     }
 

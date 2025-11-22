@@ -59,8 +59,21 @@ export const parseApiError = (error) => {
   // Validation errors
   if (error.status === 422 || error.status === 400) {
     const details = error.response?.data?.detail || error.message || 'Invalid input provided'
+    const detailMessage = Array.isArray(details) ? details.map(d => d.msg).join(', ') : details
+
+    // Check for duplicate barcode error
+    if (detailMessage.includes('already in use') || detailMessage.includes('duplicate')) {
+      return {
+        message: detailMessage,
+        type: ERROR_TYPES.VALIDATION,
+        severity: ERROR_SEVERITY.HIGH, // Higher severity for duplicate errors
+        isDuplicate: true,
+        actions: ['fix']
+      }
+    }
+
     return {
-      message: Array.isArray(details) ? details.map(d => d.msg).join(', ') : details,
+      message: detailMessage,
       type: ERROR_TYPES.VALIDATION,
       severity: ERROR_SEVERITY.MEDIUM,
       actions: ['fix']
@@ -120,19 +133,30 @@ export const handleError = (error, context = '') => {
         }
       })
       break
-    
+
     case ERROR_SEVERITY.HIGH:
-      toast.error(`${contextMessage}${parsedError.message}`, {
-        duration: 8000
-      })
+      // Special handling for duplicate barcode errors
+      if (parsedError.isDuplicate) {
+        const barcodeMatch = parsedError.message.match(/'([^']+)'/)
+        const duplicateBarcode = barcodeMatch ? barcodeMatch[1] : 'this barcode'
+
+        toast.error('Duplicate Reference Barcode', {
+          description: `The barcode "${duplicateBarcode}" is already in use. Please use a different barcode or leave it empty.`,
+          duration: 8000
+        })
+      } else {
+        toast.error(`${contextMessage}${parsedError.message}`, {
+          duration: 8000
+        })
+      }
       break
-    
+
     case ERROR_SEVERITY.MEDIUM:
       toast.warning(`${contextMessage}${parsedError.message}`, {
         duration: 5000
       })
       break
-    
+
     default:
       toast.info(`${contextMessage}${parsedError.message}`, {
         duration: 3000

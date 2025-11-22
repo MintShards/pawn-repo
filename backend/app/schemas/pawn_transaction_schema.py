@@ -10,7 +10,7 @@ from typing import Optional, List, Dict, Any, Union
 from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 from enum import Enum
 
-from app.models.pawn_transaction_model import TransactionStatus
+from app.models.pawn_transaction_model import TransactionStatus, TransactionType
 
 
 class TransactionSortField(str, Enum):
@@ -94,6 +94,15 @@ class PawnTransactionBase(BaseModel):
         max_length=500,
         description="Internal staff notes"
     )
+    transaction_type: TransactionType = Field(
+        default=TransactionType.MANUAL,
+        description="Transaction type: New Entry or Imported (defaults to New Entry)"
+    )
+    reference_barcode: Optional[str] = Field(
+        None,
+        max_length=100,
+        description="Reference barcode from external system (required when transaction_type is Imported)"
+    )
 
 
 class PawnTransactionCreate(PawnTransactionBase):
@@ -146,6 +155,43 @@ class PawnTransactionResponse(PawnTransactionBase):
     updated_at: datetime = Field(..., description="Transaction last update timestamp")
     
     model_config = ConfigDict(from_attributes=True)
+
+
+class TransactionTypeUpdateRequest(BaseModel):
+    """Schema for updating transaction type and reference barcode"""
+    transaction_type: TransactionType = Field(
+        ...,
+        description="Transaction type: New Entry or Imported"
+    )
+    reference_barcode: Optional[str] = Field(
+        None,
+        max_length=100,
+        description="Reference barcode from external system (optional)"
+    )
+
+    @field_validator('reference_barcode')
+    @classmethod
+    def validate_reference_barcode(cls, v, info):
+        """Validate and normalize reference barcode with input sanitization"""
+        import re
+
+        if not v:
+            return None
+
+        # Trim whitespace
+        cleaned = v.strip()
+
+        # Return None for empty strings after trimming
+        if not cleaned:
+            return None
+
+        # Allow alphanumeric, hyphens, underscores, spaces, slashes, and periods
+        if not re.match(r'^[A-Za-z0-9\-_\s\/\.]+$', cleaned):
+            raise ValueError(
+                'Reference barcode can only contain letters, numbers, hyphens, underscores, spaces, slashes, and periods'
+            )
+
+        return cleaned
 
 
 class PawnTransactionListResponse(BaseModel):
@@ -248,7 +294,8 @@ class TransactionSearchFilters(BaseModel):
     """Schema for transaction search filters"""
     status: Optional[TransactionStatus] = Field(None, description="Filter by transaction status")
     customer_id: Optional[str] = Field(None, description="Filter by customer phone number")
-    search_text: Optional[str] = Field(None, description="Search by transaction ID (PW000123) or customer phone number")
+    search_text: Optional[str] = Field(None, description="Search by transaction ID (PW000123), customer phone number, or reference barcode")
+    reference_barcode: Optional[str] = Field(None, description="Search by reference barcode")
     min_amount: Optional[int] = Field(None, ge=0, le=10000, description="Minimum loan amount filter ($0-$10,000)")
     max_amount: Optional[int] = Field(None, ge=0, le=10000, description="Maximum loan amount filter ($0-$10,000)")
     start_date: Optional[datetime] = Field(None, description="Start date filter (pawn date)")
@@ -485,6 +532,7 @@ class UnifiedSearchType(str, Enum):
     EXTENSION_ID = "extension_id"
     PHONE_NUMBER = "phone_number"
     CUSTOMER_NAME = "customer_name"
+    REFERENCE_BARCODE = "reference_barcode"
     FULL_TEXT = "full_text"
 
 

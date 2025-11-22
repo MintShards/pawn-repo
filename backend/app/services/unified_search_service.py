@@ -93,11 +93,20 @@ class UnifiedSearchService:
             logger.debug(f"🔍 SEARCH TYPE: Detected PHONE_NUMBER for '{search_text}'")
             return SearchType.PHONE_NUMBER
         
+        # Reference barcode patterns (alphanumeric with hyphens/underscores, 4+ chars)
+        # Must contain at least one letter AND one digit (not just letters or just digits)
+        # Examples: BT-CNS019252, ABC123, TEST-001, REF_12345
+        if len(search_text) >= 4 and re.search(r'[a-zA-Z]', search_text) and re.search(r'\d', search_text):
+            # Only contains letters, digits, hyphens, underscores
+            if re.match(r'^[a-zA-Z0-9\-_]+$', search_text):
+                logger.debug(f"🔍 SEARCH TYPE: Detected REFERENCE_BARCODE for '{search_text}'")
+                return SearchType.REFERENCE_BARCODE
+
         # Customer name patterns (contains letters and spaces)
         if re.match(r'^[a-zA-Z\s\'-]{2,}$', search_text):
             logger.debug(f"🔍 SEARCH TYPE: Detected CUSTOMER_NAME for '{search_text}'")
             return SearchType.CUSTOMER_NAME
-        
+
         # Default to full text search
         logger.debug(f"🔍 SEARCH TYPE: Defaulting to FULL_TEXT for '{search_text}'")
         return SearchType.FULL_TEXT
@@ -147,11 +156,15 @@ class UnifiedSearchService:
         
         elif search_type == SearchType.PHONE_NUMBER:
             return {"customer_id": search_text}
-        
+
+        elif search_type == SearchType.REFERENCE_BARCODE:
+            # Reference barcode search with case-insensitive exact match
+            return {"reference_barcode": {"$regex": f"^{re.escape(search_text)}$", "$options": "i"}}
+
         elif search_type == SearchType.CUSTOMER_NAME:
             # Customer name search requires joining with customers collection
             return {"_customer_name_search": search_text.lower()}  # Special marker
-        
+
         else:  # FULL_TEXT
             # Multi-field text search (storage location and loan amount searching removed)
             search_regex = {"$regex": re.escape(search_text), "$options": "i"}
@@ -417,7 +430,7 @@ class UnifiedSearchService:
             pipeline = UnifiedSearchService.build_search_pipeline(
                 search_text, search_type, include_extensions, include_items, include_customer
             )
-            
+
             logger.info("🔍 UNIFIED SEARCH: Executing aggregation pipeline",
                         search_text=search_text[:50],
                         search_type=search_type,

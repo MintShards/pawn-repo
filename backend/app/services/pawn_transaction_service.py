@@ -13,6 +13,8 @@ import re
 
 # Third-party imports
 from beanie.operators import In, Or, RegEx
+from pymongo.errors import DuplicateKeyError, WriteError
+from beanie.exceptions import RevisionIdWasChanged
 
 # Local imports
 from app.models.pawn_transaction_model import PawnTransaction, TransactionStatus
@@ -135,7 +137,9 @@ class PawnTransactionService:
         storage_location: str,
         items: List[Dict[str, Any]],
         internal_notes: Optional[str] = None,
-        client_timezone: Optional[str] = None
+        client_timezone: Optional[str] = None,
+        transaction_type: Optional[str] = None,
+        reference_barcode: Optional[str] = None
     ) -> PawnTransaction:
         """
         Create a new pawn transaction with multiple items.
@@ -149,6 +153,9 @@ class PawnTransactionService:
             storage_location: Physical storage location (e.g., 'Shelf A-5')
             items: List of item dictionaries with description and optional serial_number
             internal_notes: Optional staff notes
+            client_timezone: Optional client timezone for date calculations
+            transaction_type: Transaction type ("New Entry" or "Imported")
+            reference_barcode: Optional reference barcode from external system (required for Imported type)
 
         Returns:
             Created PawnTransaction with associated items
@@ -325,7 +332,9 @@ class PawnTransactionService:
                 storage_location=final_storage_location,
                 internal_notes=internal_notes,
                 pawn_date=pawn_date_utc,
-                formatted_id=formatted_id
+                formatted_id=formatted_id,
+                transaction_type=transaction_type,
+                reference_barcode=reference_barcode
             )
             
             # If initial notes were provided, also add them to the new notes architecture
@@ -791,7 +800,134 @@ class PawnTransactionService:
                 )
         
         return transaction
-    
+
+    @staticmethod
+    async def update_transaction_type(
+        transaction_id: str,
+        transaction_type: 'TransactionType',
+        reference_barcode: Optional[str],
+        updated_by_user_id: str
+    ) -> PawnTransaction:
+        """
+        Update transaction type and reference barcode.
+
+        Args:
+            transaction_id: Unique transaction identifier
+            transaction_type: New transaction type enum (TransactionType.MANUAL or TransactionType.IMPORTED)
+            reference_barcode: Reference barcode (required for Imported type)
+            updated_by_user_id: User ID making the update
+
+        Returns:
+            Updated PawnTransaction
+
+        Raises:
+            PawnTransactionError: Transaction not found
+            StaffValidationError: Staff user not found or insufficient permissions
+            ValueError: Invalid transaction type or missing reference barcode
+        """
+        # Import here to avoid circular dependency issues
+        from app.models.pawn_transaction_model import TransactionType
+        from app.models.audit_entry_model import create_audit_entry, AuditActionType
+
+        # Validate staff user
+        staff_user = await User.find_one(User.user_id == updated_by_user_id)
+        if not staff_user or staff_user.status != UserStatus.ACTIVE:
+            raise StaffValidationError(f"Staff user {updated_by_user_id} not found or inactive")
+
+        # Get transaction
+        transaction = await PawnTransactionService.get_transaction_by_id(transaction_id)
+        if not transaction:
+            raise PawnTransactionError(f"Transaction {transaction_id} not found")
+
+        # Store old values for audit
+        old_type = transaction.transaction_type
+        old_barcode = transaction.reference_barcode
+
+        # Update fields with the enum
+        transaction.transaction_type = transaction_type
+        transaction.reference_barcode = reference_barcode
+
+        # Get display values for audit trail
+        # TransactionType.MANUAL.value = "New Entry", TransactionType.IMPORTED.value = "Imported"
+        old_type_display = old_type.value if isinstance(old_type, TransactionType) else str(old_type)
+        new_type_display = transaction_type.value if isinstance(transaction_type, TransactionType) else str(transaction_type)
+
+        # Use concise arrow format for cleaner timeline display
+        details = f"{old_type_display} → {new_type_display}"
+        if new_type_display == "Imported" and reference_barcode:
+            details += f" • {reference_barcode}"
+
+        audit_entry = create_audit_entry(
+            action_type=AuditActionType.TRANSACTION_UPDATED,
+            staff_member=updated_by_user_id,
+            action_summary="Transaction type updated",
+            details=details,
+            previous_value=old_type_display,
+            new_value=new_type_display
+        )
+        transaction.add_system_audit_entry(audit_entry)
+
+        # Add note about the update
+        update_note = format_system_note(
+            action=f"Transaction type updated to {new_type_display}",
+            details=f"Barcode: {reference_barcode or 'N/A'}",
+            user_id=updated_by_user_id
+        )
+        transaction.internal_notes = safe_append_transaction_notes(
+            transaction.internal_notes,
+            update_note,
+            add_timestamp=False
+        )
+
+        try:
+            await transaction.save()
+        except WriteError as e:
+            # Check for duplicate key error code (E11000)
+            if e.code == 11000 and 'reference_barcode' in str(e.details):
+                logger.warning(
+                    "Duplicate reference barcode detected",
+                    reference_barcode=reference_barcode,
+                    transaction_id=transaction_id
+                )
+                raise ValueError(f"Barcode '{reference_barcode}' is already in use")
+            raise
+        except DuplicateKeyError:
+            # Direct DuplicateKeyError (fallback)
+            logger.warning(
+                "Duplicate reference barcode detected (DuplicateKeyError)",
+                reference_barcode=reference_barcode,
+                transaction_id=transaction_id
+            )
+            raise ValueError(f"Barcode '{reference_barcode}' is already in use")
+
+        # Invalidate only affected caches (granular invalidation)
+        cache_keys = [
+            f"transaction:{transaction_id}",
+            f"transaction_summary:{transaction_id}",
+            f"customer_transactions:{transaction.customer_id}"
+        ]
+        for key in cache_keys:
+            try:
+                await BusinessCache.delete(key)
+            except Exception as e:
+                logger.warning(f"Failed to invalidate cache key {key}: {e}")
+
+        # Invalidate status counts (affects all)
+        try:
+            await BusinessCache.delete("transaction_status_counts")
+        except Exception:
+            pass
+
+        logger.info(
+            f"✅ TRANSACTION TYPE UPDATED: {transaction_id} changed from {old_type} to {transaction_type}",
+            transaction_id=transaction_id,
+            old_type=old_type,
+            new_type=transaction_type,
+            barcode=reference_barcode
+        )
+
+        return transaction
+
     @staticmethod
     async def bulk_update_statuses() -> Dict[str, int]:
         """
@@ -992,47 +1128,73 @@ class PawnTransactionService:
                     # Respect normal pagination for phone searches
                     logger.info(f"📊 SEARCH SCOPE: Phone search for '{search_term}' - using normal pagination")
                 
-                # For any other search terms, treat as customer/general search
+                # For any other search terms, try reference barcode first, then customer/general search
                 else:
-                    logger.info(f"🔤 SEARCH PATTERN: Treating as general customer/name search for '{search_term}'")
-                    
-                    # For customer name searches, we need to search in the Customer collection first
-                    # Then find transactions matching those customer phone numbers
-                    try:
-                        from app.models.customer_model import Customer
-                        
-                        # Search for customers matching the name pattern
-                        matching_customers = await Customer.find({
-                            "$or": [
-                                {"first_name": RegEx(f".*{search_term}.*", "i")},
-                                {"last_name": RegEx(f".*{search_term}.*", "i")},
-                                # Also search in combined name (first + last)
-                                {"$expr": {
-                                    "$regexMatch": {
-                                        "input": {"$concat": ["$first_name", " ", "$last_name"]},
-                                        "regex": search_term,
-                                        "options": "i"
-                                    }
-                                }}
-                            ]
-                        }).to_list()
-                        
-                        if matching_customers:
-                            # Get phone numbers of matching customers
-                            customer_phones = [customer.phone_number for customer in matching_customers]
-                            logger.info(f"🔍 CUSTOMER NAME SEARCH: Found {len(matching_customers)} customers matching '{search_term}', phones: {customer_phones}")
-                            
-                            # Search for transactions with those customer phone numbers
-                            query = query.find({"customer_id": {"$in": customer_phones}})
-                        else:
-                            logger.info(f"🔍 CUSTOMER NAME SEARCH: No customers found matching '{search_term}'")
-                            # No matching customers, return empty result
-                            query = query.find({"customer_id": "no-match-found"})
-                            
-                    except Exception as e:
-                        logger.warning(f"⚠️ CUSTOMER NAME SEARCH ERROR: {e}, falling back to customer_id search")
-                        # Fallback to searching in customer_id (phone) field
-                        query = query.find(RegEx(PawnTransaction.customer_id, f".*{search_term}.*", "i"))
+                    logger.info(f"🔍 SEARCH PATTERN: Checking for reference barcode match for '{search_term}'")
+
+                    # Try to find transaction by reference barcode (case-insensitive exact match)
+                    # Use regex with ^ and $ for exact match but case-insensitive
+                    barcode_transaction = await PawnTransaction.find_one(
+                        {"reference_barcode": {"$regex": f"^{re.escape(search_term)}$", "$options": "i"}}
+                    )
+
+                    if barcode_transaction:
+                        logger.info(f"✅ BARCODE SEARCH SUCCESS: Found transaction {barcode_transaction.formatted_id or barcode_transaction.transaction_id} with reference barcode '{search_term}'")
+                        query = query.find(PawnTransaction.transaction_id == barcode_transaction.transaction_id)
+                    else:
+                        # No exact match, search for partial barcode matches AND customer names
+                        logger.info(f"🔤 SEARCH PATTERN: No exact barcode match, trying partial barcode and customer/name search for '{search_term}'")
+
+                        # For customer name searches, we need to search in the Customer collection first
+                        # Then find transactions matching those customer phone numbers OR reference barcodes
+                        try:
+                            from app.models.customer_model import Customer
+
+                            # Search for customers matching the name pattern
+                            matching_customers = await Customer.find({
+                                "$or": [
+                                    {"first_name": RegEx(f".*{search_term}.*", "i")},
+                                    {"last_name": RegEx(f".*{search_term}.*", "i")},
+                                    # Also search in combined name (first + last)
+                                    {"$expr": {
+                                        "$regexMatch": {
+                                            "input": {"$concat": ["$first_name", " ", "$last_name"]},
+                                            "regex": search_term,
+                                            "options": "i"
+                                        }
+                                    }}
+                                ]
+                            }).to_list()
+
+                            # Build OR query for customer phones and partial barcode match
+                            search_conditions = []
+
+                            if matching_customers:
+                                # Get phone numbers of matching customers
+                                customer_phones = [customer.phone_number for customer in matching_customers]
+                                logger.info(f"🔍 CUSTOMER NAME SEARCH: Found {len(matching_customers)} customers matching '{search_term}', phones: {customer_phones}")
+                                search_conditions.append({"customer_id": {"$in": customer_phones}})
+
+                            # Also search for partial barcode matches (case-insensitive contains)
+                            search_conditions.append({"reference_barcode": {"$regex": search_term, "$options": "i"}})
+
+                            if search_conditions:
+                                logger.info(f"🔍 COMBINED SEARCH: Searching customers ({len(matching_customers) if matching_customers else 0}) OR reference barcode containing '{search_term}'")
+                                query = query.find({"$or": search_conditions})
+                            else:
+                                logger.info(f"🔍 SEARCH: No customers found, searching only reference barcode for '{search_term}'")
+                                # Only search barcode
+                                query = query.find({"reference_barcode": {"$regex": search_term, "$options": "i"}})
+
+                        except Exception as e:
+                            logger.warning(f"⚠️ SEARCH ERROR: {e}, falling back to customer_id and barcode search")
+                            # Fallback to searching in customer_id (phone) and reference_barcode fields
+                            query = query.find({
+                                "$or": [
+                                    {"customer_id": {"$regex": search_term, "$options": "i"}},
+                                    {"reference_barcode": {"$regex": search_term, "$options": "i"}}
+                                ]
+                            })
                     
                     # Use normal pagination for general searches
                     logger.info(f"📊 SEARCH SCOPE: General search for '{search_term}' - using normal pagination")
@@ -1078,7 +1240,13 @@ class PawnTransactionService:
                 
             if filters.storage_location:
                 query = query.find(PawnTransaction.storage_location.contains(filters.storage_location, case_insensitive=True))
-            
+
+            # Reference barcode filter
+            if getattr(filters, 'reference_barcode', None):
+                reference_barcode_term = filters.reference_barcode.strip()
+                logger.info(f"🔍 REFERENCE BARCODE SEARCH: Filtering by reference barcode '{reference_barcode_term}'")
+                query = query.find(PawnTransaction.reference_barcode.contains(reference_barcode_term, case_insensitive=True))
+
             # Get total count before pagination
             total_count = await query.count()
             

@@ -94,6 +94,12 @@ export const formatMetadataKey = (key) => {
     'days': 'Duration',
     'old_status': 'Previous Status',
     'new_status': 'New Status',
+    'old_type': 'Previous Type',
+    'new_type': 'New Type',
+    'old_barcode': 'Previous Barcode',
+    'new_barcode': 'New Barcode',
+    'reference_barcode': 'Barcode',
+    'transaction_type': 'Transaction Type',
     'notes': 'Notes',
     'status': 'Status',
     'role': 'Role',
@@ -124,6 +130,20 @@ export const formatMetadataKey = (key) => {
  */
 export const formatMetadataValue = (key, value, activityType = '') => {
   if (value === null || value === undefined) return 'N/A';
+
+  // Transaction type cleanup - convert enum format to display value
+  if (key === 'old_type' || key === 'new_type' || key === 'transaction_type') {
+    // Handle raw enum format like "TransactionType.IMPORTED" or "TransactionType.MANUAL"
+    if (String(value).includes('TransactionType.')) {
+      const enumValue = String(value).split('.')[1];
+      if (enumValue === 'MANUAL') return 'New Entry';
+      if (enumValue === 'IMPORTED') return 'Imported';
+    }
+    // Already formatted values
+    if (value === 'New Entry' || value === 'Imported') return value;
+    // Fallback capitalization
+    return String(value).charAt(0).toUpperCase() + String(value).slice(1);
+  }
 
   // Currency amounts with +/- signs based on activity type
   if (key === 'loan_amount' || key === 'amount') {

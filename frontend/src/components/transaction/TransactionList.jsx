@@ -120,7 +120,8 @@ const TransactionList = ({
     pawnDateFrom: '',
     pawnDateTo: '',
     maturityDateFrom: '',
-    maturityDateTo: ''
+    maturityDateTo: '',
+    referenceBarcode: '' // Add reference barcode search field
   });
 
   // Filter validation errors
@@ -391,7 +392,8 @@ const TransactionList = ({
           ...(debouncedSearchFields.maturityDateFrom && { maturity_date_from: debouncedSearchFields.maturityDateFrom + 'T00:00:00Z' }),
           ...(debouncedSearchFields.maturityDateTo && { maturity_date_to: debouncedSearchFields.maturityDateTo + 'T23:59:59Z' }),
           ...(debouncedSearchFields.minDaysOverdue && { min_days_overdue: parseInt(debouncedSearchFields.minDaysOverdue) }),
-          ...(debouncedSearchFields.maxDaysOverdue && { max_days_overdue: parseInt(debouncedSearchFields.maxDaysOverdue) })
+          ...(debouncedSearchFields.maxDaysOverdue && { max_days_overdue: parseInt(debouncedSearchFields.maxDaysOverdue) }),
+          ...(debouncedSearchFields.referenceBarcode && { reference_barcode: debouncedSearchFields.referenceBarcode.trim() })
         };
         
         response = await transactionService.getAllTransactions(searchParams);
@@ -1281,8 +1283,33 @@ const TransactionList = ({
                           </div>
                         </CardContent>
                       </Card>
+
+                      {/* Reference Barcode Card */}
+                      <Card className="border-slate-200 dark:border-slate-700 shadow-sm dark:bg-slate-800/50">
+                        <CardContent className="p-4">
+                          <div className="flex items-center gap-2 mb-3">
+                            <Package className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                            <Label className="text-sm font-medium text-slate-700 dark:text-slate-300">Reference Barcode</Label>
+                          </div>
+                          <div className="space-y-1">
+                            <Label htmlFor="referenceBarcode" className="text-xs text-slate-500 dark:text-slate-400 font-medium">Search by Barcode</Label>
+                            <Input
+                              id="referenceBarcode"
+                              type="text"
+                              placeholder="Enter reference barcode"
+                              maxLength={100}
+                              className="h-9"
+                              value={searchFields.referenceBarcode}
+                              onChange={(e) => setSearchFields(prev => ({ ...prev, referenceBarcode: e.target.value }))}
+                            />
+                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                              Search for imported transactions by their reference barcode
+                            </p>
+                          </div>
+                        </CardContent>
+                      </Card>
                     </div>
-                    
+
                     {/* Action Buttons */}
                     <div className="sticky bottom-0 pt-4 pb-2 border-t border-slate-200 dark:border-slate-700">
                       <div className="flex space-x-3">

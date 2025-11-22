@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   Search, User, Package, DollarSign, FileText, Clock,
   Plus, X, CheckCircle, AlertCircle,
-  Calculator, CreditCard, ArrowRight, ArrowLeft
+  Calculator, CreditCard, ArrowRight, ArrowLeft, Barcode
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -40,6 +40,7 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel, prefilledCustomer = n
     customer_id: (value) => validateRequired(value, 'Customer'),
     loan_amount: (value) => validateAmount(value, 'Loan amount', { min: 1, max: 50000 }),
     monthly_interest_amount: (value) => validateAmount(value, 'Monthly interest', { min: 0, allowZero: true }),
+    transaction_type: (value) => validateRequired(value, 'Transaction Type'),
     items: (items) => {
       // Filter out blank items - only validate items with descriptions
       const filledItems = (items || []).filter(item => item.description && item.description.trim());
@@ -49,21 +50,47 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel, prefilledCustomer = n
       }
 
       return createValidationResult(true);
+    },
+    reference_barcode: (value, allData) => {
+      // Reference barcode is now optional for all transaction types
+      const trimmedValue = (value || '').trim();
+
+      if (!trimmedValue) {
+        return createValidationResult(true); // Optional field
+      }
+
+      if (trimmedValue.length > 100) {
+        return createValidationResult(false, 'Reference Barcode must be 100 characters or less');
+      }
+
+      // Match backend validation pattern - alphanumeric, hyphens, underscores only
+      if (!/^[A-Za-z0-9\-_]+$/.test(trimmedValue)) {
+        return createValidationResult(
+          false,
+          'Reference Barcode can only contain letters, numbers, hyphens, and underscores'
+        );
+      }
+
+      return createValidationResult(true);
     }
   };
 
   const {
     data: formData,
     updateField,
+    updateFields,
     validateAll,
     getFieldError,
-    isFormValid
+    isFormValid,
+    clearFieldError
   } = useFormValidation({
     customer_id: '',
     loan_amount: '',
     monthly_interest_amount: '',
     storage_location: '',
     internal_notes: '',
+    transaction_type: '',
+    reference_barcode: '',
     items: [{
       description: '',
       serial_number: ''
@@ -371,6 +398,10 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel, prefilledCustomer = n
           handleError({ message: 'Please complete loan details' }, 'Tab validation');
           return;
         }
+        if (!formData.transaction_type) {
+          handleError({ message: 'Please select a transaction type' }, 'Tab validation');
+          return;
+        }
         if (interestRateError) {
           handleError({ message: interestRateError }, 'Interest rate validation');
           return;
@@ -395,6 +426,10 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel, prefilledCustomer = n
       }
       if (!formData.loan_amount || !formData.monthly_interest_amount) {
         handleError({ message: 'Please complete loan details first' }, 'Review validation');
+        return;
+      }
+      if (!formData.transaction_type) {
+        handleError({ message: 'Please select a transaction type' }, 'Review validation');
         return;
       }
       if (interestRateError) {
@@ -486,6 +521,8 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel, prefilledCustomer = n
         monthly_interest_amount: Math.round(parseFloat(formData.monthly_interest_amount)),
         storage_location: formData.storage_location?.trim() || "TBD",
         internal_notes: formData.internal_notes.trim() || null,
+        transaction_type: formData.transaction_type || 'New Entry',
+        reference_barcode: formData.transaction_type === 'Imported' ? (formData.reference_barcode?.trim() || null) : null,
         items: formData.items
           .filter(item => item.description.trim()) // Only include items with descriptions
           .map(item => ({
@@ -1115,6 +1152,98 @@ const CreatePawnDialogRedesigned = ({ onSuccess, onCancel, prefilledCustomer = n
                     </div>
                   )}
                 </div>
+
+                {/* Transaction Type */}
+                <div className="space-y-2">
+                  <Label htmlFor="transaction_type" className="text-sm font-medium flex items-center">
+                    Transaction Type *
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button variant="ghost" size="sm" className="h-4 w-4 p-0 ml-1">
+                            <AlertCircle className="h-3 w-3 text-slate-400" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="text-xs">Select "Imported" if from external system</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </Label>
+                  <Select
+                    value={formData.transaction_type}
+                    onValueChange={(value) => {
+                      // Batch update both fields to avoid race conditions
+                      if (value === 'New Entry') {
+                        updateFields({
+                          transaction_type: value,
+                          reference_barcode: ''
+                        });
+                        clearFieldError('reference_barcode');
+                      } else {
+                        updateField('transaction_type', value);
+                      }
+                    }}
+                  >
+                    <SelectTrigger className={`h-10 ${
+                      getFieldError('transaction_type')
+                        ? 'border-red-500 focus:border-red-500 focus:ring-red-500'
+                        : 'focus:ring-pawn-accent focus:border-pawn-accent'
+                    }`}>
+                      <SelectValue placeholder="Select transaction type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="New Entry">New Entry</SelectItem>
+                      <SelectItem value="Imported">Imported</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {getFieldError('transaction_type') && (
+                    <div className="text-xs text-red-600 mt-1 flex items-center">
+                      <AlertCircle className="w-3 h-3 mr-1" />
+                      {getFieldError('transaction_type')}
+                    </div>
+                  )}
+                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                    Select "Imported" if this transaction is from an external system
+                  </div>
+                </div>
+
+                {/* Reference Barcode - Conditional */}
+                {formData.transaction_type === 'Imported' && (
+                  <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                    <Label htmlFor="reference_barcode" className="text-sm font-medium flex items-center">
+                      Reference Barcode
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button variant="ghost" size="sm" className="h-4 w-4 p-0 ml-1">
+                              <AlertCircle className="h-3 w-3 text-slate-400" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p className="text-xs">Barcode from the main system</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </Label>
+                    <Input
+                      id="reference_barcode"
+                      value={formData.reference_barcode}
+                      onChange={(e) => updateField('reference_barcode', e.target.value)}
+                      placeholder="Enter barcode from main system"
+                      maxLength={100}
+                      className={`h-10 focus:ring-pawn-accent focus:border-pawn-accent ${
+                        getFieldError('reference_barcode') ? 'border-red-500' : ''
+                      }`}
+                    />
+                    {getFieldError('reference_barcode') && (
+                      <p className="text-red-600 text-sm">{getFieldError('reference_barcode')}</p>
+                    )}
+                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                      Optional (max 100 characters)
+                    </div>
+                  </div>
+                )}
 
                 <div className="space-y-2">
                   <Label htmlFor="storage_location" className="text-sm font-medium flex items-center">
