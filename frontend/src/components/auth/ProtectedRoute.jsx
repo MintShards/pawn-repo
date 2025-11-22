@@ -1,5 +1,6 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { MainLayout } from '../layout';
 
 const ProtectedRoute = ({ children }) => {
   const { isAuthenticated, loading } = useAuth();
@@ -21,7 +22,8 @@ const ProtectedRoute = ({ children }) => {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  return children;
+  // Wrap authenticated content with MainLayout (includes footer)
+  return <MainLayout>{children}</MainLayout>;
 };
 
 export default ProtectedRoute;
