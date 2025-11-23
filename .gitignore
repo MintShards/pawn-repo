@@ -53,28 +53,31 @@ htmlcov/
 mcp-servers/shadcn-ui-mcp-server/
 
 # Business-sensitive files (company branding, proprietary business logic)
-# Receipt system components
-frontend/src/components/receipt/
-frontend/public/images/logo.png
-backend/app/services/receipt_service.py
-backend/app/schemas/receipt_schema.py
-backend/app/api/api_v1/handlers/__pycache__/receipt.cpython-*.pyc
+# IMPORTANT: These patterns have been DISABLED to prevent data loss from branch deletions
+# Files are now tracked by git for safety. Re-enable individual patterns only if absolutely necessary.
 
-# Extension system (proprietary business logic)
-frontend/src/components/extension/
-frontend/src/pages/TransactionHub.jsx
-backend/app/services/extension_service.py
-backend/app/schemas/extension_schema.py
-backend/app/api/api_v1/handlers/extension.py
+# Receipt system components (DISABLED - files now tracked)
+# frontend/src/components/receipt/
+# frontend/public/images/logo.png
+# backend/app/services/receipt_service.py
+# backend/app/schemas/receipt_schema.py
+# backend/app/api/api_v1/handlers/__pycache__/receipt.cpython-*.pyc
 
-# Payment processing (sensitive financial logic)
-backend/app/api/api_v1/handlers/payment.py
-frontend/src/components/transaction/components/PaymentForm.jsx
-frontend/src/components/transaction/components/DiscountDialog.jsx
+# Extension system (DISABLED - files now tracked)
+# frontend/src/components/extension/
+# frontend/src/pages/TransactionHub.jsx
+# backend/app/services/extension_service.py
+# backend/app/schemas/extension_schema.py
+# backend/app/api/api_v1/handlers/extension.py
 
-# Bulk operations (proprietary workflow logic)
-frontend/src/components/transaction/BulkRedemptionDialog.jsx
-frontend/src/components/transaction/BulkExtensionPaymentDialog.jsx
+# Payment processing (DISABLED - files now tracked)
+# backend/app/api/api_v1/handlers/payment.py
+# frontend/src/components/transaction/components/PaymentForm.jsx
+# frontend/src/components/transaction/components/DiscountDialog.jsx
 
-# Transaction management (core business operations)
-backend/app/api/api_v1/handlers/pawn_transaction.py
+# Bulk operations (DISABLED - files now tracked)
+# frontend/src/components/transaction/BulkRedemptionDialog.jsx
+# frontend/src/components/transaction/BulkExtensionPaymentDialog.jsx
+
+# Transaction management (DISABLED - files now tracked)
+# backend/app/api/api_v1/handlers/pawn_transaction.py
